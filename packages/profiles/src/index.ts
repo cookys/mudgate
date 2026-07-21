@@ -41,6 +41,9 @@ import type { WidthMode } from "./widthMode.js";
 
 export type MudCharset = "big5hkscs" | "big5" | "utf8" | "gbk";
 
+/** Compass click / speedwalk command dialect (map HUD). RW default: en. */
+export type MoveDialect = "en" | "zh";
+
 export type MudProfile = {
   id: string;
   name: string;
@@ -49,9 +52,19 @@ export type MudProfile = {
   charset: MudCharset;
   /** Optional cell-width override; omit to derive from charset. */
   widthMode?: WidthMode;
+  /** Map pad / path commands: en → e/n/… · zh → 東/北/… */
+  moveDialect?: MoveDialect;
   tlsToMud?: boolean;
   notes?: string;
 };
+
+/** Resolve dialect; RW seeds and omit → en. */
+export function resolveMoveDialect(
+  p: Pick<MudProfile, "moveDialect" | "host"> | undefined,
+): MoveDialect {
+  if (p?.moveDialect === "zh" || p?.moveDialect === "en") return p.moveDialect;
+  return "en";
+}
 
 const CHARSETS = new Set<MudCharset>(["big5hkscs", "big5", "utf8", "gbk"]);
 
@@ -79,6 +92,10 @@ export function validateProfile(p: unknown): MudProfile {
       o.widthMode === "cjk" || o.widthMode === "western"
         ? o.widthMode
         : undefined,
+    moveDialect:
+      o.moveDialect === "zh" || o.moveDialect === "en"
+        ? o.moveDialect
+        : undefined,
     tlsToMud: Boolean(o.tlsToMud) || undefined,
     notes: typeof o.notes === "string" ? o.notes : undefined,
   } as MudProfile & Record<string, unknown>);
@@ -94,6 +111,7 @@ export const DEFAULT_PROFILES: MudProfile[] = [
     host: "mud.revivalworld.org",
     port: 4000,
     charset: "big5hkscs",
+    moveDialect: "en",
   },
   {
     id: "rw-4001",
@@ -101,6 +119,7 @@ export const DEFAULT_PROFILES: MudProfile[] = [
     host: "mud.revivalworld.org",
     port: 4001,
     charset: "big5hkscs",
+    moveDialect: "en",
   },
   {
     id: "rw-5000",
@@ -108,6 +127,7 @@ export const DEFAULT_PROFILES: MudProfile[] = [
     host: "mud.revivalworld.org",
     port: 5000,
     charset: "big5hkscs",
+    moveDialect: "en",
   },
   {
     id: "rw-6000",
@@ -115,6 +135,7 @@ export const DEFAULT_PROFILES: MudProfile[] = [
     host: "mud.revivalworld.org",
     port: 6000,
     charset: "big5hkscs",
+    moveDialect: "en",
   },
 ];
 

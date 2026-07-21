@@ -8,6 +8,7 @@ import {
   exportProfilesJson,
   importProfilesJson,
   resolveWidthMode,
+  resolveMoveDialect,
   getProfilePassword,
   getProfileAccount,
   getProfileAutoLogin,
@@ -16,7 +17,8 @@ import {
 import { ProfileManager } from "./components/ProfileManager";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
-import { ClientMap } from "@assmud/mapper";
+import { RoomTracker, parseMoveCommand } from "@assmud/mapper";
+import { MapNavPanel, type MapPanelMode } from "./components/MapNavPanel";
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
@@ -79,7 +81,7 @@ try {
 } catch {
   /* ignore */
 }
-const clientMap = new ClientMap();
+const roomTracker = new RoomTracker();
 
 function useIsLg() {
   const [lg, setLg] = useState(
@@ -148,13 +150,15 @@ export function App() {
   echoMaskRef.current = echoMask;
   /** Per-connect auto-login progress (not text "Password:" trigger). */
   const autoLoginRef = useRef({ accountSent: false, passwordSent: false });
-  const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
+  const [mapTick, setMapTick] = useState(0);
+  const [mapMode, setMapMode] = useState<MapPanelMode>("nearby");
   const [showLog, setShowLog] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [closeTargetId, setCloseTargetId] = useState<string | null>(null);
   const isLg = useIsLg();
   // Board: map open desktop, closed mobile
   const [mapOpen, setMapOpen] = useState(true);
+  const bumpMap = useCallback(() => setMapTick((n) => n + 1), []);
   useEffect(() => {
     setMapOpen(isLg);
   }, [isLg]);
@@ -167,6 +171,18 @@ export function App() {
   const profile =
     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
     profiles[0]!;
+  const moveDialect = useMemo(
+    () => resolveMoveDialect(profile),
+    [profile?.moveDialect, profile?.host, profile?.id],
+  );
+  const nearbyHud = useMemo(() => {
+    void mapTick;
+    return roomTracker.nearby();
+  }, [mapTick]);
+  const mapNodes = useMemo(() => {
+    void mapTick;
+    return roomTracker.layoutNodes();
+  }, [mapTick]);
   const cellWidthMode = useMemo(
     () =>
       resolveWidthMode({
@@ -262,15 +278,20 @@ export function App() {
     setEchoMask(mask);
   }, []);
 
-  const handleServerLine = useCallback((line: string) => {
-    engine.onServerLine(line);
-    const id = tabIdRef.current;
-    setTabs((ts) =>
-      ts.map((x) =>
-        x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
-      ),
-    );
-  }, []);
+  const handleServerLine = useCallback(
+    (line: string) => {
+      engine.onServerLine(line);
+      roomTracker.onServerLine(line);
+      bumpMap();
+      const id = tabIdRef.current;
+      setTabs((ts) =>
+        ts.map((x) =>
+          x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
+        ),
+      );
+    },
+    [bumpMap],
+  );
 
   const wsUrl = useMemo(() => {
     if (!tab?.connected) return null;
@@ -300,17 +321,35 @@ export function App() {
     [token, profile],
   );
 
-  const onSendThroughEngine = useCallback((line: string) => {
-    const expanded = engine.expandInput(line);
-    for (const l of expanded) {
-      const dir = l.trim().toLowerCase();
-      if (["n", "s", "e", "w", "ne", "nw", "se", "sw", "u", "d"].includes(dir)) {
-        clientMap.move(dir as "n", dir);
-        setMapAscii(clientMap.ascii(4));
+  const onSendThroughEngine = useCallback(
+    (line: string) => {
+      const expanded = engine.expandInput(line);
+      for (const l of expanded) {
+        const dir = parseMoveCommand(l);
+        if (dir) {
+          roomTracker.noteOutbound(l, dir);
+          bumpMap();
+        }
       }
-    }
-    return expanded;
-  }, []);
+      return expanded;
+    },
+    [bumpMap],
+  );
+
+  const walkDir = useCallback(
+    (cmd: string) => {
+      const dir = parseMoveCommand(cmd);
+      if (dir) {
+        roomTracker.noteOutbound(cmd, dir);
+        bumpMap();
+      }
+      // Prefer live socket; inject as fallback
+      if (mudSendRef.current?.(cmd)) return;
+      injectIdRef.current += 1;
+      setInjectPayload({ id: injectIdRef.current, line: cmd });
+    },
+    [bumpMap],
+  );
 
   const downloadLog = () => {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
@@ -789,36 +828,27 @@ export function App() {
           </div>
         </div>
 
-        {/* Map panel — open by default on lg+, closed mobile */}
+        {/* Nav shell — nearby HUD (P1) / trail WebGL POC / map_d mirror backlog */}
         {mapOpen && (
-          <aside
-            className="w-[min(280px,42vw)] shrink-0 border-l flex flex-col min-h-0 absolute right-0 top-0 bottom-0 z-10 lg:static lg:z-0"
-            style={{
-              background: "var(--bg-panel)",
-              borderColor: "var(--border)",
-            }}
-          >
-            <div
-              className="flex items-center justify-between px-3 py-2 border-b text-xs"
-              style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
-            >
-              <span className="font-mono tracking-wide">{t("map.title")}</span>
-              <button
-                type="button"
-                className="px-1.5 py-0.5 rounded border text-[11px]"
-                style={{ borderColor: "var(--border)" }}
-                onClick={() => setMapOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <pre
-              className="flex-1 overflow-auto p-3 font-mono text-[10px] leading-tight whitespace-pre"
-              style={{ color: "var(--text-dim)" }}
-            >
-              {mapAscii}
-            </pre>
-          </aside>
+          <MapNavPanel
+            mode={mapMode}
+            onModeChange={setMapMode}
+            nearby={nearbyHud}
+            nodes={mapNodes}
+            dialect={moveDialect}
+            labelsZh={locale !== "en"}
+            onWalk={walkDir}
+            onClose={() => setMapOpen(false)}
+            title={t("map.title")}
+            modeNearby={t("map.mode.nearby")}
+            modeTrail={t("map.mode.trail")}
+            modeMirror={t("map.mode.mirror")}
+            emptyHint={t("map.empty")}
+            mirrorBacklog={t("map.mirror.backlog")}
+            confidenceKnown={t("map.conf.known")}
+            confidenceGuessed={t("map.conf.guessed")}
+            confidenceUnknown={t("map.conf.unknown")}
+          />
         )}
 
         {/* Settings drawer */}

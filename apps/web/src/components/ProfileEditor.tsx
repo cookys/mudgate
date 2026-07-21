@@ -316,6 +316,28 @@ export function ProfileEditor({
       </label>
 
       <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
+        地圖指令方言（點擊出口）
+        <select
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text)",
+          }}
+          value={draft.moveDialect === "zh" ? "zh" : "en"}
+          onChange={(e) =>
+            setDraft((d) => ({
+              ...d,
+              moveDialect: e.target.value === "zh" ? "zh" : "en",
+            }))
+          }
+        >
+          <option value="en">en — e / n / ne …（RW 預設）</option>
+          <option value="zh">zh — 東 / 北 / 東北 …</option>
+        </select>
+      </label>
+
+      <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
         帳號（自動登入，僅密碼庫）
         <input
           className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs disabled:opacity-50"

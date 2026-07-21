@@ -74,6 +74,14 @@ export type MessageKey =
   | "locale.zh-CN"
   | "locale.en"
   | "map.title"
+  | "map.mode.nearby"
+  | "map.mode.trail"
+  | "map.mode.mirror"
+  | "map.empty"
+  | "map.mirror.backlog"
+  | "map.conf.known"
+  | "map.conf.guessed"
+  | "map.conf.unknown"
   | "modal.dismiss";
 
 export type MessageVars = Record<string, string | number>;

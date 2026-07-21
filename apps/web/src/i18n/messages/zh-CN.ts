@@ -76,6 +76,15 @@ export const zhCN = {
   "locale.zh-TW": "正體",
   "locale.zh-CN": "简体",
   "locale.en": "EN",
-  "map.title": "客户端地图",
+  "map.title": "导航",
+  "map.mode.nearby": "附近",
+  "map.mode.trail": "足迹",
+  "map.mode.mirror": "城图",
+  "map.empty": "行走后会解析房名与「出口：…」。点方向送出移动指令。",
+  "map.mirror.backlog":
+    "城图镜像（map_d 第二窗口）列为 backlog — 终端 map_d 仍是正港城图。可先用「附近」出口盘。",
+  "map.conf.known": "已验证",
+  "map.conf.guessed": "推测",
+  "map.conf.unknown": "未知",
   "modal.dismiss": "关闭",
 } as const satisfies Record<MessageKey, string>;

@@ -76,6 +76,15 @@ export const zhTW = {
   "locale.zh-TW": "正體",
   "locale.zh-CN": "简体",
   "locale.en": "EN",
-  "map.title": "客戶端地圖",
+  "map.title": "導航",
+  "map.mode.nearby": "附近",
+  "map.mode.trail": "足跡",
+  "map.mode.mirror": "城圖",
+  "map.empty": "行走後會解析房名與「出口：…」。點方向送出移動指令。",
+  "map.mirror.backlog":
+    "城圖鏡像（map_d 第二視窗）列為 backlog — 終端 map_d 仍是正港城圖。可先用「附近」出口盤。",
+  "map.conf.known": "已驗證",
+  "map.conf.guessed": "推測",
+  "map.conf.unknown": "未知",
   "modal.dismiss": "關閉",
 } as const satisfies Record<MessageKey, string>;

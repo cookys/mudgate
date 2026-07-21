@@ -77,6 +77,16 @@ export const en = {
   "locale.zh-TW": "正體",
   "locale.zh-CN": "简体",
   "locale.en": "EN",
-  "map.title": "client map",
+  "map.title": "nav",
+  "map.mode.nearby": "nearby",
+  "map.mode.trail": "trail",
+  "map.mode.mirror": "city map",
+  "map.empty":
+    "Walk to parse room title + exits. Tap a direction to send a move.",
+  "map.mirror.backlog":
+    "map_d mirror is backlog — terminal map_d stays the real city map. Use Nearby pad for now.",
+  "map.conf.known": "verified",
+  "map.conf.guessed": "guessed",
+  "map.conf.unknown": "unknown",
   "modal.dismiss": "Dismiss",
 } as const satisfies Record<MessageKey, string>;
