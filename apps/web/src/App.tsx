@@ -12,6 +12,7 @@ import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
 import { ClientMap } from "@assmud/mapper";
 import { ConnectGate } from "./components/ConnectGate";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
 import {
   applyAccent,
@@ -19,6 +20,10 @@ import {
   pickTagline,
   type AccentId,
 } from "./lib/theme";
+
+function newTabId(): string {
+  return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
 
 const DEFAULT_WS =
   import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
@@ -62,21 +67,25 @@ export function App() {
   const [activeProfile, setActiveProfile] = useState(
     profiles[0]?.id ?? "rw-4000",
   );
-  const [tabs, setTabs] = useState<Tab[]>([
-    {
-      id: "t1",
-      profileId: profiles[0]?.id ?? "rw-4000",
-      connected: false,
-      status: "idle",
-      log: [],
-    },
-  ]);
-  const [tabId, setTabId] = useState("t1");
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const id = newTabId();
+    return [
+      {
+        id,
+        profileId: "rw-4000",
+        connected: false,
+        status: "idle",
+        log: [],
+      },
+    ];
+  });
+  const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
   const [cmd, setCmd] = useState("");
   const [inputDraft, setInputDraft] = useState("");
   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
   const [showLog, setShowLog] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [closeTargetId, setCloseTargetId] = useState<string | null>(null);
   const isLg = useIsLg();
   // Board: map open desktop, closed mobile
   const [mapOpen, setMapOpen] = useState(true);
@@ -88,12 +97,52 @@ export function App() {
     applyAccent(accent);
   }, [accent]);
 
-  const tab = tabs.find((t) => t.id === tabId)!;
+  const tab = tabs.find((t) => t.id === tabId) ?? tabs[0]!;
   const profile =
     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
     profiles[0]!;
 
   const anyConnected = tabs.some((t) => t.connected);
+  const closeTarget = closeTargetId
+    ? tabs.find((t) => t.id === closeTargetId)
+    : undefined;
+  const closeTargetName =
+    profiles.find((p) => p.id === closeTarget?.profileId)?.name ??
+    closeTarget?.id ??
+    "session";
+
+  const requestCloseTab = (id: string) => {
+    setCloseTargetId(id);
+  };
+
+  const confirmCloseTab = () => {
+    const id = closeTargetId;
+    setCloseTargetId(null);
+    if (!id) return;
+
+    setTabs((ts) => {
+      const remaining = ts.filter((t) => t.id !== id);
+      if (remaining.length === 0) {
+        const fresh: Tab = {
+          id: newTabId(),
+          profileId: activeProfile,
+          connected: false,
+          status: "idle",
+          log: [],
+        };
+        // switch after state settles
+        queueMicrotask(() => setTabId(fresh.id));
+        return [fresh];
+      }
+      if (tabId === id) {
+        const idx = ts.findIndex((t) => t.id === id);
+        const fallback =
+          remaining[Math.max(0, idx - 1)] ?? remaining[0]!;
+        queueMicrotask(() => setTabId(fallback.id));
+      }
+      return remaining;
+    });
+  };
 
   const tabIdRef = useRef(tabId);
   tabIdRef.current = tabId;
@@ -242,6 +291,21 @@ export function App() {
       className="h-full flex flex-col min-h-0"
       style={{ background: "var(--bg-void)" }}
     >
+      <ConfirmModal
+        open={closeTargetId != null}
+        title="Close session?"
+        body={
+          closeTarget?.connected
+            ? `「${closeTargetName}」仍在線上。關閉會斷線並丟掉此分頁的即時連線（log 一併清除）。`
+            : `關閉分頁「${closeTargetName}」？未儲存的 session log 會一併清除。`
+        }
+        confirmLabel="Close"
+        cancelLabel="Keep"
+        danger
+        onConfirm={confirmCloseTab}
+        onCancel={() => setCloseTargetId(null)}
+      />
+
       {/* Topbar */}
       <header
         className="flex items-center gap-2 px-3 sm:px-4 shrink-0 border-b"
@@ -261,22 +325,51 @@ export function App() {
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
           {tabs.map((t) => {
             const p = profiles.find((x) => x.id === t.profileId);
+            const active = t.id === tabId;
             return (
-              <button
+              <div
                 key={t.id}
-                type="button"
-                className="rounded-[var(--radius-sm)] px-2.5 py-1 text-xs font-mono shrink-0 border transition"
+                className="inline-flex items-stretch shrink-0 rounded-[var(--radius-sm)] border overflow-hidden"
                 style={{
-                  borderColor:
-                    t.id === tabId ? "var(--accent)" : "var(--border)",
-                  background:
-                    t.id === tabId ? "var(--accent-dim)" : "var(--bg-elevated)",
-                  color: "var(--text)",
+                  borderColor: active ? "var(--accent)" : "var(--border)",
+                  background: active
+                    ? "var(--accent-dim)"
+                    : "var(--bg-elevated)",
                 }}
-                onClick={() => setTabId(t.id)}
               >
-                {p?.name?.slice(0, 12) ?? t.id}
-              </button>
+                <button
+                  type="button"
+                  className="px-2.5 py-1 text-xs font-mono transition max-w-[8rem] truncate"
+                  style={{ color: "var(--text)" }}
+                  onClick={() => setTabId(t.id)}
+                  title={p?.name ?? t.id}
+                >
+                  {p?.name?.slice(0, 12) ?? t.id}
+                  {t.connected ? (
+                    <span
+                      className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                      style={{ background: "var(--ok)" }}
+                      aria-hidden
+                    />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className="px-1.5 text-xs border-l min-w-[28px] hover:opacity-100 opacity-70 transition"
+                  style={{
+                    borderColor: active ? "var(--accent)" : "var(--border)",
+                    color: "var(--text-dim)",
+                  }}
+                  aria-label={`Close ${p?.name ?? t.id}`}
+                  title="Close session"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    requestCloseTab(t.id);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             );
           })}
           <button
@@ -288,7 +381,7 @@ export function App() {
               color: "var(--text-dim)",
             }}
             onClick={() => {
-              const id = `t${tabs.length + 1}`;
+              const id = newTabId();
               setTabs((ts) => [
                 ...ts,
                 {
