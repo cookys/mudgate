@@ -1,0 +1,32 @@
+ENGINE: OpenAI Codex / GPT-5
+VERDICT_OVERALL: BLOCK
+
+PER_PLAN:
+- roadmap-priority: BLOCK — Queue contradicts the frozen order: CI e2e must precede fonts and OSS readiness.
+- mccp2-stream: BLOCK — Wire-path intent is correct, but the current `TelnetParser.push()` cannot expose the unconsumed bytes after MCCP2 SE, so the mandatory same-chunk transition is not implementable as specified.
+- terminal-fonts-f2: APPROVE_WITH_NITS — Direction matches the font design, but system-font detection and mobile acceptance need sharper criteria.
+- open-source-readiness: BLOCK — “Open-source ready” can falsely ship without explicitly verifying the MIT LICENSE and making secret scanning a mandatory CI gate.
+- ci-e2e-quality: BLOCK — It omits the critical MCCP2 same-chunk/multi-chunk bridge fixture and permits skipping the CI workflow.
+- proxy-abuse-limits: BLOCK — Limits lack precise algorithms, trust-boundary/keying rules, pre-auth timeouts, and byte/backpressure controls.
+- profile-library: BLOCK — Auto-login plaintext can leak through persistence/export unless secret handling and exclusion rules are specified.
+- research-spikes: APPROVE_WITH_NITS — Correctly research-only; captured RW fixtures still need explicit sanitization criteria.
+
+MUST_FIX:
+- Reorder the roadmap to: MCCP2 → CI e2e → fonts F2 → OSS readiness → proxy abuse → profile library → research spikes; update every `Seq` field consistently.
+- MCCP2 must define a concrete boundary API: either make the parser return consumed offset/residual bytes and stop exactly after `IAC SB MCCP2 IAC SE`, or add an incremental pre-inflate boundary framer. The compressed residual must never enter `TelnetParser`.
+- Specify transition behavior when the MCCP2 marker is split across TCP chunks, including preservation of preceding plaintext and immediate routing of same-chunk residual bytes to `createInflate()`.
+- Define inflate lifecycle and failure handling: listener setup before writes, backpressure, exactly-once teardown, TCP-close finalization, truncated-stream detection, and no output/control frame after failure.
+- Replace the ambiguous “16 MiB burst / 64 MiB session window” with exact counters, reset interval, enforcement point before forwarding, environment parsing bounds, and tests. An absolute 64 MiB lifetime cap would terminate legitimate long sessions.
+- Add bridge-level MCCP2 tests—not only protocol/inflater unit tests—for split marker, same-chunk marker plus compressed payload, multi-chunk compressed data, decompressed post-start Telnet negotiation, corrupt/truncated input, cap breach, and no compressed-byte leakage to WebSocket.
+- Make CI mandatory and deterministic; remove “can skip if no GHA.” Include MCCP2 golden fixtures and exercise TCP mock → proxy bridge → binary browser-facing stream. If browser/WSS/auth is excluded, do not label the entire suite e2e.
+- OSS readiness must verify a root MIT `LICENSE`, repository/package licensing consistency, and execute secret scanning as a blocking CI check, including relevant history or explicitly documenting its scan boundary.
+- Define abuse limits precisely: authenticated versus unauthenticated keys, trusted-proxy handling, IPv4/IPv6 normalization, reconnect/rate windows, atomic acquire/release, hello/connect timeouts, inbound/outbound byte limits, backpressure, cleanup, and fail-closed configuration tests.
+- Auto-login data must be modeled separately from exportable profile data, omitted from export by default, never included in logs, and protected by explicit storage/deletion warnings. Define how custom destinations interact with the proxy allowlist.
+
+NITS:
+- Font detection should not rely on `document.fonts.check()` alone because fallback can produce false positives; retain differential canvas/glyph checks and define unsupported-phone behavior.
+- Font acceptance should include the design’s `<100ms` redraw target, loading/error states, “Apply only” persistence, and coverage checks for custom stacks.
+- Sanitize research captures for tokens, cookies, account names, captcha/session identifiers, and other personal data before committing fixtures.
+- Replace already-`approved` child statuses with a review-pending state until these blocking findings are resolved to avoid false-ship signaling.
+
+SAFE_IMPLEMENT_ORDER: mccp2-stream, ci-e2e-quality, terminal-fonts-f2, open-source-readiness, proxy-abuse-limits, profile-library, research-spikes

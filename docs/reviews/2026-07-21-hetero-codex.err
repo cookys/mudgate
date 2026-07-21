@@ -1,0 +1,1458 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8406-93da-7fb0-a35e-9604f33fe5f6
+--------
+user
+# Hetero review brief — roadmap queue (multi-LLM)
+
+You are a **plan reviewer** (not implementer). Review the **assmud** roadmap plans for a web zMUD client (RW = Revival World: Big5 + VT map_d; WSS auth proxy).
+
+## Product facts (do not invent opposite)
+
+- Desktop + phone browsers; remote WSS+auth proxy; no raw TCP from browser.
+- RW: Big5, full VT; server WILL MCCP2, DO MXP (client may WONT MXP).
+- Stack: React/Vite/TS; proxy Node; MIT open source.
+- StatusEvent + i18n baseline already shipped; font stack baseline shipped.
+- **Next implement queue**: MCCP2 stream → CI e2e → fonts F2 → OSS readiness → proxy abuse → profile library → research spikes.
+
+## Plans to verdict (each row)
+
+1. `docs/plans/2026-07-21-roadmap-priority.md`
+2. `docs/plans/2026-07-21-mccp2-stream.md` — **critical**: frozen wire path pre/post MCCP2 SE
+3. `docs/plans/2026-07-21-terminal-fonts-f2.md`
+4. `docs/plans/2026-07-21-open-source-readiness.md`
+5. `docs/plans/2026-07-21-ci-e2e-quality.md`
+6. `docs/plans/2026-07-21-proxy-abuse-limits.md`
+7. `docs/plans/2026-07-21-profile-library.md`
+8. `docs/plans/2026-07-21-research-spikes.md`
+
+Read files under `/home/cookys/projects/assmud/` as needed. Ground MCCP against `apps/proxy/src/bridge.ts` and `packages/protocol`.
+
+## Output format (required)
+
+```text
+ENGINE: <name/model>
+VERDICT_OVERALL: APPROVE | APPROVE_WITH_NITS | BLOCK
+
+PER_PLAN:
+- roadmap-priority: APPROVE|APPROVE_WITH_NITS|BLOCK — <one line>
+- mccp2-stream: ...
+- terminal-fonts-f2: ...
+- open-source-readiness: ...
+- ci-e2e-quality: ...
+- proxy-abuse-limits: ...
+- profile-library: ...
+- research-spikes: ...
+
+MUST_FIX: (bullets; empty if none)
+NITS: (bullets)
+SAFE_IMPLEMENT_ORDER: (comma list of plan slugs)
+```
+
+Be strict on MCCP stream boundary and false-ship.  
+
+
+===== PLAN PACK =====
+
+
+===== FILE: docs/plans/2026-07-21-roadmap-priority.md =====
+
+# Roadmap priority — full requirements scan (CEO ordered)
+
+> **Status**: **approved** (CEO + hetero R1 on children) · expand done  
+> **Owner**: cookys  
+> **Method**: 掃描 BACKLOG + zMUD matrix + residual plans + ship gaps → 依「先能連／能驗／能公開／再加深」排序。
+
+## Already SHIP (do not re-plan)
+
+| Item | Ref |
+|------|-----|
+| Bootstrap P0–P5 / web-zmud-rw | `2026-07-21-web-zmud-rw.md` |
+| UI shell + copy + MudSocket | `2026-07-21-ui-shell-ship.md` |
+| i18n baseline + StatusEvent | `2026-07-21-i18n-locale.md` |
+| Font stack baseline + TC chain | `terminal-fonts.md` (baseline) |
+
+## Ordered queue (implement after plan hetero OK)
+
+| Seq | Plan slug | Size | Why this order |
+|-----|-----------|------|----------------|
+| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質／大地圖；zMUD 預設會接 |
+| **2** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選；RW 符號對齊 |
+| **3** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + GitHub hardening + HTTPS deploy 食譜 — **公開前必備** |
+| **4** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 防回歸；golden stream + mock MudOS |
+| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | 若 hosted；開源 demo 安全 |
+| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 產品核心 |
+| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | RW fixtures、client matrix、.mud import **研究 only** |
+
+## Deferred (P2 / not formal plan yet)
+
+| Backlog # | Item | Note |
+|-----------|------|------|
+| 3 | session replay | after log UX stable |
+| 4 | split sessions | after profile-library |
+| 5 | RW 2D map embed | optional chrome |
+| 6 | PWA | after mobile thumb polish |
+| 7 | pack registry | community H |
+| 10 | telnets upstream | RW cleartext today |
+| 9 | threat model v2 write-up | fold into #5 when hosted |
+
+## Expand rule
+
+1. Child plan **hetero APPROVE / APPROVE_WITH_NITS**  
+2. Bootstrap `docs/projects/2026-07-21-<slug>/`  
+3. Implement on `feat/<slug>` · default impl grok-4.5 medium  
+4. Loop review → depth-0 qc → merge `develop`  
+
+
+===== FILE: docs/plans/2026-07-21-mccp2-stream.md =====
+
+# Plan — MCCP2 stream inflate (proxy)
+
+> **Status**: **approved** (hetero R1 BLOCK → fold-in 2026-07-21)  
+> **Owner**: cookys  
+> **Seq**: **1** on roadmap  
+> **Branch**: `feat/mccp2-stream`  
+> **Project**: `docs/projects/2026-07-21-mccp2-stream/`  
+> **Extends**: `2026-07-21-rw-connect-protocols.md`  
+
+## Goal
+
+RW（及 WILL MCCP2 的 MUD）在 flag 開啟時 **IAC DO MCCP2**；proxy **串流 zlib inflate** 後再送 Big5/VT 可用的 binary 給 browser。
+
+## Frozen wire path (R1 must-fix — no ambiguity)
+
+```
+TCP chunk
+  └─ if NOT compressed_mode:
+        TelnetParser.push(chunk)
+        · data events → (optional) still plaintext → ws binary
+        · on IAC SB MCCP2 … IAC SE:
+              compressed_mode = true
+              any residual bytes AFTER SE in same chunk → inflate.write(residual)
+  └─ if compressed_mode:
+        inflate.write(entire TCP chunk)   // NEVER TelnetParser on wire zlib
+        inflate 'data' → TelnetParser.push(decompressed)
+        · decompressed data events → ws binary
+        · IAC on decompressed stream still valid (negotiate rare post-start)
+```
+
+**Rules**
+
+1. **Never** `parser.push` on compressed wire bytes.  
+2. **Same-chunk SE + payload** fixture is **mandatory**.  
+3. Use **`zlib.createInflate()`** (zlib wrapper, not raw) as primary; one test for raw-fallback **only if** documented server variant — default path is `createInflate`.  
+4. **Delete hot-path** `tryInflateMccp` silent pass-through (`mccp.ts`); errors → control frame / log + **destroy connection** (no fallthrough as plaintext).  
+5. **Caps**: max inflated bytes per session window e.g. **16 MiB burst / 64 MiB session** (env override); on exceed → destroy.  
+6. **`ASSMUD_MCCP`**: `localhost-dev` default **1**; **`remote-prod` default 0** until soak — or 1 with caps (Board: default **1 both** with strict caps). **CEO freeze**: default **1** all modes; caps required.  
+7. `replyToNegotiation`: flag off → DONT; flag on → DO for WILL MCCP2.
+
+## Non-goals
+
+- MCCP1-only, browser pako, MXP on  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| M0 | Flag + DO/DONT in replyToNegotiation + bridge read | S | tests: DONT when 0, DO when 1 |
+| M1 | Stream state machine + createInflate + same-chunk fixture | L | multi-chunk + SE residual tests green |
+| M2 | Caps, destroy on error, remove tryInflateMccp from hot path | S | bomb/truncated tests |
+| M3 | Docs checklist RW (manual) | S | md note |
+
+## Tests (required)
+
+- Negotiation DO/DONT  
+- Multi-chunk inflate  
+- **Same TCP chunk: SE then compressed bytes**  
+- Truncated stream → close, no process throw  
+- Output cap exceeded → close  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Boundary wrong → mojibake | frozen path + fixtures |
+| DoS inflate | caps + destroy |
+| Silent wrong decode | no fallthrough |
+
+## Review log
+
+| Round | Result |
+|-------|--------|
+| R0 | authored |
+| R1 hetero | **BLOCK** — path ambiguity, tryInflateMccp, caps, same-chunk fixture |
+| R1 fold | path frozen; must-fix inlined → **approved for expand** |
+
+===== FILE: docs/plans/2026-07-21-terminal-fonts-f2.md =====
+
+# Plan — Terminal fonts F2+ (trial UX)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **2** on roadmap  
+> **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  
+> **Branch**: `feat/terminal-fonts-f2`  
+
+## Goal
+
+在 baseline（catalog + TC chain + drawer preset）上完成 **試掘 UX**：全列、A/B、alignScore、系統字探測、自訂 primary、on-demand webfont 策略。
+
+## Already done (baseline)
+
+- `termFonts/catalog.ts` STATIC_CATALOG, TC/SC chain, resolveFontStack  
+- Drawer preset + useDefaultTcChain  
+- `Canvas2DRenderer.setTypography` / measureAlignScore  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| F2a | Trial panel UI（modal/sheet）+ fixture sample | L | 開試掘不重連 MUD |
+| F2b | A/B pin + alignScore display per face | S | 分數 ≈2.0 標綠 |
+| F2c | System font detect (MingLiU 等) merge catalog | S | Win 細明 detected |
+| F2d | Custom primary input + extras stack editor | S | 自填 family 進 stack |
+| F3 | Optional self-host Sarasa Term TC subset doc/path | S | 無字時提示安裝/載入 |
+| F4 | Size/width/line sliders wired to setTypography | S | 持久化 localStorage |
+
+## Non-goals
+
+- Bundle 全家族 CJK fonts in git  
+- Force overwrite user preset on locale switch  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| CDN 大 | on-demand only |
+| measure 不準 | 對照 fixture 人工 checklist |
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-open-source-readiness.md =====
+
+# Plan — Open-source readiness (scan + GitHub + deploy recipe)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **3** on roadmap  
+> **Backlog**: #13, #14, #8  
+
+## Goal
+
+公開 repo 前：**密文掃描**、**GitHub 防護建議**、**HTTPS/WSS 部署食譜**（文件為主，可執行腳本可選）。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| O1 | gitleaks 或 trufflehog config + `npm run secret-scan` | S | CI 本地可跑；README 一行 |
+| O2 | `docs/deploy/HTTPS-WSS.md` Caddy/nginx 範例 | S | 含 Origin allowlist、token、TLS |
+| O3 | `docs/deploy/GITHUB.md` branch protection checklist | S | 不強制改 remote（無 token 時文件 only） |
+
+## Non-goals
+
+- 代使用者操作 GitHub org 設定（無 API token 時）  
+- 完整 k8s chart  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-ci-e2e-quality.md =====
+
+# Plan — CI e2e + golden terminal streams
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **4** on roadmap  
+> **Backlog**: #12  
+
+## Goal
+
+自動化防回歸：**unit 已有**；加 **mock MudOS/TCP fixture** + **golden VT/Big5 streams** + CI workflow 骨架。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| Q1 | Mock telnet server (node) 播 fixture bytes | L | test 可連 127.0.0.1:port |
+| Q2 | Golden stream tests: IAC → Big5 → VT buffer snapshot | L | 既有 fixtures 進 CI |
+| Q3 | GitHub Actions / 本地 `npm run test:e2e` 腳本 | S | 無秘密；可 skip if no GHA |
+
+## Non-goals
+
+- 真連 RW 的 CI（不穩定／倫理）  
+- 視覺 screenshot CI  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-proxy-abuse-limits.md =====
+
+# Plan — Proxy abuse limits (hosted-ready)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **5** on roadmap  
+> **Backlog**: #11 · 連 threat-model 補強  
+
+## Goal
+
+hosted / demo proxy：**連線數、速率、token、Origin** 可配置限制 + 單元測試；文件寫清 self-host vs hosted。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| A1 | Per-IP / per-token concurrent + rate limits | L | tests 綠 |
+| A2 | Config env 文檔 + threat model 補一節 | S | `docs/security` 更新 |
+| A3 | Metrics log（metadata only，不 log payload） | S | 可關 |
+
+## Non-goals
+
+- 完整 WAF  
+- 付費配額  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-profile-library.md =====
+
+# Plan — Connection profile library (multi-MUD)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **6** on roadmap  
+> **Backlog**: #1  
+
+## Goal
+
+可維護的 **MUD profile 庫**：內建常見服（含 RW 多 port）、自訂 host:port/charset、匯入匯出（已有 JSON 基礎上擴充 UX + 驗證）。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| P1 | Schema 驗證（host/port/charset/cols） | S | bad JSON 拒絕 |
+| P2 | UI：新增／編輯／刪除 profile（drawer） | L | 不連線可編 |
+| P3 | 內建 seed 擴充 + 文件 | S | RW 4000/5000/6000 |
+| P4 | 可選 auto-login 字串（預設關、警告明文） | S | 需 explicit opt-in |
+
+## Non-goals
+
+- 雲端同步帳密  
+- 自動探測伺服器協定  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-research-spikes.md =====
+
+# Plan — Research spikes (non-product)
+
+> **Status**: **approved** (hetero R1 APPROVE) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **7** on roadmap  
+> **Backlog**: #2, #15, #16  
+
+## Goal
+
+研究輸出 **只進 `docs/research/`**，不成功能 SHIP；餵後續 plan。
+
+## Spikes
+
+| ID | Topic | Output | Constraint |
+|----|-------|--------|------------|
+| R1 | RW login banner + captcha flow capture | fixtures 註記 | **禁** credentials；user-gated |
+| R2 | Mudlet / BeipMU / webmud / mudportal matrix | 一篇 md 對照 zMUD matrix | 公開資訊 only |
+| R3 | zMUD `.mud` / package format | 解析可行性 + 子集建議 | 不成全相容承諾 |
+
+## Phases
+
+| ID | Work | Size |
+|----|------|------|
+| S0 | 三篇 research 大綱 | S |
+| S1 | 執行 R2（最低風險） | S |
+| S2 | R3 格式筆記 | S |
+| S3 | R1 僅在 Board 同意且無密時 | S |
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: apps/proxy/src/bridge.ts =====
+
+import net from "node:net";
+import type WebSocket from "ws";
+import {
+  TelnetParser,
+  replyToNegotiation,
+  ttypeIs,
+  naws,
+  OPT,
+} from "@assmud/protocol";
+
+export type BridgeOptions = {
+  host: string;
+  port: number;
+  cols?: number;
+  rows?: number;
+};
+
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
+/**
+ * Bridge one WebSocket client to one TCP MUD connection.
+ * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
+ */
+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+  const parser = new TelnetParser();
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  sock.on("data", (chunk: Buffer) => {
+    const events = parser.push(new Uint8Array(chunk));
+    for (const ev of events) {
+      if (ev.type === "data") {
+        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
+      } else if (ev.type === "will" || ev.type === "do") {
+        const reply = replyToNegotiation(ev.type, ev.option);
+        if (reply) sendTcp(reply);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+        sendTcp(naws(cols, rows));
+      }
+    }
+  });
+
+  sock.on("error", (err) => {
+    if (ws.readyState === ws.OPEN) {
+      const msg = String(err.message)
+        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+        .slice(0, 200);
+      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
+      ws.close(1011, "tcp error");
+    }
+  });
+
+  sock.on("close", () => {
+    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) {
+      const s = String(data);
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
+      sendTcp(new TextEncoder().encode(line));
+      return;
+    }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
+  });
+
+  ws.on("close", () => {
+    sock.destroy();
+  });
+}
+
+
+===== FILE: packages/protocol/src/telnet.ts =====
+
+/** Telnet IAC constants and stream filter for Phase 1a. */
+
+export const IAC = 255;
+export const WILL = 251;
+export const WONT = 252;
+export const DO = 253;
+export const DONT = 254;
+export const SB = 250;
+export const SE = 240;
+
+export const OPT = {
+  ECHO: 1,
+  SGA: 3,
+  TTYPE: 24,
+  NAWS: 31,
+  MSSP: 70,
+  MCCP2: 86,
+  MXP: 91,
+} as const;
+
+export type TelnetEvent =
+  | { type: "data"; bytes: Uint8Array }
+  | { type: "will"; option: number }
+  | { type: "wont"; option: number }
+  | { type: "do"; option: number }
+  | { type: "dont"; option: number }
+  | { type: "sb"; option: number; payload: Uint8Array };
+
+/**
+ * Incremental Telnet parser. Emits application data and negotiation events.
+ */
+const MAX_BUF = 65_536;
+const MAX_SB = 4_096;
+
+export class TelnetParser {
+  private buf = new Uint8Array(0);
+
+  push(chunk: Uint8Array): TelnetEvent[] {
+    if (this.buf.length + chunk.length > MAX_BUF) {
+      // reset on abuse / runaway SB
+      this.buf = new Uint8Array(0);
+      return [];
+    }
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+
+    const events: TelnetEvent[] = [];
+    const data: number[] = [];
+    let i = 0;
+
+    while (i < this.buf.length) {
+      if (this.buf[i] !== IAC) {
+        data.push(this.buf[i]!);
+        i += 1;
+        continue;
+      }
+      if (i + 1 >= this.buf.length) break;
+      const cmd = this.buf[i + 1]!;
+      if (cmd === IAC) {
+        data.push(IAC);
+        i += 2;
+        continue;
+      }
+      if (cmd === WILL || cmd === WONT || cmd === DO || cmd === DONT) {
+        if (i + 2 >= this.buf.length) break;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const type =
+          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
+        events.push({ type, option });
+        i += 3;
+        continue;
+      }
+      if (cmd === SB) {
+        let j = i + 2;
+        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
+          j += 1;
+          if (j - i > MAX_SB) {
+            // drop runaway subnegotiation
+            this.buf = this.buf.slice(j);
+            i = 0;
+            data.length = 0;
+            break;
+          }
+        }
+        if (j + 1 >= this.buf.length) break;
+        if (!(this.buf[j] === IAC && this.buf[j + 1] === SE)) continue;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const payload = this.buf.slice(i + 3, j);
+        events.push({ type: "sb", option, payload });
+        i = j + 2;
+        continue;
+      }
+      // other IAC cmds — skip one
+      i += 2;
+    }
+
+    if (data.length) {
+      events.push({ type: "data", bytes: Uint8Array.from(data) });
+    }
+    this.buf = this.buf.slice(i);
+    return events;
+  }
+}
+
+export function cmd(cmdByte: number, option: number): Uint8Array {
+  return Uint8Array.of(IAC, cmdByte, option);
+}
+
+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+export function replyToNegotiation(
+  kind: "will" | "do",
+  option: number,
+): Uint8Array | null {
+  if (kind === "will") {
+    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
+    if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+    return cmd(DONT, option);
+  }
+  // DO
+  if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+  if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+  return cmd(WONT, option);
+}
+
+/** IAC SB TTYPE IS "ANSI" IAC SE */
+export function ttypeIs(name = "ANSI"): Uint8Array {
+  const enc = new TextEncoder().encode(name);
+  const out = new Uint8Array(5 + enc.length + 2);
+  out[0] = IAC;
+  out[1] = SB;
+  out[2] = OPT.TTYPE;
+  out[3] = 0; // IS
+  out.set(enc, 4);
+  out[4 + enc.length] = IAC;
+  out[5 + enc.length] = SE;
+  return out;
+}
+
+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+export function naws(cols: number, rows: number): Uint8Array {
+  return Uint8Array.of(
+    IAC,
+    SB,
+    OPT.NAWS,
+    (cols >> 8) & 0xff,
+    cols & 0xff,
+    (rows >> 8) & 0xff,
+    rows & 0xff,
+    IAC,
+    SE,
+  );
+}
+
+
+===== FILE: packages/protocol/src/mccp.ts =====
+
+/**
+ * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
+ */
+import { inflateRawSync, inflateSync } from "node:zlib";
+
+export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+  try {
+    return new Uint8Array(inflateSync(Buffer.from(chunk)));
+  } catch {
+    try {
+      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
+    } catch {
+      return chunk;
+    }
+  }
+}
+codex
+I’m using the `autopilot:audit` skill because this is a spec-versus-implementation and cross-plan consistency review. I’ll verify the actual files, with extra scrutiny on the MCCP2 transition boundary and queue order.
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+
+codex
+The first material inconsistency is already clear: the roadmap’s numbered queue contradicts the product-frozen queue in the brief—CI e2e must be second, ahead of fonts and OSS readiness. I’m now checking whether the MCCP plan is implementable with the current parser API, not merely descriptively correct.
+exec
+/usr/bin/zsh -lc "if [ -f .claude/audit-config.md ]; then sed -n '1,240p' .claude/audit-config.md; fi
+rg -n \"TelnetParser|tryInflateMccp|replyToNegotiation|MCCP|StatusEvent|test:e2e|Origin|token\" apps packages package.json docs/security docs/plans -g '"'!docs/plans/2026-07-21-*.md'"' | head -n 300
+rg --files apps/proxy packages/protocol | sort" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+docs/security/hosted-proxy-threat-model.md:11:| Session tokens | Hijack = play as user |
+docs/security/hosted-proxy-threat-model.md:24:| Session theft | Short-lived tokens; **httpOnly + Secure + SameSite=Strict** session cookie (or equivalent); revoke on logout |
+docs/security/hosted-proxy-threat-model.md:25:| Cross-site WebSocket hijack | Validate **`Origin`** (and Host) on WSS upgrade against allowlist; reject missing/mismatched Origin in prod |
+docs/security/hosted-proxy-threat-model.md:36:| **Dev localhost** | Developers | Optional (token/dev header OK) | May skip public allowlist **only** for non-private destinations; **always** block private/metadata IPs | `127.0.0.1` |
+docs/security/hosted-proxy-threat-model.md:46:| CSRF / WS | Origin allowlist + SameSite=Strict; no third-party embedding of authenticated WSS without explicit allow |
+packages/codec-big5/tests/decode.test.ts:6:import { TelnetParser } from "../../protocol/src/telnet.js";
+packages/codec-big5/tests/decode.test.ts:13:    const parser = new TelnetParser();
+apps/web/src/index.css:2:@import "./styles/tokens.css";
+packages/profiles/src/index.ts:1:/** Connection profiles (Phase 4) — no secrets required; token optional. */
+apps/web/src/lib/mudSocket.ts:3: * Status is structured StatusEvent only (no English display strings as identity).
+apps/web/src/lib/mudSocket.ts:8:  token?: string;
+apps/web/src/lib/mudSocket.ts:27:export type StatusEvent = {
+apps/web/src/lib/mudSocket.ts:57:function statusSignature(ev: StatusEvent): string {
+apps/web/src/lib/mudSocket.ts:63:export function statusEventsEqual(a: StatusEvent, b: StatusEvent): boolean {
+apps/web/src/lib/mudSocket.ts:77:  private status: StatusEvent = { code: "idle" };
+apps/web/src/lib/mudSocket.ts:89:  getStatus(): StatusEvent {
+apps/web/src/lib/mudSocket.ts:104:  private setStatus(ev: StatusEvent): void {
+packages/protocol/tests/telnet.test.ts:3:  TelnetParser,
+packages/protocol/tests/telnet.test.ts:8:  replyToNegotiation,
+packages/protocol/tests/telnet.test.ts:14:describe("TelnetParser", () => {
+packages/protocol/tests/telnet.test.ts:16:    const p = new TelnetParser();
+packages/protocol/tests/telnet.test.ts:20:      OPT.MCCP2,
+packages/protocol/tests/telnet.test.ts:28:    expect(ev.some((e) => e.type === "will" && e.option === OPT.MCCP2)).toBe(true);
+packages/protocol/tests/telnet.test.ts:35:  it("Phase 1a replies DONT MCCP2 and WILL TTYPE", () => {
+packages/protocol/tests/telnet.test.ts:36:    expect([...replyToNegotiation("will", OPT.MCCP2)!]).toEqual([IAC, DONT, OPT.MCCP2]);
+packages/protocol/tests/telnet.test.ts:37:    expect([...replyToNegotiation("do", OPT.TTYPE)!]).toEqual([IAC, WILL_C, OPT.TTYPE]);
+packages/protocol/tests/telnet.test.ts:38:    expect([...replyToNegotiation("do", OPT.MXP)!]).toEqual([IAC, WONT, OPT.MXP]);
+packages/terminal/src/buffer.ts:5:  tokenizeAnsi,
+packages/terminal/src/buffer.ts:59:    const { tokens, attrs } = tokenizeAnsi(text, this.attrs);
+packages/terminal/src/buffer.ts:61:    for (const t of tokens) {
+packages/terminal/src/buffer.ts:151:        // already applied in tokenizer for SGR on attrs; no extra work
+packages/protocol/src/mccp.ts:2: * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
+packages/protocol/src/mccp.ts:6:export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+apps/web/src/TerminalHost.tsx:8:import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+apps/web/src/TerminalHost.tsx:10:export type { HelloMsg, StatusEvent };
+apps/web/src/TerminalHost.tsx:15:  onStatus?: (e: StatusEvent) => void;
+apps/web/src/styles/tokens.css:1:/* assmud design tokens — ink terminal */
+apps/web/src/components/StatusPill.tsx:1:import type { StatusEvent } from "../lib/mudSocket";
+apps/web/src/components/StatusPill.tsx:4:type Props = { status: StatusEvent };
+apps/web/src/i18n/messages/en.ts:7:  "connect.token": "Auth token",
+apps/web/src/i18n/messages/en.ts:8:  "connect.token.hint": "(remote-prod; leave empty on LAN dev)",
+apps/web/src/i18n/messages/en.ts:9:  "connect.token.placeholder": "optional",
+apps/web/src/i18n/messages/en.ts:43:  "drawer.token": "Auth token",
+apps/web/src/i18n/statusCopy.ts:2:import type { StatusCode, StatusEvent } from "../lib/mudSocket";
+apps/web/src/i18n/statusCopy.ts:24:/** Map StatusEvent → message key + interpolation vars for `t()`. */
+apps/web/src/i18n/statusCopy.ts:25:export function statusCopy(event: StatusEvent): StatusCopy {
+apps/web/tests/i18n.test.ts:13:import type { StatusCode, StatusEvent } from "../src/lib/mudSocket";
+apps/web/tests/i18n.test.ts:131:      const event: StatusEvent =
+apps/web/src/components/ConnectGate.tsx:10:  token: string;
+apps/web/src/components/ConnectGate.tsx:23:  token,
+apps/web/src/components/ConnectGate.tsx:106:            {t("connect.token")}
+apps/web/src/components/ConnectGate.tsx:109:              {t("connect.token.hint")}
+apps/web/src/components/ConnectGate.tsx:118:              value={token}
+apps/web/src/components/ConnectGate.tsx:121:              placeholder={t("connect.token.placeholder")}
+apps/web/src/i18n/messages/zh-TW.ts:7:  "connect.token": "驗證權杖",
+apps/web/src/i18n/messages/zh-TW.ts:8:  "connect.token.hint": "（遠端正式環境用；區網開發可留空）",
+apps/web/src/i18n/messages/zh-TW.ts:9:  "connect.token.placeholder": "選填",
+apps/web/src/i18n/messages/zh-TW.ts:43:  "drawer.token": "驗證權杖",
+apps/web/src/i18n/types.ts:8:  | "connect.token"
+apps/web/src/i18n/types.ts:9:  | "connect.token.hint"
+apps/web/src/i18n/types.ts:10:  | "connect.token.placeholder"
+apps/web/src/i18n/types.ts:42:  | "drawer.token"
+apps/web/src/i18n/messages/zh-CN.ts:7:  "connect.token": "验证令牌",
+apps/web/src/i18n/messages/zh-CN.ts:8:  "connect.token.hint": "（远端正式环境用；局域网开发可留空）",
+apps/web/src/i18n/messages/zh-CN.ts:9:  "connect.token.placeholder": "选填",
+apps/web/src/i18n/messages/zh-CN.ts:43:  "drawer.token": "验证令牌",
+apps/web/src/App.tsx:21:  type StatusEvent,
+apps/web/src/App.tsx:40:const IDLE: StatusEvent = { code: "idle" };
+apps/web/src/App.tsx:46:  status: StatusEvent;
+apps/web/src/App.tsx:80:  const [token, setToken] = useState(
+apps/web/src/App.tsx:81:    () => localStorage.getItem("assmud_token") ?? "",
+apps/web/src/App.tsx:168:  const setTabStatus = useCallback((id: string, status: StatusEvent) => {
+apps/web/src/App.tsx:177:    (e: StatusEvent) => {
+apps/web/src/App.tsx:208:      token: token || undefined,
+apps/web/src/App.tsx:214:    [token, profile],
+apps/web/src/App.tsx:281:        token={token}
+apps/web/src/App.tsx:291:          localStorage.setItem("assmud_token", tok);
+apps/web/src/App.tsx:600:                    {t("drawer.token")}
+apps/web/src/App.tsx:609:                    value={token}
+apps/web/src/App.tsx:613:                      localStorage.setItem("assmud_token", e.target.value);
+apps/proxy/src/policy.ts:82:function isLocalDevOrigin(origin: string): boolean {
+apps/proxy/src/policy.ts:92:export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
+apps/proxy/src/policy.ts:97:    return cfg.originAllowlist.includes(origin) || isLocalDevOrigin(origin);
+apps/proxy/src/policy.ts:103:/** Constant-time string compare for tokens (equal length after pad). */
+apps/proxy/src/policy.ts:122:  const token = cfg.authToken;
+apps/proxy/src/policy.ts:123:  if (!token) return false;
+apps/proxy/src/policy.ts:128:    if (safeEqual(t, token)) return true;
+apps/proxy/src/policy.ts:135:        if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
+apps/proxy/src/policy.ts:142:  // Query token: localhost-dev only (avoids access-log leakage in prod)
+apps/proxy/src/policy.ts:144:    const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
+apps/proxy/src/policy.ts:145:    if (q && safeEqual(q, token)) return true;
+packages/script-engine/src/index.ts:139:              if (/cookie|password|token|localStorage|document/i.test(key)) break;
+apps/proxy/src/bridge.ts:4:  TelnetParser,
+apps/proxy/src/bridge.ts:5:  replyToNegotiation,
+apps/proxy/src/bridge.ts:36:  const parser = new TelnetParser();
+apps/proxy/src/bridge.ts:51:        const reply = replyToNegotiation(ev.type, ev.option);
+apps/proxy/src/server.ts:6:  checkOrigin,
+apps/proxy/src/server.ts:14:  token?: string;
+apps/proxy/src/server.ts:53:      if (!checkOrigin(origin, cfg)) {
+apps/proxy/src/server.ts:79:            // Auth: Bearer/cookie pre-auth OR hello.token (never rely on query in remote-prod)
+apps/proxy/src/server.ts:81:            if (!authed && msg.token && cfg.authToken) {
+apps/proxy/src/server.ts:82:              authed = safeEqual(msg.token, cfg.authToken);
+apps/proxy/tests/policy.test.ts:5:  checkOrigin,
+apps/proxy/tests/policy.test.ts:25:  it("denies unauth in prod; query token not accepted in remote-prod", () => {
+apps/proxy/tests/policy.test.ts:28:    const q = new URL("http://x/ws?token=secret");
+apps/proxy/tests/policy.test.ts:34:  it("requires Origin in prod", () => {
+apps/proxy/tests/policy.test.ts:35:    expect(checkOrigin(undefined, prod)).toBe(false);
+apps/proxy/tests/policy.test.ts:36:    expect(checkOrigin("https://evil.com", prod)).toBe(false);
+apps/proxy/tests/policy.test.ts:37:    expect(checkOrigin("https://mud.example.com", prod)).toBe(true);
+apps/proxy/tests/policy.test.ts:41:    expect(checkOrigin("http://127.0.0.1.evil.com", dev)).toBe(false);
+apps/proxy/tests/policy.test.ts:42:    expect(checkOrigin("http://localhost.evil.com", dev)).toBe(false);
+apps/proxy/tests/policy.test.ts:43:    expect(checkOrigin("http://127.0.0.1:5173", dev)).toBe(true);
+packages/protocol/src/telnet.ts:17:  MCCP2: 86,
+packages/protocol/src/telnet.ts:35:export class TelnetParser {
+packages/protocol/src/telnet.ts:119:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+packages/protocol/src/telnet.ts:120:export function replyToNegotiation(
+packages/protocol/src/telnet.ts:125:    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
+packages/vt/src/sgr.ts:57: * Phase 1a VT tokenizer: full SGR handling; other CSI recorded as tokens.
+packages/vt/src/sgr.ts:60:export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()): {
+packages/vt/src/sgr.ts:61:  tokens: Token[];
+packages/vt/src/sgr.ts:64:  const tokens: Token[] = [];
+packages/vt/src/sgr.ts:71:      tokens.push({ kind: "text", text: textBuf, attrs: { ...attrs } });
+packages/vt/src/sgr.ts:104:        tokens.push({ kind: "csi", raw, params, final });
+packages/vt/src/sgr.ts:106:        tokens.push({ kind: "csi", raw, params, final });
+packages/vt/src/sgr.ts:113:      tokens.push({ kind: "control", code });
+packages/vt/src/sgr.ts:121:  return { tokens, attrs };
+packages/vt/tests/sgr-sanitize.test.ts:2:import { tokenizeAnsi, applySgr, defaultAttrs } from "../src/sgr.js";
+packages/vt/tests/sgr-sanitize.test.ts:12:  it("tokenizes mixed SGR and text", () => {
+packages/vt/tests/sgr-sanitize.test.ts:13:    const { tokens } = tokenizeAnsi("\x1b[1;32mOK\x1b[0m!");
+packages/vt/tests/sgr-sanitize.test.ts:14:    const texts = tokens.filter((t) => t.kind === "text");
+apps/proxy/package.json
+apps/proxy/src/bridge.ts
+apps/proxy/src/cli.ts
+apps/proxy/src/policy.ts
+apps/proxy/src/server.ts
+apps/proxy/tests/policy.test.ts
+apps/proxy/tsconfig.json
+packages/protocol/package.json
+packages/protocol/src/index.ts
+packages/protocol/src/mccp.ts
+packages/protocol/src/telnet.ts
+packages/protocol/tests/telnet.test.ts
+packages/protocol/tsconfig.json
+
+exec
+/usr/bin/zsh -lc "sed -n '1,220p' docs/design/terminal-fonts.md
+sed -n '1,220p' apps/proxy/src/policy.ts
+sed -n '1,150p' packages/profiles/src/index.ts
+sed -n '1,120p' packages/protocol/src/index.ts
+sed -n '1,180p' package.json" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Terminal fonts — Big5 / RW map alignment
+
+> Linked from i18n+UI plans. **RW（重生）地圖、框線、全形符號極度依賴「半形 1 格、全形 2 格」**。  
+> Canvas renderer 必須用 **dual-width mono**（CJK advance ≈ 2 × ASCII advance），否則 map_d / 框線會歪。  
+> **Status**: **baseline SHIP**（catalog + TC chain + drawer preset + setTypography）· residual F2 試掘 A/B、系統 detect、on-demand webfont  
+
+
+## 0. Board / UX decision — 試掘（trial）怎麼做最好？
+
+### 0.1 結論（寫進產品，不要只給 3 個推薦）
+
+| 做法 | 評價 | 採納 |
+|------|------|------|
+| 只內建 2–3 個「我們覺得最好」 | 省事，但 RW 玩家對細明／更紗／思源偏好差很大 | ❌ 當唯一路徑 |
+| **全列可選 catalog** + 標籤（對齊／授權／來源） | 透明、可自己挑 | ✅ **主路徑** |
+| **並排比較（A\|B 試掘）** 同一段 map sample | 最能「看出誰不歪」 | ✅ **預設開試掘面板** |
+| 自動 `document.fonts` / 系統已安裝探測 | 本機細明體、Sarasa 免下載也能出現 | ✅ catalog 動態合併 |
+| 一次 CDN 載入全部 CJK mono | 體積爆炸 | ❌ 僅 **on-demand** 載入選中的 webfont |
+
+**產品句**：  
+> 終端字體 = **可捲動的完整清單（bundled + 系統偵測 + 自訂）**，外加 **並排試掘** 與 **1:2 對齊分數**；預設推薦標在第一列，但不鎖定。
+
+### 0.2 試掘 UX（Drawer → Terminal type 或獨立「試掘」）
+
+```
+┌─ 終端字體試掘 ─────────────────────────────────────┐
+│ Sample: map_d 框線 + 中英混排 + Big5 標點（固定 fixture） │
+│ ┌──────────────┐  ┌──────────────┐                  │
+│ │ A: Sarasa    │  │ B: 細明體    │  ← 即時 canvas    │
+│ │ score 1.99   │  │ score 2.00   │                  │
+│ └──────────────┘  └──────────────┘                  │
+│ [套用 A] [套用 B]   字級 ─●─  字寬 ─●─  行高 ─●─      │
+│ ───────────────────────────────────────────────── │
+│ Catalog（正體 mono 優先）                            │
+│ ★ Sarasa Term TC     dual-width · OFL · bundled?  │
+│   Sarasa Mono TC     …                              │
+│   Source Han Mono TW …                              │
+│   Noto Sans Mono CJK TC                             │
+│   MingLiU / PMingLiU （系統）  detected ✓            │
+│   …                                                 │
+│   + 自訂 CSS font-family…                           │
+└─────────────────────────────────────────────────────┘
+```
+
+Acceptance（試掘）：
+
+1. 切 catalog 任一列 → sample **&lt;100ms** 重繪（已載入字）或顯示 loading 再繪。  
+2. 每列顯示 **alignScore** = `measureText('中')/measureText('M')`（綠 ≈2.0、黃、紅）。  
+3. 可 **A/B 釘選** 兩個 preset 並排。  
+4. 「套用」才寫 `localStorage.assmud.termFont`；取消不污染。  
+5. 未安裝 / 未 bundle 的 webfont：列上標 **需載入**，點選才 fetch。
+
+## 1. 為什麼一般「等寬英文字」不夠
+
+| 字體 | 問題 |
+|------|------|
+| JetBrains Mono / Fira Code / Cascadia | 幾乎只有西文；CJK fallback 到 Noto 後 **寬度比不保證 1:2** |
+| 系統「等寬」混搭 | 半形與全形 advance 不整除 → 地圖裂縫 |
+| 只調 CSS `letter-spacing` | 無法修正「全形應佔兩格 cell」的 buffer 模型 |
+
+assmud 的 `ScreenBuffer` 是 **cell grid**（一中文常佔 2 columns）。Renderer 的 `cellW` 必須讓：
+
+```
+width(ASCII) ≈ cellW
+width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
+```
+
+## 1.1 三件事：無中文字型 · TC fallback chain · 使用者自選（**必須支援**）
+
+> 早期 draft 偏「選一個 dual-width 全家」；產品現實是：**西文好看字常常沒中文**，中文要 **TC 鏈** 接住，且 **user 一定要能自己填**。
+
+### A. 字型「不含中文」（Latin-only mono）
+
+| 行為 | 規格 |
+|------|------|
+| 允許當 **主西文字** | ✅ 可選 JetBrains / Cascadia / Iosevka / 自訂 Latin mono |
+| 單獨當 **唯一** canvas family | ❌ 試掘紅燈：CJK 會吃系統亂 fallback，map 必歪 |
+| 正確用法 | **主字（Latin）+ TC CJK fallback chain** 組成 stack（§1.2） |
+| 探測 | `measureText` / 缺字：對 `中`、`國`、`▲`、框線抽樣；coverage &lt; 閾值 → 標「無／少中文，將用 fallback」 |
+
+### B. TC fallback chain（正體優先鏈，不是單一 family）
+
+Canvas / CSS 最終永遠是 **有序 stack**，不是一個名字：
+
+```
+fontStack = [
+  primary,           // user 選的主字（可 Latin-only 或 CJK mono）
+  ...userExtras[],   // user 自訂後備（可空）
+  ...tcChain,        // 產品內建正體 dual-width 鏈（可配置）
+  "monospace"
+]
+```
+
+**預設 `tcChain`（正體 / Big5 / map 友善，前到後）：**
+
+1. `Sarasa Term TC`（若已 bundle / 已載入）  
+2. `Sarasa Mono TC`  
+3. `MingLiU` / `細明體` / `PMingLiU` / `新細明體`（系統）  
+4. `MingLiU_HKSCS`（若在）  
+5. `Source Han Mono TW` / `Noto Sans Mono CJK TC`  
+6. `Noto Sans Mono CJK` / `Noto Sans CJK TC`（最後防線，可能 1:2 較差 → 試掘黃燈）
+
+- **zh-CN UI** 時 `tcChain` 可換成 SC 變體在前，但 **TC 鏈仍保留在後**（繁簡混服、RW 仍可能出繁中）。  
+- **alignScore** 必須對 **整條 stack 解析後實際繪出的字** 測（canvas 用第一個有 glyph 的 face——實作時用 offscreen 分 face 測 primary vs fallback 兩段分數並顯示）。  
+- Catalog 每一列可顯示：`primary` + `chain preview` 字串。
+
+### C. 使用者自行選擇字體
+
+| 能力 | 規格 |
+|------|------|
+| Catalog 點選 | ✅ bundled + 系統 detected |
+| **自訂 primary** | ✅ 輸入任意 CSS `font-family` 名（本機已安裝即可） |
+| **自訂整段 stack** | ✅ 進階：逗號分隔 family 列表，覆寫／插在 tcChain 前 |
+| **關閉內建 tcChain** | ✅ 進階開關「僅用我指定的字」（警告：缺中文會豆腐／歪 map） |
+| 持久化 | `assmud.termFont.primary` + `extras[]` + `useDefaultTcChain: boolean` + metrics sliders |
+| 試掘 | 自訂也可進 A/B；套用前必跑 coverage + alignScore |
+
+**最小設定模型（實作）：**
+
+```ts
+type TermFontConfig = {
+  primary: string;              // e.g. "JetBrains Mono" | "Sarasa Term TC" | custom
+  extras?: string[];            // user fallbacks before product chain
+  useDefaultTcChain?: boolean;  // default true
+  // + fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx, ligatures
+};
+// resolvedCss = [primary, ...extras, ...(useDefaultTcChain ? tcChain : []), "monospace"]
+```
+
+## 2. Catalog — 正體中文可用 mono（盡量列全，給 user 自選）
+
+> **原則**：catalog **全列**；「★ 推薦」只是排序權重與預設，不是唯一選項。  
+> 實作資料：`apps/web/src/termFonts/catalog.ts`（id / family / region / source / license / tags）。
+
+### 2.1 開源 · 可 self-host / 可下載（正體或 CJK 含 TC）
+
+| id | 顯示名 | CSS `font-family` 候選 | 區域 | 1:2 | 授權 | 備註 |
+|----|--------|------------------------|------|-----|------|------|
+| `sarasa-term-tc` | ★ Sarasa Term TC | `Sarasa Term TC` | TW | 優 | OFL | **預設推薦**；終端、少連字 |
+| `sarasa-mono-tc` | ★ Sarasa Mono TC | `Sarasa Mono TC` | TW | 優 | OFL | 程式感；map 通常穩 |
+| `sarasa-term-hc` | Sarasa Term HC | `Sarasa Term HC` | HK | 優 | OFL | 港字形；可給 HK 玩家 |
+| `sarasa-mono-hc` | Sarasa Mono HC | `Sarasa Mono HC` | HK | 優 | OFL | |
+| `sarasa-ui-tc` | Sarasa UI TC | `Sarasa UI TC` | TW | 中 | OFL | UI 向；終端次選 |
+| `source-han-mono-tw` | Source Han Mono TW | `Source Han Mono TW` | TW | 優–中 | OFL | 思源等寬；檔大 |
+| `source-han-mono-hc` | Source Han Mono HC | `Source Han Mono HC` | HK | 優–中 | OFL | |
+| `noto-sans-mono-cjk-tc` | Noto Sans Mono CJK TC | `Noto Sans Mono CJK TC` | TW | 中 | OFL | CDN 友好 |
+| `maple-mono-nl` | Maple Mono NL | `Maple Mono NL` / `Maple Mono` | SC 主、可排 CJK | 優* | OFL | *靠加寬中文；**關 ligature** |
+| `iosevka-term-ss*` | Iosevka Term + CJK fallback | `Iosevka Term` | — | 視 fallback | OFL | 西文美；**必須**配 CJK dual-width |
+| `unifont` | GNU Unifont | `Unifont` | 全 | 方塊穩 | GPL/OFL-ish | 醜但覆蓋廣；除錯用 |
+
+\* Maple 的 1:2 機制與 Sarasa 不同（見 feeshy 文）；仍列入 catalog，試掘分數說話。
+
+### 2.2 系統字（執行時 `document.fonts.check` / canvas 探測；有才顯示「已安裝」）
+
+| id | 顯示名 | 典型 family 名 | 平台 | 1:2 | 備註 |
+|----|--------|----------------|------|-----|------|
+| `mingliu` | 細明體 MingLiU | `MingLiU`, `細明體` | Win | 優（傳統 BBS） | RW 老玩家常愛 |
+| `pmingliu` | 新細明體 PMingLiU | `PMingLiU`, `新細明體` | Win | 優 | |
+| `mingliu-extb` | MingLiU-ExtB | `MingLiU-ExtB` | Win | 視字 | 擴展區 |
+| `mingliu_hkscs` | 細明體_HKSCS | `MingLiU_HKSCS` | Win | 優 | HKSCS |
+| `lihei-pro` | 儷黑 Pro | `LiHei Pro` | macOS 舊 | 中 | 探測到再列 |
+| `pingfang-tc-mono-fallback` | （勿當主字） | — | — | 差 | **不進可選主列表**；僅警告 |
+| `noto-sans-mono-cjk-tc-sys` | 系統 Noto Mono CJK | 同名 | 各 | 中 | Linux 包常見 |
+| `wenquanyi-microhei-mono` | 文泉驛微米黑等寬 | `WenQuanYi Micro Hei Mono` | Linux | 中 | |
+| `droid-sans-fallback` | Droid Sans Fallback | … | Android | 差–中 | 通常非真 mono |
+
+### 2.3 簡體側（zh-CN 預設用；正體 UI 仍可選）
+
+| id | 名 | 備註 |
+|----|-----|------|
+| `sarasa-term-sc` / `sarasa-mono-sc` | Sarasa SC | |
+| `source-han-mono-cn` | 思源等寬 CN | |
+| `maple-mono-cn` | Maple Mono CN | |
+
+### 2.4 明確 **不** 當終端主字（catalog 可「進階顯示」但預設隱藏 + 紅燈）
+
+- JetBrains Mono / Fira Code / Cascadia / Consolas **單獨**使用（無 dual-width CJK）  
+- 蘋方、思源黑體 **比例** 家族當 canvas 主字  
+- 霞鶩文楷等楷體主導（框線易飄）  
+
+### 2.5 預設與排序權重（仍「全列」）
+
+```
+sort = 
+  recommended first (sarasa-term-tc, sarasa-mono-tc, mingliu if detected)
+  then dual-width OFL bundled
+  then system-detected
+  then others by name
+```
+
+**zh-TW 冷啟動預設**：`sarasa-term-tc`（若未 bundle 且系統有 `MingLiU` → 可暫用細明並提示「建議載入更紗」）。
+
+## 3. Web 載入策略（實作約束）
+
+1. **預設 self-host 或可快取 CDN** 單一 subset（TC Regular ~ 視 subset 而定）  
+2. `font-display: swap` + 載入前用 **metrics 探測**（見下）  
+3. 使用者可選「系統字體堆疊」減少流量  
+4. 與 UI chrome 字體分離：  
+   - **UI**: DM Sans + Noto Sans TC（可比例）  
+   - **Terminal canvas**: 僅 dual-width mono 堆疊  
+
+## 4. 字體切換 + 字寬字距（產品能力）
+
+### 4.1 設定項（localStorage `assmud.termFont`）
+
+| Key | 型別 | 說明 |
+|-----|------|------|
+| `preset` | id | **catalog 任一 id** 或 `custom`（見 §2，勿鎖死少數 enum） |
+| `fontFamily` | string | custom 或解析後的 CSS stack |
+| `fontSizePx` | number | 預設 14–16；影響 `cellH` |
+| `cellWidthScale` | number | 0.85–1.25，乘在測得的半形寬 |
+| `lineHeightScale` | number | 1.0–1.4，`cellH = fontSize * scale` |
+| `letterSpacingPx` | number | 額外半形字距（**小心**：過大破壞 1:2） |
+| `ligatures` | boolean | **預設 false**（MUD） |
+| `compareA` / `compareB` | id? | 試掘釘選（可選持久化） |
+
+### 4.2 Renderer 契約（`Canvas2DRenderer`）
+
+1. `setTypography({ fontFamily, fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx })`  
+2. 用離屏 canvas `measureText('M')` 與 `measureText('中')`：  
+import { isIP } from "node:net";
+import { lookup } from "node:dns/promises";
+
+export type ProxyConfig = {
+  mode: "remote-prod" | "localhost-dev";
+  bindHost: string;
+  bindPort: number;
+  /** Required in remote-prod */
+  authToken: string | null;
+  allowlist: Array<{ host: string; ports: number[] }>;
+  /** If true (dev), allow any non-private host:port when not on allowlist */
+  relaxAllowlist: boolean;
+  originAllowlist: string[];
+};
+
+export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
+  if (mode === "localhost-dev") {
+    return {
+      mode,
+      bindHost: "127.0.0.1",
+      bindPort: 7788,
+      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+      allowlist: [
+        { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
+        { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
+      ],
+      relaxAllowlist: true,
+      originAllowlist: ["http://127.0.0.1:5173", "http://localhost:5173"],
+    };
+  }
+  return {
+    mode,
+    bindHost: "0.0.0.0",
+    bindPort: Number(process.env.PORT ?? 7788),
+    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+    allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
+    relaxAllowlist: false,
+    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
+export function isPrivateOrBlockedIp(ip: string): boolean {
+  // IPv4-mapped IPv6
+  if (ip.startsWith("::ffff:")) {
+    return isPrivateOrBlockedIp(ip.slice(7));
+  }
+  if (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "0.0.0.0" ||
+    ip === "::" ||
+    ip === "::0" ||
+    ip === "0:0:0:0:0:0:0:0"
+  ) {
+    return true;
+  }
+  // IPv6 ULA / link-local
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:")) {
+    return true;
+  }
+  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("169.254.")) return true;
+  // CGNAT 100.64.0.0/10
+  const cgn = /^100\.(\d+)\./.exec(ip);
+  if (cgn) {
+    const n = Number(cgn[1]);
+    if (n >= 64 && n <= 127) return true;
+  }
+  const m = /^172\.(\d+)\./.exec(ip);
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 16 && n <= 31) return true;
+  }
+  return false;
+}
+
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
+  if (!origin) {
+    return cfg.mode === "localhost-dev";
+  }
+  if (cfg.mode === "localhost-dev") {
+    return cfg.originAllowlist.includes(origin) || isLocalDevOrigin(origin);
+  }
+  if (!cfg.originAllowlist.length) return false;
+  return cfg.originAllowlist.includes(origin);
+}
+
+/** Constant-time string compare for tokens (equal length after pad). */
+export function safeEqual(a: string, b: string): boolean {
+  const max = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < max; i++) {
+    const ca = i < a.length ? a.charCodeAt(i) : 0;
+    const cb = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= ca ^ cb;
+  }
+  return diff === 0;
+}
+
+export function checkAuth(
+  url: URL,
+  cfg: ProxyConfig,
+  cookieHeader?: string,
+  authorization?: string,
+): boolean {
+  if (cfg.mode === "localhost-dev" && !cfg.authToken) return true;
+  const token = cfg.authToken;
+  if (!token) return false;
+
+  // Prefer Authorization: Bearer (not logged in query string)
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    const t = authorization.slice(7).trim();
+    if (safeEqual(t, token)) return true;
+  }
+
+  if (cookieHeader) {
+    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
+    if (m) {
+      try {
+        if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // Query token: localhost-dev only (avoids access-log leakage in prod)
+  if (cfg.mode === "localhost-dev") {
+    const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
+    if (q && safeEqual(q, token)) return true;
+  }
+  return false;
+}
+
+export async function assertDestinationAllowed(
+  host: string,
+  port: number,
+  cfg: ProxyConfig,
+): Promise<{ ok: true; address: string } | { ok: false; reason: string }> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { ok: false, reason: "invalid port" };
+  }
+
+  const onList = cfg.allowlist.some(
+    (e) => e.host.toLowerCase() === host.toLowerCase() && e.ports.includes(port),
+  );
+
+  if (!onList && !cfg.relaxAllowlist) {
+    return { ok: false, reason: "host not on allowlist" };
+  }
+
+  let address: string;
+  if (isIP(host)) {
+    address = host;
+  } else {
+    try {
+      const r = await lookup(host, { family: 4 });
+      address = r.address;
+    } catch {
+      return { ok: false, reason: "dns failed" };
+    }
+  }
+
+  // Always block cloud metadata
+  if (address === "169.254.169.254") {
+    return { ok: false, reason: "blocked metadata ip" };
+  }
+
+  const loopbackAllow =
+    onList && (host === "127.0.0.1" || host === "localhost") && cfg.mode === "localhost-dev";
+
+  if (isPrivateOrBlockedIp(address) && !loopbackAllow) {
+    return { ok: false, reason: "private or blocked ip" };
+  }
+
+  // re-check allowlist for non-relaxed
+  if (!onList && cfg.relaxAllowlist) {
+    // public hosts OK in dev relax mode
+    if (isPrivateOrBlockedIp(address)) {
+      return { ok: false, reason: "private or blocked ip" };
+    }
+  }
+
+  return { ok: true, address };
+}
+/** Connection profiles (Phase 4) — no secrets required; token optional. */
+
+export type MudProfile = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+  tlsToMud?: boolean;
+  notes?: string;
+};
+
+const KEY = "assmud.profiles.v1";
+
+export const DEFAULT_PROFILES: MudProfile[] = [
+  {
+    id: "rw-4000",
+    name: "Revival World",
+    host: "mud.revivalworld.org",
+    port: 4000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-5000",
+    name: "Revival World (5000)",
+    host: "mud.revivalworld.org",
+    port: 5000,
+    charset: "big5hkscs",
+  },
+];
+
+export function loadProfiles(): MudProfile[] {
+  if (typeof localStorage === "undefined") return [...DEFAULT_PROFILES];
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [...DEFAULT_PROFILES];
+    const parsed = JSON.parse(raw) as MudProfile[];
+    return parsed.length ? parsed : [...DEFAULT_PROFILES];
+  } catch {
+    return [...DEFAULT_PROFILES];
+  }
+}
+
+export function saveProfiles(list: MudProfile[]): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(KEY, JSON.stringify(list));
+}
+
+export function exportProfilesJson(list: MudProfile[]): string {
+  return JSON.stringify(list, null, 2);
+}
+
+export function importProfilesJson(json: string): MudProfile[] {
+  const list = JSON.parse(json) as MudProfile[];
+  if (!Array.isArray(list)) throw new Error("invalid profiles");
+  return list.filter((p) => p.id && p.host && p.port);
+}
+export * from "./telnet.js";
+export * from "./mccp.js";
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}
+
+codex
+ENGINE: OpenAI Codex / GPT-5
+VERDICT_OVERALL: BLOCK
+
+PER_PLAN:
+- roadmap-priority: BLOCK — Queue contradicts the frozen order: CI e2e must precede fonts and OSS readiness.
+- mccp2-stream: BLOCK — Wire-path intent is correct, but the current `TelnetParser.push()` cannot expose the unconsumed bytes after MCCP2 SE, so the mandatory same-chunk transition is not implementable as specified.
+- terminal-fonts-f2: APPROVE_WITH_NITS — Direction matches the font design, but system-font detection and mobile acceptance need sharper criteria.
+- open-source-readiness: BLOCK — “Open-source ready” can falsely ship without explicitly verifying the MIT LICENSE and making secret scanning a mandatory CI gate.
+- ci-e2e-quality: BLOCK — It omits the critical MCCP2 same-chunk/multi-chunk bridge fixture and permits skipping the CI workflow.
+- proxy-abuse-limits: BLOCK — Limits lack precise algorithms, trust-boundary/keying rules, pre-auth timeouts, and byte/backpressure controls.
+- profile-library: BLOCK — Auto-login plaintext can leak through persistence/export unless secret handling and exclusion rules are specified.
+- research-spikes: APPROVE_WITH_NITS — Correctly research-only; captured RW fixtures still need explicit sanitization criteria.
+
+MUST_FIX:
+- Reorder the roadmap to: MCCP2 → CI e2e → fonts F2 → OSS readiness → proxy abuse → profile library → research spikes; update every `Seq` field consistently.
+- MCCP2 must define a concrete boundary API: either make the parser return consumed offset/residual bytes and stop exactly after `IAC SB MCCP2 IAC SE`, or add an incremental pre-inflate boundary framer. The compressed residual must never enter `TelnetParser`.
+- Specify transition behavior when the MCCP2 marker is split across TCP chunks, including preservation of preceding plaintext and immediate routing of same-chunk residual bytes to `createInflate()`.
+- Define inflate lifecycle and failure handling: listener setup before writes, backpressure, exactly-once teardown, TCP-close finalization, truncated-stream detection, and no output/control frame after failure.
+- Replace the ambiguous “16 MiB burst / 64 MiB session window” with exact counters, reset interval, enforcement point before forwarding, environment parsing bounds, and tests. An absolute 64 MiB lifetime cap would terminate legitimate long sessions.
+- Add bridge-level MCCP2 tests—not only protocol/inflater unit tests—for split marker, same-chunk marker plus compressed payload, multi-chunk compressed data, decompressed post-start Telnet negotiation, corrupt/truncated input, cap breach, and no compressed-byte leakage to WebSocket.
+- Make CI mandatory and deterministic; remove “can skip if no GHA.” Include MCCP2 golden fixtures and exercise TCP mock → proxy bridge → binary browser-facing stream. If browser/WSS/auth is excluded, do not label the entire suite e2e.
+- OSS readiness must verify a root MIT `LICENSE`, repository/package licensing consistency, and execute secret scanning as a blocking CI check, including relevant history or explicitly documenting its scan boundary.
+- Define abuse limits precisely: authenticated versus unauthenticated keys, trusted-proxy handling, IPv4/IPv6 normalization, reconnect/rate windows, atomic acquire/release, hello/connect timeouts, inbound/outbound byte limits, backpressure, cleanup, and fail-closed configuration tests.
+- Auto-login data must be modeled separately from exportable profile data, omitted from export by default, never included in logs, and protected by explicit storage/deletion warnings. Define how custom destinations interact with the proxy allowlist.
+
+NITS:
+- Font detection should not rely on `document.fonts.check()` alone because fallback can produce false positives; retain differential canvas/glyph checks and define unsupported-phone behavior.
+- Font acceptance should include the design’s `<100ms` redraw target, loading/error states, “Apply only” persistence, and coverage checks for custom stacks.
+- Sanitize research captures for tokens, cookies, account names, captcha/session identifiers, and other personal data before committing fixtures.
+- Replace already-`approved` child statuses with a review-pending state until these blocking findings are resolved to avoid false-ship signaling.
+
+SAFE_IMPLEMENT_ORDER: mccp2-stream, ci-e2e-quality, terminal-fonts-f2, open-source-readiness, proxy-abuse-limits, profile-library, research-spikes
+tokens used
+65,486

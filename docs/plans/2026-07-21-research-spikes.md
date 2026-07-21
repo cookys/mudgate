@@ -1,6 +1,6 @@
 # Plan — Research spikes (non-product)
 
-> **Status**: **approved** (hetero R1 APPROVE) · project bootstrapped  
+> **Status**: **APPROVE** multi-LLM (Grok+Codex) — research only
 > **Owner**: cookys  
 > **Seq**: **7** on roadmap  
 > **Backlog**: #2, #15, #16  

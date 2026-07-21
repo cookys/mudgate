@@ -1,6 +1,6 @@
 # Plan — Terminal fonts F2+ (trial UX)
 
-> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Status**: **APPROVE_WITH_NITS** multi-LLM (Grok+Codex) — nits before ship
 > **Owner**: cookys  
 > **Seq**: **2** on roadmap  
 > **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  

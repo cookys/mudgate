@@ -10,6 +10,19 @@ description: >
 
 Follow **user-global** `~/.grok/skills/ship/SKILL.md` with these pins.
 
+## Hetero engines (assmud)
+
+**hetero = 異質 = 多家不同 LLM**，不是單引擎多角色。
+
+| Family | CLI (this machine) | Use |
+|--------|--------------------|-----|
+| Grok | session / `grok` | always |
+| Claude | `claude -p` | always when auth works |
+| Codex | `codex exec` | always when auth works |
+| Qwen / GLM / MiniMax | when CLI present | add to matrix |
+
+Ship claims require **≥2 families** APPROVE* (no BLOCK) on the plan set.
+
 ## Implementer default
 
 | Key | Value |

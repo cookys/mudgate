@@ -1,6 +1,6 @@
 # Plan — Connection profile library (multi-MUD)
 
-> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Status**: **hetero multi-LLM: needs fold** (Grok+Codex BLOCK or split) — see docs/reviews/2026-07-21-hetero-multi-llm.md
 > **Owner**: cookys  
 > **Seq**: **6** on roadmap  
 > **Backlog**: #1  

@@ -1,6 +1,7 @@
 # Roadmap priority — full requirements scan (CEO ordered)
 
-> **Status**: **approved** (CEO + hetero R1 on children) · expand done  
+> **Status**: **hetero multi-LLM BLOCK nits** — order must be MCCP→CI→fonts→OSS… (Grok+Codex 2026-07-21)  
+
 > **Owner**: cookys  
 > **Method**: 掃描 BACKLOG + zMUD matrix + residual plans + ship gaps → 依「先能連／能驗／能公開／再加深」排序。
 
@@ -17,13 +18,13 @@
 
 | Seq | Plan slug | Size | Why this order |
 |-----|-----------|------|----------------|
-| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質／大地圖；zMUD 預設會接 |
-| **2** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選；RW 符號對齊 |
-| **3** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + GitHub hardening + HTTPS deploy 食譜 — **公開前必備** |
-| **4** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 防回歸；golden stream + mock MudOS |
-| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | 若 hosted；開源 demo 安全 |
-| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 產品核心 |
-| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | RW fixtures、client matrix、.mud import **研究 only** |
+| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質（**hetero 共識第 1**） |
+| **2** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 驗 MCCP/VT 回歸；**在 fonts/OSS 前** |
+| **3** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選 |
+| **4** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + LICENSE + deploy 食譜 |
+| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | hosted 安全 |
+| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 深度 |
+| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | 研究 only |
 
 ## Deferred (P2 / not formal plan yet)
 

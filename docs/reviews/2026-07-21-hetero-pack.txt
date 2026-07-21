@@ -1,0 +1,672 @@
+# Hetero review brief — roadmap queue (multi-LLM)
+
+You are a **plan reviewer** (not implementer). Review the **assmud** roadmap plans for a web zMUD client (RW = Revival World: Big5 + VT map_d; WSS auth proxy).
+
+## Product facts (do not invent opposite)
+
+- Desktop + phone browsers; remote WSS+auth proxy; no raw TCP from browser.
+- RW: Big5, full VT; server WILL MCCP2, DO MXP (client may WONT MXP).
+- Stack: React/Vite/TS; proxy Node; MIT open source.
+- StatusEvent + i18n baseline already shipped; font stack baseline shipped.
+- **Next implement queue**: MCCP2 stream → CI e2e → fonts F2 → OSS readiness → proxy abuse → profile library → research spikes.
+
+## Plans to verdict (each row)
+
+1. `docs/plans/2026-07-21-roadmap-priority.md`
+2. `docs/plans/2026-07-21-mccp2-stream.md` — **critical**: frozen wire path pre/post MCCP2 SE
+3. `docs/plans/2026-07-21-terminal-fonts-f2.md`
+4. `docs/plans/2026-07-21-open-source-readiness.md`
+5. `docs/plans/2026-07-21-ci-e2e-quality.md`
+6. `docs/plans/2026-07-21-proxy-abuse-limits.md`
+7. `docs/plans/2026-07-21-profile-library.md`
+8. `docs/plans/2026-07-21-research-spikes.md`
+
+Read files under `/home/cookys/projects/assmud/` as needed. Ground MCCP against `apps/proxy/src/bridge.ts` and `packages/protocol`.
+
+## Output format (required)
+
+```text
+ENGINE: <name/model>
+VERDICT_OVERALL: APPROVE | APPROVE_WITH_NITS | BLOCK
+
+PER_PLAN:
+- roadmap-priority: APPROVE|APPROVE_WITH_NITS|BLOCK — <one line>
+- mccp2-stream: ...
+- terminal-fonts-f2: ...
+- open-source-readiness: ...
+- ci-e2e-quality: ...
+- proxy-abuse-limits: ...
+- profile-library: ...
+- research-spikes: ...
+
+MUST_FIX: (bullets; empty if none)
+NITS: (bullets)
+SAFE_IMPLEMENT_ORDER: (comma list of plan slugs)
+```
+
+Be strict on MCCP stream boundary and false-ship.  
+
+
+===== PLAN PACK =====
+
+
+===== FILE: docs/plans/2026-07-21-roadmap-priority.md =====
+
+# Roadmap priority — full requirements scan (CEO ordered)
+
+> **Status**: **approved** (CEO + hetero R1 on children) · expand done  
+> **Owner**: cookys  
+> **Method**: 掃描 BACKLOG + zMUD matrix + residual plans + ship gaps → 依「先能連／能驗／能公開／再加深」排序。
+
+## Already SHIP (do not re-plan)
+
+| Item | Ref |
+|------|-----|
+| Bootstrap P0–P5 / web-zmud-rw | `2026-07-21-web-zmud-rw.md` |
+| UI shell + copy + MudSocket | `2026-07-21-ui-shell-ship.md` |
+| i18n baseline + StatusEvent | `2026-07-21-i18n-locale.md` |
+| Font stack baseline + TC chain | `terminal-fonts.md` (baseline) |
+
+## Ordered queue (implement after plan hetero OK)
+
+| Seq | Plan slug | Size | Why this order |
+|-----|-----------|------|----------------|
+| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質／大地圖；zMUD 預設會接 |
+| **2** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選；RW 符號對齊 |
+| **3** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + GitHub hardening + HTTPS deploy 食譜 — **公開前必備** |
+| **4** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 防回歸；golden stream + mock MudOS |
+| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | 若 hosted；開源 demo 安全 |
+| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 產品核心 |
+| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | RW fixtures、client matrix、.mud import **研究 only** |
+
+## Deferred (P2 / not formal plan yet)
+
+| Backlog # | Item | Note |
+|-----------|------|------|
+| 3 | session replay | after log UX stable |
+| 4 | split sessions | after profile-library |
+| 5 | RW 2D map embed | optional chrome |
+| 6 | PWA | after mobile thumb polish |
+| 7 | pack registry | community H |
+| 10 | telnets upstream | RW cleartext today |
+| 9 | threat model v2 write-up | fold into #5 when hosted |
+
+## Expand rule
+
+1. Child plan **hetero APPROVE / APPROVE_WITH_NITS**  
+2. Bootstrap `docs/projects/2026-07-21-<slug>/`  
+3. Implement on `feat/<slug>` · default impl grok-4.5 medium  
+4. Loop review → depth-0 qc → merge `develop`  
+
+
+===== FILE: docs/plans/2026-07-21-mccp2-stream.md =====
+
+# Plan — MCCP2 stream inflate (proxy)
+
+> **Status**: **approved** (hetero R1 BLOCK → fold-in 2026-07-21)  
+> **Owner**: cookys  
+> **Seq**: **1** on roadmap  
+> **Branch**: `feat/mccp2-stream`  
+> **Project**: `docs/projects/2026-07-21-mccp2-stream/`  
+> **Extends**: `2026-07-21-rw-connect-protocols.md`  
+
+## Goal
+
+RW（及 WILL MCCP2 的 MUD）在 flag 開啟時 **IAC DO MCCP2**；proxy **串流 zlib inflate** 後再送 Big5/VT 可用的 binary 給 browser。
+
+## Frozen wire path (R1 must-fix — no ambiguity)
+
+```
+TCP chunk
+  └─ if NOT compressed_mode:
+        TelnetParser.push(chunk)
+        · data events → (optional) still plaintext → ws binary
+        · on IAC SB MCCP2 … IAC SE:
+              compressed_mode = true
+              any residual bytes AFTER SE in same chunk → inflate.write(residual)
+  └─ if compressed_mode:
+        inflate.write(entire TCP chunk)   // NEVER TelnetParser on wire zlib
+        inflate 'data' → TelnetParser.push(decompressed)
+        · decompressed data events → ws binary
+        · IAC on decompressed stream still valid (negotiate rare post-start)
+```
+
+**Rules**
+
+1. **Never** `parser.push` on compressed wire bytes.  
+2. **Same-chunk SE + payload** fixture is **mandatory**.  
+3. Use **`zlib.createInflate()`** (zlib wrapper, not raw) as primary; one test for raw-fallback **only if** documented server variant — default path is `createInflate`.  
+4. **Delete hot-path** `tryInflateMccp` silent pass-through (`mccp.ts`); errors → control frame / log + **destroy connection** (no fallthrough as plaintext).  
+5. **Caps**: max inflated bytes per session window e.g. **16 MiB burst / 64 MiB session** (env override); on exceed → destroy.  
+6. **`ASSMUD_MCCP`**: `localhost-dev` default **1**; **`remote-prod` default 0** until soak — or 1 with caps (Board: default **1 both** with strict caps). **CEO freeze**: default **1** all modes; caps required.  
+7. `replyToNegotiation`: flag off → DONT; flag on → DO for WILL MCCP2.
+
+## Non-goals
+
+- MCCP1-only, browser pako, MXP on  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| M0 | Flag + DO/DONT in replyToNegotiation + bridge read | S | tests: DONT when 0, DO when 1 |
+| M1 | Stream state machine + createInflate + same-chunk fixture | L | multi-chunk + SE residual tests green |
+| M2 | Caps, destroy on error, remove tryInflateMccp from hot path | S | bomb/truncated tests |
+| M3 | Docs checklist RW (manual) | S | md note |
+
+## Tests (required)
+
+- Negotiation DO/DONT  
+- Multi-chunk inflate  
+- **Same TCP chunk: SE then compressed bytes**  
+- Truncated stream → close, no process throw  
+- Output cap exceeded → close  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Boundary wrong → mojibake | frozen path + fixtures |
+| DoS inflate | caps + destroy |
+| Silent wrong decode | no fallthrough |
+
+## Review log
+
+| Round | Result |
+|-------|--------|
+| R0 | authored |
+| R1 hetero | **BLOCK** — path ambiguity, tryInflateMccp, caps, same-chunk fixture |
+| R1 fold | path frozen; must-fix inlined → **approved for expand** |
+
+===== FILE: docs/plans/2026-07-21-terminal-fonts-f2.md =====
+
+# Plan — Terminal fonts F2+ (trial UX)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **2** on roadmap  
+> **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  
+> **Branch**: `feat/terminal-fonts-f2`  
+
+## Goal
+
+在 baseline（catalog + TC chain + drawer preset）上完成 **試掘 UX**：全列、A/B、alignScore、系統字探測、自訂 primary、on-demand webfont 策略。
+
+## Already done (baseline)
+
+- `termFonts/catalog.ts` STATIC_CATALOG, TC/SC chain, resolveFontStack  
+- Drawer preset + useDefaultTcChain  
+- `Canvas2DRenderer.setTypography` / measureAlignScore  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| F2a | Trial panel UI（modal/sheet）+ fixture sample | L | 開試掘不重連 MUD |
+| F2b | A/B pin + alignScore display per face | S | 分數 ≈2.0 標綠 |
+| F2c | System font detect (MingLiU 等) merge catalog | S | Win 細明 detected |
+| F2d | Custom primary input + extras stack editor | S | 自填 family 進 stack |
+| F3 | Optional self-host Sarasa Term TC subset doc/path | S | 無字時提示安裝/載入 |
+| F4 | Size/width/line sliders wired to setTypography | S | 持久化 localStorage |
+
+## Non-goals
+
+- Bundle 全家族 CJK fonts in git  
+- Force overwrite user preset on locale switch  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| CDN 大 | on-demand only |
+| measure 不準 | 對照 fixture 人工 checklist |
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-open-source-readiness.md =====
+
+# Plan — Open-source readiness (scan + GitHub + deploy recipe)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **3** on roadmap  
+> **Backlog**: #13, #14, #8  
+
+## Goal
+
+公開 repo 前：**密文掃描**、**GitHub 防護建議**、**HTTPS/WSS 部署食譜**（文件為主，可執行腳本可選）。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| O1 | gitleaks 或 trufflehog config + `npm run secret-scan` | S | CI 本地可跑；README 一行 |
+| O2 | `docs/deploy/HTTPS-WSS.md` Caddy/nginx 範例 | S | 含 Origin allowlist、token、TLS |
+| O3 | `docs/deploy/GITHUB.md` branch protection checklist | S | 不強制改 remote（無 token 時文件 only） |
+
+## Non-goals
+
+- 代使用者操作 GitHub org 設定（無 API token 時）  
+- 完整 k8s chart  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-ci-e2e-quality.md =====
+
+# Plan — CI e2e + golden terminal streams
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **4** on roadmap  
+> **Backlog**: #12  
+
+## Goal
+
+自動化防回歸：**unit 已有**；加 **mock MudOS/TCP fixture** + **golden VT/Big5 streams** + CI workflow 骨架。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| Q1 | Mock telnet server (node) 播 fixture bytes | L | test 可連 127.0.0.1:port |
+| Q2 | Golden stream tests: IAC → Big5 → VT buffer snapshot | L | 既有 fixtures 進 CI |
+| Q3 | GitHub Actions / 本地 `npm run test:e2e` 腳本 | S | 無秘密；可 skip if no GHA |
+
+## Non-goals
+
+- 真連 RW 的 CI（不穩定／倫理）  
+- 視覺 screenshot CI  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-proxy-abuse-limits.md =====
+
+# Plan — Proxy abuse limits (hosted-ready)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **5** on roadmap  
+> **Backlog**: #11 · 連 threat-model 補強  
+
+## Goal
+
+hosted / demo proxy：**連線數、速率、token、Origin** 可配置限制 + 單元測試；文件寫清 self-host vs hosted。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| A1 | Per-IP / per-token concurrent + rate limits | L | tests 綠 |
+| A2 | Config env 文檔 + threat model 補一節 | S | `docs/security` 更新 |
+| A3 | Metrics log（metadata only，不 log payload） | S | 可關 |
+
+## Non-goals
+
+- 完整 WAF  
+- 付費配額  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-profile-library.md =====
+
+# Plan — Connection profile library (multi-MUD)
+
+> **Status**: **approved** (hetero R1 APPROVE_WITH_NITS) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **6** on roadmap  
+> **Backlog**: #1  
+
+## Goal
+
+可維護的 **MUD profile 庫**：內建常見服（含 RW 多 port）、自訂 host:port/charset、匯入匯出（已有 JSON 基礎上擴充 UX + 驗證）。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| P1 | Schema 驗證（host/port/charset/cols） | S | bad JSON 拒絕 |
+| P2 | UI：新增／編輯／刪除 profile（drawer） | L | 不連線可編 |
+| P3 | 內建 seed 擴充 + 文件 | S | RW 4000/5000/6000 |
+| P4 | 可選 auto-login 字串（預設關、警告明文） | S | 需 explicit opt-in |
+
+## Non-goals
+
+- 雲端同步帳密  
+- 自動探測伺服器協定  
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: docs/plans/2026-07-21-research-spikes.md =====
+
+# Plan — Research spikes (non-product)
+
+> **Status**: **approved** (hetero R1 APPROVE) · project bootstrapped  
+> **Owner**: cookys  
+> **Seq**: **7** on roadmap  
+> **Backlog**: #2, #15, #16  
+
+## Goal
+
+研究輸出 **只進 `docs/research/`**，不成功能 SHIP；餵後續 plan。
+
+## Spikes
+
+| ID | Topic | Output | Constraint |
+|----|-------|--------|------------|
+| R1 | RW login banner + captcha flow capture | fixtures 註記 | **禁** credentials；user-gated |
+| R2 | Mudlet / BeipMU / webmud / mudportal matrix | 一篇 md 對照 zMUD matrix | 公開資訊 only |
+| R3 | zMUD `.mud` / package format | 解析可行性 + 子集建議 | 不成全相容承諾 |
+
+## Phases
+
+| ID | Work | Size |
+|----|------|------|
+| S0 | 三篇 research 大綱 | S |
+| S1 | 執行 R2（最低風險） | S |
+| S2 | R3 格式筆記 | S |
+| S3 | R1 僅在 Board 同意且無密時 | S |
+
+## Review log
+
+- R0 authored CEO  
+
+
+===== FILE: apps/proxy/src/bridge.ts =====
+
+import net from "node:net";
+import type WebSocket from "ws";
+import {
+  TelnetParser,
+  replyToNegotiation,
+  ttypeIs,
+  naws,
+  OPT,
+} from "@assmud/protocol";
+
+export type BridgeOptions = {
+  host: string;
+  port: number;
+  cols?: number;
+  rows?: number;
+};
+
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
+/**
+ * Bridge one WebSocket client to one TCP MUD connection.
+ * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
+ */
+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+  const parser = new TelnetParser();
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  sock.on("data", (chunk: Buffer) => {
+    const events = parser.push(new Uint8Array(chunk));
+    for (const ev of events) {
+      if (ev.type === "data") {
+        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
+      } else if (ev.type === "will" || ev.type === "do") {
+        const reply = replyToNegotiation(ev.type, ev.option);
+        if (reply) sendTcp(reply);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+        sendTcp(naws(cols, rows));
+      }
+    }
+  });
+
+  sock.on("error", (err) => {
+    if (ws.readyState === ws.OPEN) {
+      const msg = String(err.message)
+        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+        .slice(0, 200);
+      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
+      ws.close(1011, "tcp error");
+    }
+  });
+
+  sock.on("close", () => {
+    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) {
+      const s = String(data);
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
+      sendTcp(new TextEncoder().encode(line));
+      return;
+    }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
+  });
+
+  ws.on("close", () => {
+    sock.destroy();
+  });
+}
+
+
+===== FILE: packages/protocol/src/telnet.ts =====
+
+/** Telnet IAC constants and stream filter for Phase 1a. */
+
+export const IAC = 255;
+export const WILL = 251;
+export const WONT = 252;
+export const DO = 253;
+export const DONT = 254;
+export const SB = 250;
+export const SE = 240;
+
+export const OPT = {
+  ECHO: 1,
+  SGA: 3,
+  TTYPE: 24,
+  NAWS: 31,
+  MSSP: 70,
+  MCCP2: 86,
+  MXP: 91,
+} as const;
+
+export type TelnetEvent =
+  | { type: "data"; bytes: Uint8Array }
+  | { type: "will"; option: number }
+  | { type: "wont"; option: number }
+  | { type: "do"; option: number }
+  | { type: "dont"; option: number }
+  | { type: "sb"; option: number; payload: Uint8Array };
+
+/**
+ * Incremental Telnet parser. Emits application data and negotiation events.
+ */
+const MAX_BUF = 65_536;
+const MAX_SB = 4_096;
+
+export class TelnetParser {
+  private buf = new Uint8Array(0);
+
+  push(chunk: Uint8Array): TelnetEvent[] {
+    if (this.buf.length + chunk.length > MAX_BUF) {
+      // reset on abuse / runaway SB
+      this.buf = new Uint8Array(0);
+      return [];
+    }
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+
+    const events: TelnetEvent[] = [];
+    const data: number[] = [];
+    let i = 0;
+
+    while (i < this.buf.length) {
+      if (this.buf[i] !== IAC) {
+        data.push(this.buf[i]!);
+        i += 1;
+        continue;
+      }
+      if (i + 1 >= this.buf.length) break;
+      const cmd = this.buf[i + 1]!;
+      if (cmd === IAC) {
+        data.push(IAC);
+        i += 2;
+        continue;
+      }
+      if (cmd === WILL || cmd === WONT || cmd === DO || cmd === DONT) {
+        if (i + 2 >= this.buf.length) break;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const type =
+          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
+        events.push({ type, option });
+        i += 3;
+        continue;
+      }
+      if (cmd === SB) {
+        let j = i + 2;
+        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
+          j += 1;
+          if (j - i > MAX_SB) {
+            // drop runaway subnegotiation
+            this.buf = this.buf.slice(j);
+            i = 0;
+            data.length = 0;
+            break;
+          }
+        }
+        if (j + 1 >= this.buf.length) break;
+        if (!(this.buf[j] === IAC && this.buf[j + 1] === SE)) continue;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const payload = this.buf.slice(i + 3, j);
+        events.push({ type: "sb", option, payload });
+        i = j + 2;
+        continue;
+      }
+      // other IAC cmds — skip one
+      i += 2;
+    }
+
+    if (data.length) {
+      events.push({ type: "data", bytes: Uint8Array.from(data) });
+    }
+    this.buf = this.buf.slice(i);
+    return events;
+  }
+}
+
+export function cmd(cmdByte: number, option: number): Uint8Array {
+  return Uint8Array.of(IAC, cmdByte, option);
+}
+
+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+export function replyToNegotiation(
+  kind: "will" | "do",
+  option: number,
+): Uint8Array | null {
+  if (kind === "will") {
+    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
+    if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+    return cmd(DONT, option);
+  }
+  // DO
+  if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+  if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+  return cmd(WONT, option);
+}
+
+/** IAC SB TTYPE IS "ANSI" IAC SE */
+export function ttypeIs(name = "ANSI"): Uint8Array {
+  const enc = new TextEncoder().encode(name);
+  const out = new Uint8Array(5 + enc.length + 2);
+  out[0] = IAC;
+  out[1] = SB;
+  out[2] = OPT.TTYPE;
+  out[3] = 0; // IS
+  out.set(enc, 4);
+  out[4 + enc.length] = IAC;
+  out[5 + enc.length] = SE;
+  return out;
+}
+
+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+export function naws(cols: number, rows: number): Uint8Array {
+  return Uint8Array.of(
+    IAC,
+    SB,
+    OPT.NAWS,
+    (cols >> 8) & 0xff,
+    cols & 0xff,
+    (rows >> 8) & 0xff,
+    rows & 0xff,
+    IAC,
+    SE,
+  );
+}
+
+
+===== FILE: packages/protocol/src/mccp.ts =====
+
+/**
+ * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
+ */
+import { inflateRawSync, inflateSync } from "node:zlib";
+
+export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+  try {
+    return new Uint8Array(inflateSync(Buffer.from(chunk)));
+  } catch {
+    try {
+      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
+    } catch {
+      return chunk;
+    }
+  }
+}

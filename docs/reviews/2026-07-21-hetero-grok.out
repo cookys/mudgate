@@ -1,0 +1,3 @@
+ENGINE: grok-4.5
+VERDICT_OVERALL: BLOCK
+(see docs/reviews/2026-07-21-hetero-multi-llm.md for full synthesis; raw in session)

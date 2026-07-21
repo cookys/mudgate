@@ -1,6 +1,6 @@
 # Plan — MCCP2 stream inflate (proxy)
 
-> **Status**: **approved** (hetero R1 BLOCK → fold-in 2026-07-21)  
+> **Status**: **hetero multi-LLM: needs fold** (Grok+Codex BLOCK or split) — see docs/reviews/2026-07-21-hetero-multi-llm.md
 > **Owner**: cookys  
 > **Seq**: **1** on roadmap  
 > **Branch**: `feat/mccp2-stream`  
