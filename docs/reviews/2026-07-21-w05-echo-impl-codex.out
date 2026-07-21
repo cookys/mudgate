@@ -1,0 +1,2688 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8434-1630-7561-9a33-2ee196177520
+--------
+user
+Review IMPLEMENTATION of W05 ECHO password mask in assmud (branch feat/echo-password-mask).
+Must: WILL ECHO→DO+JSON mask true; WONT→DONT+mask false; DO ECHO reversed→WILL+mask; web type=password only while mask; StatusEvent not polluted; tests green.
+Return:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+short evidence.
+
+Key files:
+- packages/protocol/src/telnet.ts replyToNegotiation ECHO
+- apps/proxy/src/bridge.ts setEchoMask
+- apps/web/src/lib/mudSocket.ts onEchoMask
+- apps/web/src/App.tsx type=password when echoMask
+- tests in packages/protocol/tests/telnet.test.ts and apps/proxy/tests/mccp-bridge.test.ts
+
+git diff develop...HEAD --stat if available; read the files.
+
+codex
+I’m using the quality-pipeline skill because this is a pre-merge implementation review. I’ll inspect the branch diff and targeted files, then run the relevant tests without modifying code.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc "sed -n '1,220p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md && sed -n '1,180p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-policy.md && sed -n '1,160p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-integrity-gate.md && for f in .claude/quality-gate-config.md .claude/dispatch-config.md; do if [ -f \""'$f" ]; then sed -n '"'1,220p' \""'$f"; fi; done' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+# Test Failure Investigation (All Sizes, Mandatory)
+
+**Test failure = stop and investigate. Never skip, never assume pre-existing.**
+
+## Mandatory Flow
+
+```
+tests fail?
+├── 1. Stop implementation immediately
+├── 2. Investigate root cause
+│   ├── Test bug? → fix the test
+│   ├── Code bug (introduced this session)? → fix the code
+│   └── Pre-existing? → switch to develop and verify
+│       ├── develop also fails → confirmed pre-existing, still fix it
+│       └── develop passes → regression introduced this session, fix it
+├── 3. Re-run tests until all pass (known infra issues like DB connection excepted)
+└── 4. Report summary to user
+```
+
+### Step-by-Step with Examples
+
+**Step 1: Stop implementation.**
+Do not continue coding. The failing test takes priority over new features.
+
+**Step 2: Investigate root cause.**
+
+Example A — test bug:
+```
+FAIL: MahjongRulesTest.FlowerTileCount
+Expected: 8  Actual: 7
+→ Read test: assertion counts bonus flowers but not season flowers
+→ Fix: update expected count to include both types, or fix test setup
+```
+
+Example B — code bug (this session):
+```
+FAIL: BigTwoRulesTest.StraightFlush
+Expected: STRAIGHT_FLUSH  Actual: STRAIGHT
+→ git diff shows: modified isStraightFlush() to add a suit check
+→ The new suit check has an off-by-one: `suit > 3` should be `suit >= 3`
+→ Fix: correct the comparison
+```
+
+Example C — pre-existing verification:
+```
+FAIL: ReconnectTest.GameStateRestore
+→ Not obviously related to current changes
+→ scripts/verify-preexisting.sh '<your-test-command>' --base develop
+  → JSON: {"head":"fail","base":"fail","verdict":"PRE_EXISTING"}
+  → Still fix it: the state serializer was missing a field
+  → (verdict INTRODUCED ⇒ regression this session; NO_FAILURE ⇒ rerun)
+```
+
+The script stashes uncommitted work, checks out base, runs the test, restores. Replaces the manual `git stash && checkout develop` recipe — fewer ways to leave the work tree in a bad state.
+
+**Red-green validation (does a new test actually exercise the change?).** The opposite-direction sibling `scripts/verify-red-green.sh` proves a change's tests are not constant-green empty tests: it runs the change's tests at `head` (must be GREEN) and, in an isolated detached worktree, applies ONLY the change's test-file edits onto `base` (production code held at base) and reruns them (must be RED). Verdict `VALIDATED` only when head-green AND base-red; `NOT_RED_ON_BASE` means the test passes without the production change (it isn't testing anything); `NOT_GREEN_ON_HEAD` / `INCONCLUSIVE` fail closed.
+```bash
+scripts/verify-red-green.sh --range <base>..<head> --verify-cmd <script-path>
+# JSON: {"verdict":"VALIDATED","red_green_validated":true,"red_tests":[...], ...}
+# exit 0 VALIDATED · 1 NOT_RED/NOT_GREEN · 2 usage · 3 INCONCLUSIVE (fail-closed)
+```
+It reuses `git worktree add --detach` isolation (never mutates the live tree); every verdict is read from the real verify-cmd exit code, never self-report. It is the minimal precursor to a `verify_strength` review-density axis (see `docs/plans/2026-07-09-verify-strength-precursors.md`).
+
+**Step 3: Re-run until clean.**
+```bash
+<your-test-command>  # e.g., npm test, make test, dev.sh test
+# If specific test: docker exec -it $CONTAINER bash -c "cd /build && ctest -R 'FailingTest' --output-on-failure"
+```
+
+**Step 4: Report.**
+```
+Summary:
+- 2 failures found
+- ReconnectTest.GameStateRestore: pre-existing, missing field in serializer → fixed
+- BigTwoRulesTest.StraightFlush: regression from this session, off-by-one → fixed
+```
+
+## Tool Selection
+
+| Scenario | Approach |
+|----------|----------|
+| Single clear failure | Read the test file + implementation directly |
+| Multiple failures or unclear root cause | Dispatch `Explore` agent for deep investigation |
+| Possible cross-module impact | Dispatch `general-purpose` agent for full analysis |
+
+## Prohibited Behaviors
+
+Test failure prohibitions: skip pre-existing, skip even 1 failure, commit before fixing, assume unrelated.
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+
+# Pre-existing Error Cleanup (All Sizes, Mandatory)
+
+**After completing main task: if pre-existing compile errors/warnings exist, analyze and fix them.**
+
+## Scope
+
+| Type | Example | Action |
+|------|---------|--------|
+| Compile error (project code) | unused variable, type mismatch | Fix directly |
+| Compile error (auto-generated) | protobuf codegen unused param | Record root cause in codegen config, do not edit generated file |
+| Compile warning | implicit conversion, deprecation | Fix directly (if too many, open backlog) |
+| Lint / type-check error | TS noUnusedLocals, ESLint | Fix directly |
+
+## Flow
+
+```
+main task done → run build/type-check
+├── Has error/warning?
+│   ├── Introduced this session? → must fix
+│   └── Pre-existing?
+│       ├── Project hand-written code? → analyze + fix
+│       ├── Auto-generated code? → record root cause, don't edit generated file
+│       └── Third-party dependency? → record, don't fix
+└── All clean → pass
+```
+
+### Examples (compressed)
+
+```
+# Pre-existing project warning — fix directly
+src/games/big2/Big2Rules.cpp:142: implicit conversion loses precision
+  int count = cards.size();  // size_t → int (pre-existing per git blame)
+→ Fix: auto count = static_cast<int>(cards.size());
+
+# Auto-generated — record root cause, don't hand-edit
+proto/gen/game.pb.cc:1234: unused parameter 'arena'
+→ Root cause: protobuf codegen missing LITE_RUNTIME → record in backlog
+```
+
+## Prohibited Behaviors
+
+Pre-existing error prohibitions: leave untouched, dismiss as "just a warning", defer to "later."
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+## See Also
+
+| Skill | Boundary |
+|-------|----------|
+| the project test skill | Test commands, E2E setup, feature flags |
+| `quality-pipeline` (completeness-gate) | Anti-stub scan (TODO/FIXME/empty impl) |
+| `quality-pipeline` (code-review) | Code review after tests pass |
+# Test Integrity Gate (Anti-Gaming Enforcement)
+
+**L0 static, git-artifact-based test-integrity checks. Runs post-commit to block a developer/agent from gaming tests to go green** — by deleting assertions, skipping/soloing tests, escaping the test dir, or weakening the integrity surface. Reads git artifacts only; never trusts agent self-report. Sibling of `check-disjointness.sh` (files) — this one certifies *test integrity*.
+
+## What Gets Scanned
+
+| Category | Description | Violation Kind |
+|----------|-------------|----------------|
+| **Deleted test lines** | In a test-path file, the diff must contain no deleted (`-`) lines — weakening an existing assertion (`assertEqual→assertTrue`) necessarily produces one. | `deleted_line` |
+| **Skip/solo markers** | Added (`+`) lines in test files must not introduce skip / xfail / pending / todo or solo/only/focused markers (per-language set: `xit`/`.only`/`fit`/`fdescribe`/`@pytest.mark.skip`/`t.Skipf`/`#[ignore]`/…). | `skip_marker` / `solo_marker` |
+| **Rename escapes** | A test file renamed to a non-test path / non-matching name (removes coverage) is blocked. Pure rename that stays in a test path is OK. | `rename_escape` |
+| **Integrity-surface touch** | Edits to non-test integrity-surface files (conftest, fixtures, mocks, snapshots/goldens, runner config, setupTests/matchers, `package.json` scripts, CI workflows) are flagged — **independently of whether the path is also a test path**. In `block` mode a surface touch is itself a violation unless waived. | `surface_touch` |
+| **Protected-path touch** | The candidate diff touching `.qc/**`, the gate script, the config, or `.gitattributes` is a **non-waivable** structural violation. | `protected_path_touch` |
+| **Config / git failure** | Malformed (present-but-unparseable) config fails closed to `block`; an invalid range/ref or git failure exits 2. Both **non-waivable**. | `malformed_config` / `git_error` |
+
+## Execution
+
+```bash
+scripts/check-test-integrity.sh validate --range <base>..<head> [--repo <dir>] [--base <ref>] [--allow-env-config]
+```
+
+1. **Config from the TRUSTED base ref** (`git show <base>:.claude/test-integrity-config.md`), NOT the candidate head — so a candidate cannot weaken the gate (`mode: off`, bogus `test_paths`) in the same diff. Falls back to `project-config-template/test-integrity-config.md` then built-in defaults. `$TEST_INTEGRITY_CONFIG_OVERRIDE` is ignored unless `--allow-env-config`.
+2. Reads `git diff -M --name-status -z` (authoritative paths, whitespace/rename safe) + hunks.
+3. Runs the L0 checks above.
+4. Exit: `0` clean (or warn/off) · `1` block-violation · `2` usage/internal error (non-overridable).
+
+## L1 — Executed-Set Invariance (v2.25.7, additive)
+
+L0 reads diff text only, so it misses gaming that is additions-only or happens outside test files. **L1 RUNS the test collector on base vs head and fails (`executed_set_shrink`) if the set of tests that *actually execute* shrinks** — catching `test.only`/`fit`, module `pytestmark=skip`, `collect_ignore`, runner-config exclusions (`testPathIgnorePatterns`), go build-tag drops, and fixture changes that skip tests. Per-runner: **pytest / jest / vitest / go**.
+
+- **RUN-not-collect**: `--collect-only`/`--listTests`/`-list` still list *skipped* tests, so L1 uses execution/report status (pytest junit, jest/vitest `--json`, go `-json`), never collection listing.
+- **Best-effort**: runs only when a runner is detected on both sides (`l1:"unavailable"` otherwise — L0 + reviewer backstop). Two-sided `git worktree` collection, env-scrubbed, pgroup-killed timeout, always-cleanup.
+- **Fail-closed** on a broken head runner (`collection_failed` — go multi-package build-fail, JS empty/crashed report, timeout), never a silent pass (a candidate could break the runner to dodge L1).
+- **No fuzzy rename matching** — a renamed test id is a drop (documented false-positive requiring a depth-0 override); this is the main false-positive cost, justifying the `warn` default.
+- Flags: `--no-l1`, `--l1-timeout`, `--l1-runner`, `--l1-verdict-file`, `--assert-worker-dead <pgid>`. JSON adds `l1` + `l1_runners[]` (backward-compatible with L0).
+
+Full per-runner contract (detection markers, normalized test-ids, status→executed mapping, failure-classification table, override design): [`docs/projects/_archive/2026-06-26-test-integrity-l1/design-spec.md`](../../../docs/projects/_archive/2026-06-26-test-integrity-l1/design-spec.md).
+
+## Mode Semantics
+- **`block`** — fails (exit 1) on any L0 violation/surface touch, or an L1 `executed_set_shrink`/`collection_failed`, unless waived. **Default for `/l5` hetero-impl dispatch (opt-in per project).**
+- **`warn`** — reports but does not block (exit 0). **Global default** (shadow→calibrate→gate). Used when no config is present.
+- **`off`** — gate disabled.
+
+## Override verdicts (escape hatch — see limitation)
+A verdict at the **committed** path `.qc/<head_sha>.verdict.json` (read via `git show`, NOT the filesystem — untracked forgery is rejected) may waive **specific** violations it enumerates:
+```json
+{ "tree": "<head^{tree} sha>", "waives": [ {"file": "tests/x_test.py", "kind": "deleted_line"} ] }
+```
+A violation is waived only if `tree == git rev-parse <head>^{tree}` AND its `{file,kind}` is listed. **Never waivable:** `protected_path_touch`, `malformed_config`, `git_error`.
+
+> **Known limitation (L0 stub + L1 deferral):** the L0 committed-path override is a **fail-safe stub** (a committed verdict changes the commit SHA its filename must match — a fixed-point that makes a legit override unconstructable; it fails *closed*). L1 (v2.25.7) builds real out-of-commit verdict verification (changeset-digest + dropped-digest bound), **but HONORING it in `block` mode is DEFERRED** — in the same-user linked-worktree `/l5` dispatch model a worker can forge the override channel, and `--assert-worker-dead <pgid>` can't stop a `setsid`-escaped descendant. So a block-mode `executed_set_shrink` is a hard fail with **no honored override** until `dispatch-hetero.sh` gains descendant-containment (own-session + tree-sweep reap on all exit paths). Refusing a forgeable waiver is fail-safe; in `block` dispatched flows the depth-0 orchestrator controls the merge regardless. See design-spec §8.3.
+
+## See Also
+
+| Skill / script | Boundary |
+|-------|----------|
+| `check-disjointness.sh` | Sibling gate — certifies *files* (allowlist/denylist), not test behavior. |
+| `quality-pipeline` (completeness-gate) | Anti-stub scan; this gate is about *not weakening existing tests*. |
+| `quality-pipeline` (code-review) | Runs after the gates pass; catches semantic "green-but-meaningless" weakening that no deterministic gate can. |
+# Quality Gate — Project Config (generated by autopilot:onboard; edit freely)
+
+## Test Command
+- not detected (repo is pre-scaffold; update after package manager / test runner lands)
+
+## Scan Command
+- Completeness scan (no stubs/TODO/mock): autopilot `scripts/completeness-scan.sh` over `apps/` `packages/` `src/` when present
+
+## Code Review
+- autopilot:reviewer
+
+## Security-critical surfaces
+Always full review (never fast-path) when a change touches:
+
+| Surface | Why |
+|---------|-----|
+| WebSocket / TCP proxy bridge | trust boundary between browser and MUD; injection / SSRF / open-relay risk |
+| Credential & session storage | player passwords / tokens must not leak to logs, localStorage XSS, or analytics |
+| Terminal HTML/ANSI render | MUD output is untrusted; XSS via escape sequences or raw HTML |
+| User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
+| CSP / CORS / origin checks | browser client security posture |
+| Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
+
+# Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
+# Dispatch — Project Config (generated by autopilot:onboard; edit freely)
+
+# Superpowers is not installed. Edit this file to add superpowers preference chains.
+## Parallel Dispatch
+- native
+
+## Code Review
+- autopilot:reviewer
+
+## Debugging
+- autopilot:debug
+
+## Testing
+- autopilot:test-strategy
+
+## Profiling
+- autopilot:profiling
+
+## Team
+- autopilot:team
+
+codex
+The review scope is security-sensitive because it affects password-entry behavior across the Telnet, proxy, and browser boundary. I’m checking both negotiation directions, event separation, and whether tests genuinely cover each required transition.
+exec
+/usr/bin/zsh -lc "git status --short --branch && git diff develop...HEAD --stat && git diff --name-status develop...HEAD && git log --oneline --decorate -5 && sed -n '1,220p' package.json" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+## feat/echo-password-mask
+ M apps/proxy/src/bridge.ts
+ M apps/proxy/tests/mccp-bridge.test.ts
+ M apps/web/src/App.tsx
+ M apps/web/src/TerminalHost.tsx
+ M apps/web/src/lib/mudSocket.ts
+ M docs/plans/2026-07-21-rw-connect-protocols.md
+ M docs/research/zmud-feature-matrix.md
+ M packages/protocol/src/telnet.ts
+ M packages/protocol/tests/telnet.test.ts
+?? docs/plans/2026-07-21-echo-password-mask.md
+?? docs/projects/2026-07-21-echo-password-mask/
+?? docs/reviews/2026-07-21-w05-echo-brief.txt
+?? docs/reviews/2026-07-21-w05-echo-codex.out
+?? docs/reviews/2026-07-21-w05-echo-impl-codex.out
+?? docs/reviews/2026-07-21-w05-echo-impl-minimax.out
+?? docs/reviews/2026-07-21-w05-echo-minimax.out
+7e0130c (HEAD -> feat/echo-password-mask, develop) docs: mark mccp2-stream project SHIP on INDEX
+c003b93 merge: feat/mccp2-stream — MCCP2 DO + stream inflate
+7ee9916 (feat/mccp2-stream) feat(proxy): MCCP2 DO + stream inflate with caps and fixtures
+9f844cb docs: Codex R5 APPROVE mccp2 plan after pushUntilMccpStart fold
+e789197 docs: multi-LLM hetero (Grok/Codex/GLM/MiniMax) loop + plan fold
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}
+
+exec
+/usr/bin/zsh -lc 'git diff --stat && git diff -- packages/protocol/src/telnet.ts apps/proxy/src/bridge.ts apps/web/src/lib/mudSocket.ts apps/web/src/App.tsx apps/web/src/TerminalHost.tsx packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+ apps/proxy/src/bridge.ts                      | 31 +++++++++++++
+ apps/proxy/tests/mccp-bridge.test.ts          | 56 ++++++++++++++++++++++-
+ apps/web/src/App.tsx                          | 33 ++++++++++++--
+ apps/web/src/TerminalHost.tsx                 |  9 ++++
+ apps/web/src/lib/mudSocket.ts                 | 15 +++++-
+ docs/plans/2026-07-21-rw-connect-protocols.md |  4 +-
+ docs/research/zmud-feature-matrix.md          | 66 ++++++++++++++++++++++++---
+ packages/protocol/src/telnet.ts               | 19 +++++++-
+ packages/protocol/tests/telnet.test.ts        | 23 ++++++++++
+ 9 files changed, 239 insertions(+), 17 deletions(-)
+diff --git a/apps/proxy/src/bridge.ts b/apps/proxy/src/bridge.ts
+index ea9d9aa..251d4f0 100644
+--- a/apps/proxy/src/bridge.ts
++++ b/apps/proxy/src/bridge.ts
+@@ -85,9 +85,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   let closed = false;
+   let finishing = false;
+   let errorSent = false;
++  /** Server ECHO option active → client should mask local input (password). */
++  let echoMask = false;
+ 
+   const sock = net.connect({ host: opts.host, port: opts.port });
+ 
++  const sendJson = (obj: Record<string, unknown>) => {
++    if (closed || ws.readyState !== ws.OPEN) return;
++    try {
++      ws.send(JSON.stringify(obj));
++    } catch {
++      /* ignore */
++    }
++  };
++
++  const setEchoMask = (mask: boolean) => {
++    if (echoMask === mask) return;
++    echoMask = mask;
++    sendJson({ type: "echo", mask });
++  };
++
+   const destroy = (reason: string) => {
+     if (closed) return;
+     closed = true;
+@@ -140,12 +157,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+           mccp: mccpEnabled,
+         });
+         if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(true);
++      } else if (ev.type === "wont") {
++        const reply = replyToNegotiation("wont", ev.option, {
++          mccp: mccpEnabled,
++        });
++        if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(false);
+       } else if (ev.type === "do") {
+         const reply = replyToNegotiation("do", ev.option, {
+           mccp: mccpEnabled,
+         });
+         if (reply) sendTcp(reply);
+         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
++        if (ev.option === OPT.ECHO) setEchoMask(true);
++      } else if (ev.type === "dont") {
++        const reply = replyToNegotiation("dont", ev.option, {
++          mccp: mccpEnabled,
++        });
++        if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(false);
+       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+         if (ev.payload.length > 0 && ev.payload[0] === 1) {
+           sendTcp(ttypeIs("ANSI"));
+diff --git a/apps/proxy/tests/mccp-bridge.test.ts b/apps/proxy/tests/mccp-bridge.test.ts
+index 9072478..fb34108 100644
+--- a/apps/proxy/tests/mccp-bridge.test.ts
++++ b/apps/proxy/tests/mccp-bridge.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, it, expect, vi, beforeEach } from "vitest";
+ import zlib from "node:zlib";
+ import { EventEmitter } from "node:events";
+-import { IAC, WILL, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
++import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
+ 
+ const sockets: FakeSock[] = [];
+ 
+@@ -164,6 +164,60 @@ describe("bridge MCCP2", () => {
+     expect(sock.destroyed).toBe(true);
+   });
+ 
++  it("WILL ECHO → DO + JSON mask true; WONT → DONT + mask false", async () => {
++    const ws = fakeWs();
++    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
++    const sock = sockets[0]!;
++    sock.emit("data", Buffer.from([IAC, WILL, OPT.ECHO]));
++    await waitMs(15);
++    expect(
++      sock.written.some(
++        (b) => b.length >= 3 && b[0] === IAC && b[1] === DO && b[2] === OPT.ECHO,
++      ),
++    ).toBe(true);
++    const maskOn = ws.send.mock.calls
++      .map((c) => c[0])
++      .filter((x): x is string => typeof x === "string")
++      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
++      .find((j) => j.type === "echo");
++    expect(maskOn).toEqual({ type: "echo", mask: true });
++
++    sock.emit("data", Buffer.from([IAC, WONT, OPT.ECHO]));
++    await waitMs(15);
++    expect(
++      sock.written.some(
++        (b) =>
++          b.length >= 3 && b[0] === IAC && b[1] === DONT && b[2] === OPT.ECHO,
++      ),
++    ).toBe(true);
++    const echoes = ws.send.mock.calls
++      .map((c) => c[0])
++      .filter((x): x is string => typeof x === "string")
++      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
++      .filter((j) => j.type === "echo");
++    expect(echoes.at(-1)).toEqual({ type: "echo", mask: false });
++  });
++
++  it("reversed DO ECHO → WILL + mask true", async () => {
++    const ws = fakeWs();
++    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
++    const sock = sockets[0]!;
++    sock.emit("data", Buffer.from([IAC, DO, OPT.ECHO]));
++    await waitMs(15);
++    expect(
++      sock.written.some(
++        (b) =>
++          b.length >= 3 && b[0] === IAC && b[1] === WILL && b[2] === OPT.ECHO,
++      ),
++    ).toBe(true);
++    const maskOn = ws.send.mock.calls
++      .map((c) => c[0])
++      .filter((x): x is string => typeof x === "string")
++      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
++      .find((j) => j.type === "echo");
++    expect(maskOn).toEqual({ type: "echo", mask: true });
++  });
++
+   it("destroys on inflate cap exceed", async () => {
+     const ws = fakeWs();
+     bridgeWsToMud(ws as never, {
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 21f8515..a9c7191 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -99,6 +99,8 @@ export function App() {
+   const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
+   const [cmd, setCmd] = useState("");
+   const [inputDraft, setInputDraft] = useState("");
++  /** Telnet ECHO password-mode — only while server WILL ECHO. */
++  const [echoMask, setEchoMask] = useState(false);
+   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
+   const [showLog, setShowLog] = useState(false);
+   const [drawerOpen, setDrawerOpen] = useState(false);
+@@ -176,10 +178,25 @@ export function App() {
+   const handleStatus = useCallback(
+     (e: StatusEvent) => {
+       setTabStatus(tabIdRef.current, e);
++      // connection lifecycle changes should never leave mask stuck
++      if (
++        e.code === "disconnected" ||
++        e.code === "idle" ||
++        e.code === "connecting" ||
++        e.code === "max_retries" ||
++        e.code === "proxy_error" ||
++        e.code === "error"
++      ) {
++        setEchoMask(false);
++      }
+     },
+     [setTabStatus],
+   );
+ 
++  const handleEchoMask = useCallback((mask: boolean) => {
++    setEchoMask(mask);
++  }, []);
++
+   const handleServerLine = useCallback((line: string) => {
+     engine.onServerLine(line);
+     const id = tabIdRef.current;
+@@ -470,6 +487,7 @@ export function App() {
+                   expandInput={onSendThroughEngine}
+                   onServerLine={handleServerLine}
+                   onStatus={handleStatus}
++                  onEchoMask={handleEchoMask}
+                   terminalFontStack={fontStack}
+                   fontSizePx={termFont.fontSizePx}
+                 />
+@@ -811,21 +829,28 @@ export function App() {
+           <input
+             value={inputDraft}
+             onChange={(e) => setInputDraft(e.target.value)}
++            type={echoMask ? "password" : "text"}
+             autoComplete="off"
++            autoCorrect="off"
++            autoCapitalize="off"
++            spellCheck={false}
+             enterKeyHint="send"
+             disabled={!tab.connected}
++            aria-label={echoMask ? "password" : "command"}
+             className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+             style={{
+               background: "var(--bg-elevated)",
+-              borderColor: "var(--border)",
++              borderColor: echoMask ? "var(--accent)" : "var(--border)",
+               color: "var(--text)",
+               // @ts-expect-error css var
+               "--tw-ring-color": "var(--accent-glow)",
+             }}
+             placeholder={
+-              tab.connected
+-                ? t("shell.cmd.placeholder")
+-                : t("shell.cmd.placeholder.idle")
++              !tab.connected
++                ? t("shell.cmd.placeholder.idle")
++                : echoMask
++                  ? "••••••••"
++                  : t("shell.cmd.placeholder")
+             }
+           />
+           <button
+diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+index 209f774..b2bba7a 100644
+--- a/apps/web/src/TerminalHost.tsx
++++ b/apps/web/src/TerminalHost.tsx
+@@ -13,6 +13,8 @@ type Props = {
+   wsUrl: string | null;
+   hello: HelloMsg;
+   onStatus?: (e: StatusEvent) => void;
++  /** Telnet ECHO password-mode (transient; not connection status). */
++  onEchoMask?: (mask: boolean) => void;
+   injectCommand?: string;
+   onInjectConsumed?: () => void;
+   expandInput?: (line: string) => string[];
+@@ -54,6 +56,7 @@ export function TerminalHost({
+   wsUrl,
+   hello,
+   onStatus,
++  onEchoMask,
+   injectCommand,
+   onInjectConsumed,
+   expandInput,
+@@ -79,6 +82,8 @@ export function TerminalHost({
+   helloRef.current = hello;
+   const onStatusRef = useRef(onStatus);
+   onStatusRef.current = onStatus;
++  const onEchoMaskRef = useRef(onEchoMask);
++  onEchoMaskRef.current = onEchoMask;
+   const onServerLineRef = useRef(onServerLine);
+   onServerLineRef.current = onServerLine;
+   const expandInputRef = useRef(expandInput);
+@@ -160,6 +165,9 @@ export function TerminalHost({
+           if (ln) onServerLineRef.current?.(ln);
+         }
+       },
++      onEchoMask: (mask) => {
++        onEchoMaskRef.current?.(mask);
++      },
+     });
+ 
+     const unsub = sock.subscribeStatus(() => {
+@@ -171,6 +179,7 @@ export function TerminalHost({
+     return () => {
+       unsub();
+       sock.stop();
++      onEchoMaskRef.current?.(false);
+       if (socketRef.current === sock) socketRef.current = null;
+       decoderRef.current.reset();
+       lineAcc.current = "";
+diff --git a/apps/web/src/lib/mudSocket.ts b/apps/web/src/lib/mudSocket.ts
+index 5d41b42..d44555f 100644
+--- a/apps/web/src/lib/mudSocket.ts
++++ b/apps/web/src/lib/mudSocket.ts
+@@ -32,6 +32,11 @@ export type StatusEvent = {
+ export type MudSocketHandlers = {
+   /** Raw binary frame from MUD (Big5 bytes). */
+   onBinary?: (bytes: Uint8Array) => void;
++  /**
++   * Telnet ECHO password-mode: true while server WILL ECHO (mask input);
++   * false on WONT ECHO. Separate from StatusEvent connection lifecycle.
++   */
++  onEchoMask?: (mask: boolean) => void;
+ };
+ 
+ /** Reconnect backoff: base * 2^(n-1), capped, with jitter. */
+@@ -249,7 +254,11 @@ export class MudSocket {
+         const s = ev.data;
+         if (s.startsWith("{")) {
+           try {
+-            const j = JSON.parse(s) as { type?: string; message?: string };
++            const j = JSON.parse(s) as {
++              type?: string;
++              message?: string;
++              mask?: boolean;
++            };
+             if (j.type === "error") {
+               const detail = sanitizeDetail(j.message ?? "");
+               this.setStatus(
+@@ -261,6 +270,10 @@ export class MudSocket {
+               // full session ready — clear backoff counter
+               this.attempt = 0;
+               this.setStatus({ code: "connected" });
++              // new mud hop — never leave password mask sticky
++              this.handlers.onEchoMask?.(false);
++            } else if (j.type === "echo") {
++              this.handlers.onEchoMask?.(j.mask === true);
+             }
+           } catch {
+             this.setStatus({ code: "bad_frame" });
+diff --git a/packages/protocol/src/telnet.ts b/packages/protocol/src/telnet.ts
+index ac12035..49bfe41 100644
+--- a/packages/protocol/src/telnet.ts
++++ b/packages/protocol/src/telnet.ts
+@@ -156,19 +156,34 @@ export type NegotiationOpts = {
+   mccp?: boolean;
+ };
+ 
+-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
++/**
++ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
++ * ECHO accept (password mask): WILL ECHO → DO; DO ECHO → WILL (reversed MUDs).
++ */
+ export function replyToNegotiation(
+-  kind: "will" | "do",
++  kind: "will" | "do" | "wont" | "dont",
+   option: number,
+   opts: NegotiationOpts = {},
+ ): Uint8Array | null {
+   const mccp = opts.mccp === true;
+   if (kind === "will") {
++    if (option === OPT.ECHO) return cmd(DO, OPT.ECHO);
+     if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
+     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+     return cmd(DONT, option);
+   }
++  if (kind === "wont") {
++    // Server stops remote-echo claim → acknowledge DONT (password mask off)
++    if (option === OPT.ECHO) return cmd(DONT, OPT.ECHO);
++    return null;
++  }
++  if (kind === "dont") {
++    // Server demands we not echo; for reversed password path, mask off
++    if (option === OPT.ECHO) return cmd(WONT, OPT.ECHO);
++    return null;
++  }
+   // DO
++  if (option === OPT.ECHO) return cmd(WILL, OPT.ECHO); // reversed MUD password mask
+   if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+   if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+diff --git a/packages/protocol/tests/telnet.test.ts b/packages/protocol/tests/telnet.test.ts
+index 42aae36..87e07d6 100644
+--- a/packages/protocol/tests/telnet.test.ts
++++ b/packages/protocol/tests/telnet.test.ts
+@@ -63,6 +63,29 @@ describe("TelnetParser", () => {
+     ]);
+   });
+ 
++  it("ECHO password mask: WILL→DO, WONT→DONT, reversed DO→WILL", () => {
++    expect([...replyToNegotiation("will", OPT.ECHO)!]).toEqual([
++      IAC,
++      DO,
++      OPT.ECHO,
++    ]);
++    expect([...replyToNegotiation("wont", OPT.ECHO)!]).toEqual([
++      IAC,
++      DONT,
++      OPT.ECHO,
++    ]);
++    expect([...replyToNegotiation("do", OPT.ECHO)!]).toEqual([
++      IAC,
++      WILL_C,
++      OPT.ECHO,
++    ]);
++    expect([...replyToNegotiation("dont", OPT.ECHO)!]).toEqual([
++      IAC,
++      WONT,
++      OPT.ECHO,
++    ]);
++  });
++
+   it("pushUntilMccpStart stops after SE and returns residual", () => {
+     const p = new TelnetParser();
+     // plaintext Hi + IAC SB MCCP2 IAC SE + residual bytes 0x78 0x9c (zlib header-ish)
+
+exec
+/usr/bin/zsh -lc "rg -n \"onEchoMask|echoMask|type=\\\"password\\\"|StatusEvent|replyToNegotiation\\(\" apps packages --glob '*.{ts,tsx}' && sed -n '1,340p' apps/web/src/lib/mudSocket.ts && sed -n '60,210p' apps/proxy/src/bridge.ts && git diff --check && npm test -- --run packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts && npm run typecheck" in /home/cookys/projects/assmud
+ exited 2 in 0ms:
+packages/protocol/src/telnet.ts:163:export function replyToNegotiation(
+apps/web/src/lib/mudSocket.ts:3: * Status is structured StatusEvent only (no English display strings as identity).
+apps/web/src/lib/mudSocket.ts:27:export type StatusEvent = {
+apps/web/src/lib/mudSocket.ts:37:   * false on WONT ECHO. Separate from StatusEvent connection lifecycle.
+apps/web/src/lib/mudSocket.ts:39:  onEchoMask?: (mask: boolean) => void;
+apps/web/src/lib/mudSocket.ts:62:function statusSignature(ev: StatusEvent): string {
+apps/web/src/lib/mudSocket.ts:68:export function statusEventsEqual(a: StatusEvent, b: StatusEvent): boolean {
+apps/web/src/lib/mudSocket.ts:82:  private status: StatusEvent = { code: "idle" };
+apps/web/src/lib/mudSocket.ts:94:  getStatus(): StatusEvent {
+apps/web/src/lib/mudSocket.ts:109:  private setStatus(ev: StatusEvent): void {
+apps/web/src/lib/mudSocket.ts:274:              this.handlers.onEchoMask?.(false);
+apps/web/src/lib/mudSocket.ts:276:              this.handlers.onEchoMask?.(j.mask === true);
+apps/web/src/App.tsx:21:  type StatusEvent,
+apps/web/src/App.tsx:40:const IDLE: StatusEvent = { code: "idle" };
+apps/web/src/App.tsx:46:  status: StatusEvent;
+apps/web/src/App.tsx:103:  const [echoMask, setEchoMask] = useState(false);
+apps/web/src/App.tsx:170:  const setTabStatus = useCallback((id: string, status: StatusEvent) => {
+apps/web/src/App.tsx:179:    (e: StatusEvent) => {
+apps/web/src/App.tsx:490:                  onEchoMask={handleEchoMask}
+apps/web/src/App.tsx:832:            type={echoMask ? "password" : "text"}
+apps/web/src/App.tsx:839:            aria-label={echoMask ? "password" : "command"}
+apps/web/src/App.tsx:843:              borderColor: echoMask ? "var(--accent)" : "var(--border)",
+apps/web/src/App.tsx:851:                : echoMask
+packages/protocol/tests/telnet.test.ts:43:    expect([...replyToNegotiation("will", OPT.MCCP2, { mccp: false })!]).toEqual(
+packages/protocol/tests/telnet.test.ts:46:    expect([...replyToNegotiation("will", OPT.MCCP2, { mccp: true })!]).toEqual(
+packages/protocol/tests/telnet.test.ts:49:    expect([...replyToNegotiation("will", OPT.MCCP2)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:54:    expect([...replyToNegotiation("do", OPT.TTYPE)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:59:    expect([...replyToNegotiation("do", OPT.MXP)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:67:    expect([...replyToNegotiation("will", OPT.ECHO)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:72:    expect([...replyToNegotiation("wont", OPT.ECHO)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:77:    expect([...replyToNegotiation("do", OPT.ECHO)!]).toEqual([
+packages/protocol/tests/telnet.test.ts:82:    expect([...replyToNegotiation("dont", OPT.ECHO)!]).toEqual([
+apps/web/tests/i18n.test.ts:13:import type { StatusCode, StatusEvent } from "../src/lib/mudSocket";
+apps/web/tests/i18n.test.ts:131:      const event: StatusEvent =
+apps/proxy/src/bridge.ts:89:  let echoMask = false;
+apps/proxy/src/bridge.ts:103:    if (echoMask === mask) return;
+apps/proxy/src/bridge.ts:104:    echoMask = mask;
+apps/proxy/src/bridge.ts:156:        const reply = replyToNegotiation("will", ev.option, {
+apps/proxy/src/bridge.ts:162:        const reply = replyToNegotiation("wont", ev.option, {
+apps/proxy/src/bridge.ts:168:        const reply = replyToNegotiation("do", ev.option, {
+apps/proxy/src/bridge.ts:175:        const reply = replyToNegotiation("dont", ev.option, {
+apps/web/src/i18n/statusCopy.ts:2:import type { StatusCode, StatusEvent } from "../lib/mudSocket";
+apps/web/src/i18n/statusCopy.ts:24:/** Map StatusEvent → message key + interpolation vars for `t()`. */
+apps/web/src/i18n/statusCopy.ts:25:export function statusCopy(event: StatusEvent): StatusCopy {
+apps/web/src/TerminalHost.tsx:8:import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+apps/web/src/TerminalHost.tsx:10:export type { HelloMsg, StatusEvent };
+apps/web/src/TerminalHost.tsx:15:  onStatus?: (e: StatusEvent) => void;
+apps/web/src/TerminalHost.tsx:17:  onEchoMask?: (mask: boolean) => void;
+apps/web/src/TerminalHost.tsx:59:  onEchoMask,
+apps/web/src/TerminalHost.tsx:85:  const onEchoMaskRef = useRef(onEchoMask);
+apps/web/src/TerminalHost.tsx:86:  onEchoMaskRef.current = onEchoMask;
+apps/web/src/TerminalHost.tsx:168:      onEchoMask: (mask) => {
+apps/web/src/TerminalHost.tsx:169:        onEchoMaskRef.current?.(mask);
+apps/web/src/TerminalHost.tsx:182:      onEchoMaskRef.current?.(false);
+apps/web/src/components/StatusPill.tsx:1:import type { StatusEvent } from "../lib/mudSocket";
+apps/web/src/components/StatusPill.tsx:4:type Props = { status: StatusEvent };
+/**
+ * WebSocket session outside React render — avoids setState/effect reconnect loops.
+ * Status is structured StatusEvent only (no English display strings as identity).
+ */
+
+export type HelloMsg = {
+  type: "hello";
+  token?: string;
+  host?: string;
+  port?: number;
+  cols?: number;
+  rows?: number;
+};
+
+export type StatusCode =
+  | "idle"
+  | "connecting"
+  | "handshaking"
+  | "connected"
+  | "disconnected"
+  | "reconnect_wait"
+  | "max_retries"
+  | "proxy_error"
+  | "bad_frame"
+  | "error";
+
+export type StatusEvent = {
+  code: StatusCode;
+  params?: Record<string, string | number>;
+};
+
+export type MudSocketHandlers = {
+  /** Raw binary frame from MUD (Big5 bytes). */
+  onBinary?: (bytes: Uint8Array) => void;
+  /**
+   * Telnet ECHO password-mode: true while server WILL ECHO (mask input);
+   * false on WONT ECHO. Separate from StatusEvent connection lifecycle.
+   */
+  onEchoMask?: (mask: boolean) => void;
+};
+
+/** Reconnect backoff: base * 2^(n-1), capped, with jitter. */
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_FACTOR = 2;
+const BACKOFF_MAX_MS = 60_000;
+/** Stop auto-retry after this many failures (user can reconnect via UI). */
+const MAX_ATTEMPTS = 12;
+/** Hard floor between open() calls even if something double-fires. */
+const MIN_OPEN_GAP_MS = 1_500;
+
+function backoffDelayMs(attempt: number): number {
+  // attempt 1 → 2s, 2 → 4s, 3 → 8s, … → cap 60s
+  const exp = Math.min(
+    BACKOFF_BASE_MS * BACKOFF_FACTOR ** Math.max(0, attempt - 1),
+    BACKOFF_MAX_MS,
+  );
+  // full jitter in [50%, 100%] of nominal — spreads thundering herd
+  const jittered = exp * (0.5 + Math.random() * 0.5);
+  return Math.round(Math.max(MIN_OPEN_GAP_MS, jittered));
+}
+
+function statusSignature(ev: StatusEvent): string {
+  return ev.params
+    ? `${ev.code}:${JSON.stringify(ev.params)}`
+    : ev.code;
+}
+
+export function statusEventsEqual(a: StatusEvent, b: StatusEvent): boolean {
+  return statusSignature(a) === statusSignature(b);
+}
+
+function sanitizeDetail(raw: string): string {
+  return raw.replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "").slice(0, 200);
+}
+
+export class MudSocket {
+  private ws: WebSocket | null = null;
+  private disposed = false;
+  private attempt = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private session = 0;
+  private status: StatusEvent = { code: "idle" };
+  private statusSig = "idle";
+  private statusListeners = new Set<() => void>();
+  private handlers: MudSocketHandlers = {};
+  private lastOpenAt = 0;
+  private opening = false;
+
+  constructor(
+    private readonly url: string,
+    private readonly getHello: () => HelloMsg,
+  ) {}
+
+  getStatus(): StatusEvent {
+    return this.status;
+  }
+
+  subscribeStatus(cb: () => void): () => void {
+    this.statusListeners.add(cb);
+    return () => {
+      this.statusListeners.delete(cb);
+    };
+  }
+
+  setHandlers(h: MudSocketHandlers): void {
+    this.handlers = h;
+  }
+
+  private setStatus(ev: StatusEvent): void {
+    const sig = statusSignature(ev);
+    if (this.statusSig === sig) return;
+    this.status = ev;
+    this.statusSig = sig;
+    for (const cb of [...this.statusListeners]) {
+      try {
+        cb();
+      } catch {
+        /* listener errors must not kill socket */
+      }
+    }
+  }
+
+  start(): void {
+    this.disposed = false;
+    this.attempt = 0;
+    this.open();
+  }
+
+  stop(): void {
+    this.disposed = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    this.killSocket();
+    this.setStatus({ code: "disconnected" });
+  }
+
+  send(line: string): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (line.length > 4096) return;
+    ws.send(line);
+  }
+
+  private killSocket(): void {
+    const prev = this.ws;
+    this.ws = null;
+    // bump session so any late events from prev are ignored
+    this.session += 1;
+    if (!prev) return;
+    prev.onopen = null;
+    prev.onclose = null;
+    prev.onerror = null;
+    prev.onmessage = null;
+    try {
+      if (
+        prev.readyState === WebSocket.OPEN ||
+        prev.readyState === WebSocket.CONNECTING
+      ) {
+        prev.close();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.disposed) return;
+    if (this.timer) return; // already waiting — never stack timers
+    this.opening = false;
+    this.attempt += 1;
+    if (this.attempt > MAX_ATTEMPTS) {
+      this.setStatus({ code: "max_retries" });
+      return;
+    }
+    const delayMs = backoffDelayMs(this.attempt);
+    const seconds = Math.max(1, Math.round(delayMs / 1000));
+    this.setStatus({
+      code: "reconnect_wait",
+      params: { seconds, attempt: this.attempt, max: MAX_ATTEMPTS },
+    });
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      if (!this.disposed) this.open();
+    }, delayMs);
+  }
+
+  private open(): void {
+    if (this.disposed) return;
+    if (this.timer) return; // honour pending backoff; never open early
+    if (this.opening) return;
+
+    const now = Date.now();
+    const since = now - this.lastOpenAt;
+    if (this.lastOpenAt > 0 && since < MIN_OPEN_GAP_MS) {
+      // force gap even on first-failure storms
+      if (!this.timer) {
+        this.timer = setTimeout(() => {
+          this.timer = undefined;
+          if (!this.disposed) this.open();
+        }, MIN_OPEN_GAP_MS - since);
+      }
+      return;
+    }
+
+    this.opening = true;
+    this.lastOpenAt = now;
+    this.killSocket();
+    // killSocket bumped session; assign id for this attempt after kill
+    const sid = this.session;
+    this.setStatus({ code: "connecting" });
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(this.url);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+
+    ws.onopen = () => {
+      if (this.disposed || this.session !== sid || this.ws !== ws) return;
+      this.opening = false;
+      // only reset backoff after TCP is actually up
+      this.setStatus({ code: "handshaking" });
+      try {
+        ws.send(JSON.stringify(this.getHello()));
+      } catch {
+        /* onclose retries */
+      }
+    };
+
+    ws.onerror = () => {
+      /* browser always follows with onclose — do not touch React here */
+    };
+
+    ws.onclose = () => {
+      if (this.session !== sid) return;
+      if (this.ws === ws) this.ws = null;
+      this.opening = false;
+      if (this.disposed) {
+        this.setStatus({ code: "disconnected" });
+        return;
+      }
+      this.scheduleReconnect();
+    };
+
+    ws.onmessage = (ev) => {
+      if (this.disposed || this.session !== sid || this.ws !== ws) return;
+      if (typeof ev.data === "string") {
+        const s = ev.data;
+        if (s.startsWith("{")) {
+          try {
+            const j = JSON.parse(s) as {
+              type?: string;
+              message?: string;
+              mask?: boolean;
+            };
+            if (j.type === "error") {
+              const detail = sanitizeDetail(j.message ?? "");
+              this.setStatus(
+                detail
+                  ? { code: "proxy_error", params: { detail } }
+                  : { code: "proxy_error" },
+              );
+            } else if (j.type === "ready") {
+              // full session ready — clear backoff counter
+              this.attempt = 0;
+              this.setStatus({ code: "connected" });
+              // new mud hop — never leave password mask sticky
+              this.handlers.onEchoMask?.(false);
+            } else if (j.type === "echo") {
+              this.handlers.onEchoMask?.(j.mask === true);
+            }
+          } catch {
+            this.setStatus({ code: "bad_frame" });
+          }
+        }
+        return;
+      }
+      this.handlers.onBinary?.(new Uint8Array(ev.data as ArrayBuffer));
+    };
+  }
+}
+  const rows = opts.rows ?? 24;
+  const mccpEnabled =
+    opts.mccp ??
+    (() => {
+      const v = (process.env.ASSMUD_MCCP ?? "1").toLowerCase();
+      return !["0", "false", "off", "no"].includes(v);
+    })();
+
+  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
+  const MAX_INFLATED_PER_WINDOW =
+    opts.maxInflatedPerWindow ??
+    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
+  const MAX_INFLATED_SESSION =
+    opts.maxInflatedSession ??
+    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
+  const MAX_WIRE_SESSION =
+    opts.maxCompressedWireSession ??
+    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
+
+  let compressedMode = false;
+  let inflate: zlib.Inflate | null = null;
+  let inflatedSession = 0;
+  let inflatedWindow = 0;
+  let windowStart = Date.now();
+  let wireSession = 0;
+  let closed = false;
+  let finishing = false;
+  let errorSent = false;
+  /** Server ECHO option active → client should mask local input (password). */
+  let echoMask = false;
+
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendJson = (obj: Record<string, unknown>) => {
+    if (closed || ws.readyState !== ws.OPEN) return;
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const setEchoMask = (mask: boolean) => {
+    if (echoMask === mask) return;
+    echoMask = mask;
+    sendJson({ type: "echo", mask });
+  };
+
+  const destroy = (reason: string) => {
+    if (closed) return;
+    closed = true;
+    try {
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    inflate = null;
+    if (ws.readyState === ws.OPEN) {
+      if (!errorSent) {
+        errorSent = true;
+        const msg = reason
+          .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+          .slice(0, 200);
+        try {
+          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        ws.close(1011, "bridge destroy");
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      sock.destroy();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  const forwardData = (bytes: Uint8Array) => {
+    if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
+    ws.send(bytes);
+  };
+
+  const handleEvents = (events: TelnetEvent[]) => {
+    for (const ev of events) {
+      if (ev.type === "data") {
+        forwardData(ev.bytes);
+      } else if (ev.type === "will") {
+        const reply = replyToNegotiation("will", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "wont") {
+        const reply = replyToNegotiation("wont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
+      } else if (ev.type === "do") {
+        const reply = replyToNegotiation("do", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "dont") {
+        const reply = replyToNegotiation("dont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      }
+      // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
+    }
+  };
+
+  const feedDecompressed = (buf: Buffer) => {
+    if (closed) return;
+    const now = Date.now();
+    if (now - windowStart >= WINDOW_MS) {
+      windowStart = now;
+      inflatedWindow = 0;
+    }
+    let offset = 0;
+    while (offset < buf.length) {
+      const slice = buf.subarray(
+        offset,
+        Math.min(offset + MAX_PARSER_FEED, buf.length),
+      );
+      offset += slice.length;
+
+      const nextSess = addCap(inflatedSession, slice.length, MAX_INFLATED_SESSION);
+      const nextWin = addCap(inflatedWindow, slice.length, MAX_INFLATED_PER_WINDOW);
+      if (nextSess == null || nextWin == null) {
+        destroy("mccp inflate cap exceeded");
+        return;
+      }
+      inflatedSession = nextSess;
+docs/research/zmud-feature-matrix.md:4: trailing whitespace.
++> **更新日期**: 2026-07-21（W05 ECHO survey 補注）  
+docs/research/zmud-feature-matrix.md:5: trailing whitespace.
++> **來源**: Zugg zMUD 產品頁／MXP·MCCP 文檔、Mudlet Supported Protocols（ECHO）、Last Outpost ECHO/SGA、RFC 857、TinTin++、本倉 RW probe + code audit  
+docs/research/zmud-feature-matrix.md:57: trailing whitespace.
++> **不是** trigger 抓「第二行輸入」。  
+docs/research/zmud-feature-matrix.md:69: trailing whitespace.
++- 預設 `WONT ECHO`：remote echo 關 → **客端 line editor 自己顯示**正在打的字（平常玩看得到 `n` / `look` 的主因）。  
+docs/research/zmud-feature-matrix.md:70: trailing whitespace.
++- `WILL ECHO`：伺服器宣稱「echo 由我負責」→ 客端 **不要本地回顯明文**；密碼時伺服器 **故意不 echo 任何字** → 畫面無明文。  
+docs/research/zmud-feature-matrix.md:219: trailing whitespace.
++- [x] **W08 MCCP2**（proxy 串流；見 mccp2-stream project）  
+docs/research/zmud-feature-matrix.md:220: trailing whitespace.
++- [x] **W05 ECHO** 短暫 password mask（C2；見 §1.1 / plan echo-password-mask）  
+docs/research/zmud-feature-matrix.md:236: trailing whitespace.
++- Zugg zMUD info / MXP / MCCP 說明頁；zMUD version history（WILL ECHO + DO ECHO 相容）  
+docs/research/zmud-feature-matrix.md:237: trailing whitespace.
++- Mudlet Manual: Supported Protocols → **ECHO (Password Masking)**（WILL 開 mask / WONT 關）  
+docs/research/zmud-feature-matrix.md:238: trailing whitespace.
++- [Last Outpost: ECHO and SGA for MUDs](https://www.last-outpost.com/LO/protocols/echosga.html)（line-mode hidden password entry）  
+docs/research/zmud-feature-matrix.md:239: trailing whitespace.
++- [RFC 857 Telnet Echo Option](https://www.rfc-editor.org/rfc/rfc857.html)  
+
+exec
+/usr/bin/zsh -lc 'npm test -- --run packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts' in /home/cookys/projects/assmud
+ succeeded in 1320ms:
+
+> assmud@0.1.0 test
+> vitest run --run packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ packages/protocol/tests/telnet.test.ts (6 tests) 7ms
+ ✓ apps/proxy/tests/mccp-bridge.test.ts (11 tests) 377ms
+
+ Test Files  2 passed (2)
+      Tests  17 passed (17)
+   Start at  18:24:29
+   Duration  839ms (transform 124ms, setup 0ms, collect 163ms, tests 384ms, environment 0ms, prepare 171ms)
+
+
+exec
+/usr/bin/zsh -lc 'npm run typecheck && npm test' in /home/cookys/projects/assmud
+ exited 1 in 3066ms:
+
+> assmud@0.1.0 test
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ❯ apps/proxy/tests/policy.test.ts (7 tests | 1 failed) 19ms
+   × policy > allows RW on allowlist 14ms
+     → expected false to be true // Object.is equality
+ ✓ packages/mapper/tests/map.test.ts (1 test) 3ms
+ ✓ packages/protocol/tests/telnet.test.ts (6 tests) 7ms
+ ✓ packages/vt/tests/sgr-sanitize.test.ts (4 tests) 5ms
+ ✓ packages/script-engine/tests/engine.test.ts (5 tests) 7ms
+ ✓ packages/terminal/tests/map-vt.test.ts (5 tests) 10ms
+ ✓ packages/terminal/tests/buffer.test.ts (4 tests) 6ms
+ ✓ packages/codec-big5/tests/decode.test.ts (2 tests) 15ms
+ ✓ apps/web/tests/i18n.test.ts (19 tests) 17ms
+ ✓ apps/proxy/tests/mccp-bridge.test.ts (11 tests) 392ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/proxy/tests/policy.test.ts > policy > allows RW on allowlist
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/proxy/tests/policy.test.ts:53:18
+     51|   it("allows RW on allowlist", async () => {
+     52|     const r = await assertDestinationAllowed("mud.revivalworld.org", 4…
+     53|     expect(r.ok).toBe(true);
+       |                  ^
+     54|     if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+     55|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  1 failed | 63 passed (64)
+   Start at  18:24:39
+   Duration  1.03s (transform 1.16s, setup 0ms, collect 1.90s, tests 481ms, environment 2ms, prepare 1.02s)
+
+
+exec
+/usr/bin/zsh -lc "sed -n '430,515p' apps/web/src/App.tsx && sed -n '760,870p' apps/web/src/App.tsx && sed -n '1,100p' apps/proxy/tests/policy.test.ts && git diff --numstat && git diff -- packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts | rg '"'^-'"'" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+            }}
+            title={t("shell.newTab")}
+          >
+            +
+          </button>
+        </div>
+
+        <StatusPill status={tab.status} />
+
+        <LocaleSwitch compact className="hidden lg:inline-flex" />
+
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border hidden sm:inline-flex"
+          style={{
+            borderColor: "var(--border)",
+            background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text-dim)",
+          }}
+          onClick={() => setMapOpen((v) => !v)}
+        >
+          {t("shell.map")}
+        </button>
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border"
+          style={{
+            borderColor: drawerOpen ? "var(--accent)" : "var(--border)",
+            background: drawerOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text)",
+          }}
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label={t("shell.settings")}
+        >
+          ⚙
+        </button>
+      </header>
+
+      {/* Main stage */}
+      <div className="flex-1 min-h-0 flex relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 p-2 sm:p-3">
+            <div
+              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              style={{
+                borderColor: "var(--border)",
+                background: "#0a0b0e",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+              }}
+            >
+              {tab.connected ? (
+                <TerminalHost
+                  key={tabId}
+                  wsUrl={wsUrl}
+                  hello={hello}
+                  injectCommand={cmd}
+                  onInjectConsumed={() => setCmd("")}
+                  expandInput={onSendThroughEngine}
+                  onServerLine={handleServerLine}
+                  onStatus={handleStatus}
+                  onEchoMask={handleEchoMask}
+                  terminalFontStack={fontStack}
+                  fontSizePx={termFont.fontSizePx}
+                />
+              ) : (
+                <div
+                  className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  <p className="font-mono text-sm">{t("shell.session.idle")}</p>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
+                    style={{
+                      background: "var(--accent)",
+                      color: "#0a0b0e",
+                    }}
+                    onClick={connectTab}
+                  >
+                    {t("shell.connect")}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+                    {t("drawer.saveLog")}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={exportProfiles}
+                  >
+                    {t("drawer.export")}
+                  </button>
+                  <label
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs cursor-pointer"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    {t("drawer.import")}
+                    <input
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void importProfilesFile(f);
+                      }}
+                    />
+                  </label>
+                </div>
+                {showLog && (
+                  <pre
+                    className="max-h-48 overflow-auto text-[11px] font-mono rounded border p-2"
+                    style={{
+                      background: "var(--bg-void)",
+                      borderColor: "var(--border)",
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    {tab.log.slice(-100).join("\n") || t("drawer.emptyLog")}
+                  </pre>
+                )}
+                <p className="text-[11px]" style={{ color: "var(--text-faint)" }}>
+                  pack: {RW_STARTER_PACK.name} · profiles:{" "}
+                  {profiles.length || DEFAULT_PROFILES.length}
+                </p>
+              </div>
+            </aside>
+          </>
+        )}
+      </div>
+
+      {/* Command bar */}
+      <footer
+        className="shrink-0 border-t px-2 sm:px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        style={{
+          background: "var(--bg-panel)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <form
+          className="flex gap-2 items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitCmd(inputDraft);
+          }}
+        >
+          <span
+            className="font-mono text-sm select-none hidden sm:inline"
+            style={{ color: "var(--accent)" }}
+          >
+            ›
+          </span>
+          <input
+            value={inputDraft}
+            onChange={(e) => setInputDraft(e.target.value)}
+            type={echoMask ? "password" : "text"}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            disabled={!tab.connected}
+            aria-label={echoMask ? "password" : "command"}
+            className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: echoMask ? "var(--accent)" : "var(--border)",
+              color: "var(--text)",
+              // @ts-expect-error css var
+              "--tw-ring-color": "var(--accent-glow)",
+            }}
+            placeholder={
+              !tab.connected
+                ? t("shell.cmd.placeholder.idle")
+                : echoMask
+                  ? "••••••••"
+                  : t("shell.cmd.placeholder")
+            }
+          />
+          <button
+            type="submit"
+            disabled={!tab.connected}
+            className="rounded-[var(--radius-sm)] px-4 py-2.5 text-sm font-semibold min-w-[4.5rem] min-h-[44px] disabled:opacity-40"
+            style={{
+              background: "var(--accent)",
+              color: "#0a0b0e",
+            }}
+          >
+            {t("shell.send")}
+          </button>
+        </form>
+
+        {/* Thumb pad — always visible on mobile, subtle on desktop */}
+        <div className="flex flex-wrap gap-1.5 mt-2 pb-1">
+import { describe, it, expect } from "vitest";
+import {
+  assertDestinationAllowed,
+  checkAuth,
+  checkOrigin,
+  defaultConfig,
+  isPrivateOrBlockedIp,
+} from "../src/policy.js";
+
+describe("policy", () => {
+  const dev = defaultConfig("localhost-dev");
+  const prod = {
+    ...defaultConfig("remote-prod"),
+    authToken: "secret",
+    originAllowlist: ["https://mud.example.com"],
+  };
+
+  it("blocks private IPs", () => {
+    expect(isPrivateOrBlockedIp("10.0.0.1")).toBe(true);
+    expect(isPrivateOrBlockedIp("192.168.1.1")).toBe(true);
+    expect(isPrivateOrBlockedIp("169.254.169.254")).toBe(true);
+    expect(isPrivateOrBlockedIp("8.8.8.8")).toBe(false);
+  });
+
+  it("denies unauth in prod; query token not accepted in remote-prod", () => {
+    const url = new URL("http://x/ws?host=mud.revivalworld.org&port=4000");
+    expect(checkAuth(url, prod)).toBe(false);
+    const q = new URL("http://x/ws?token=secret");
+    expect(checkAuth(q, prod)).toBe(false);
+    expect(checkAuth(url, prod, undefined, "Bearer secret")).toBe(true);
+    expect(checkAuth(url, prod, undefined, "Bearer wrong")).toBe(false);
+  });
+
+  it("requires Origin in prod", () => {
+    expect(checkOrigin(undefined, prod)).toBe(false);
+    expect(checkOrigin("https://evil.com", prod)).toBe(false);
+    expect(checkOrigin("https://mud.example.com", prod)).toBe(true);
+  });
+
+  it("does not accept origin prefix tricks in dev", () => {
+    expect(checkOrigin("http://127.0.0.1.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://localhost.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://127.0.0.1:5173", dev)).toBe(true);
+  });
+
+  it("denies non-allowlisted host in prod", async () => {
+    const r = await assertDestinationAllowed("example.com", 22, prod);
+    expect(r.ok).toBe(false);
+  });
+
+  it("allows RW on allowlist", async () => {
+    const r = await assertDestinationAllowed("mud.revivalworld.org", 4000, prod);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+  });
+
+  it("dev still blocks random private IPs even with relax", async () => {
+    const r = await assertDestinationAllowed("10.1.2.3", 4000, dev);
+    expect(r.ok).toBe(false);
+  });
+});
+31	0	apps/proxy/src/bridge.ts
+55	1	apps/proxy/tests/mccp-bridge.test.ts
+29	4	apps/web/src/App.tsx
+9	0	apps/web/src/TerminalHost.tsx
+14	1	apps/web/src/lib/mudSocket.ts
+2	2	docs/plans/2026-07-21-rw-connect-protocols.md
+59	7	docs/research/zmud-feature-matrix.md
+17	2	packages/protocol/src/telnet.ts
+23	0	packages/protocol/tests/telnet.test.ts
+--- a/apps/proxy/tests/mccp-bridge.test.ts
+-import { IAC, WILL, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
+--- a/packages/protocol/tests/telnet.test.ts
+
+exec
+/usr/bin/zsh -lc "sed -n '35,210p' apps/web/src/App.tsx && sed -n '210,340p' apps/web/src/App.tsx && rg -n \"connected:\" apps/web/src/App.tsx" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+}
+
+const DEFAULT_WS =
+  import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
+
+const IDLE: StatusEvent = { code: "idle" };
+
+type Tab = {
+  id: string;
+  profileId: string;
+  connected: boolean;
+  status: StatusEvent;
+  log: string[];
+};
+
+const engine = new ScriptEngine();
+try {
+  engine.importPackage(JSON.stringify(RW_STARTER_PACK));
+} catch {
+  /* ignore */
+}
+const clientMap = new ClientMap();
+
+function useIsLg() {
+  const [lg, setLg] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const fn = () => setLg(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+  return lg;
+}
+
+export function App() {
+  const t = useT();
+  const { locale } = useLocale();
+  const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
+  const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
+  const fontStack = useMemo(
+    () => resolveFontStack(termFont, locale),
+    [termFont, locale],
+  );
+  const [token, setToken] = useState(
+    () => localStorage.getItem("assmud_token") ?? "",
+  );
+  const [accent, setAccent] = useState<AccentId>(() => loadAccent());
+  const [activeProfile, setActiveProfile] = useState(
+    profiles[0]?.id ?? "rw-4000",
+  );
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const id = newTabId();
+    return [
+      {
+        id,
+        profileId: "rw-4000",
+        connected: false,
+        status: IDLE,
+        log: [],
+      },
+    ];
+  });
+  const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
+  const [cmd, setCmd] = useState("");
+  const [inputDraft, setInputDraft] = useState("");
+  /** Telnet ECHO password-mode — only while server WILL ECHO. */
+  const [echoMask, setEchoMask] = useState(false);
+  const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
+  const [showLog, setShowLog] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [closeTargetId, setCloseTargetId] = useState<string | null>(null);
+  const isLg = useIsLg();
+  // Board: map open desktop, closed mobile
+  const [mapOpen, setMapOpen] = useState(true);
+  useEffect(() => {
+    setMapOpen(isLg);
+  }, [isLg]);
+
+  useEffect(() => {
+    applyAccent(accent);
+  }, [accent]);
+
+  const tab = tabs.find((t) => t.id === tabId) ?? tabs[0]!;
+  const profile =
+    profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
+    profiles[0]!;
+
+  const anyConnected = tabs.some((t) => t.connected);
+  const closeTarget = closeTargetId
+    ? tabs.find((t) => t.id === closeTargetId)
+    : undefined;
+  const closeTargetName =
+    profiles.find((p) => p.id === closeTarget?.profileId)?.name ??
+    closeTarget?.id ??
+    "session";
+
+  const requestCloseTab = (id: string) => {
+    setCloseTargetId(id);
+  };
+
+  const confirmCloseTab = () => {
+    const id = closeTargetId;
+    setCloseTargetId(null);
+    if (!id) return;
+
+    setTabs((ts) => {
+      const remaining = ts.filter((t) => t.id !== id);
+      if (remaining.length === 0) {
+        const fresh: Tab = {
+          id: newTabId(),
+          profileId: activeProfile,
+          connected: false,
+          status: IDLE,
+          log: [],
+        };
+        // switch after state settles
+        queueMicrotask(() => setTabId(fresh.id));
+        return [fresh];
+      }
+      if (tabId === id) {
+        const idx = ts.findIndex((t) => t.id === id);
+        const fallback =
+          remaining[Math.max(0, idx - 1)] ?? remaining[0]!;
+        queueMicrotask(() => setTabId(fallback.id));
+      }
+      return remaining;
+    });
+  };
+
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
+
+  // Stable forever — never recreated, so children cannot loop on identity.
+  const setTabStatus = useCallback((id: string, status: StatusEvent) => {
+    setTabs((ts) => {
+      const cur = ts.find((x) => x.id === id);
+      if (!cur || statusEventsEqual(cur.status, status)) return ts;
+      return ts.map((x) => (x.id === id ? { ...x, status } : x));
+    });
+  }, []);
+
+  const handleStatus = useCallback(
+    (e: StatusEvent) => {
+      setTabStatus(tabIdRef.current, e);
+      // connection lifecycle changes should never leave mask stuck
+      if (
+        e.code === "disconnected" ||
+        e.code === "idle" ||
+        e.code === "connecting" ||
+        e.code === "max_retries" ||
+        e.code === "proxy_error" ||
+        e.code === "error"
+      ) {
+        setEchoMask(false);
+      }
+    },
+    [setTabStatus],
+  );
+
+  const handleEchoMask = useCallback((mask: boolean) => {
+    setEchoMask(mask);
+  }, []);
+
+  const handleServerLine = useCallback((line: string) => {
+    engine.onServerLine(line);
+    const id = tabIdRef.current;
+    setTabs((ts) =>
+      ts.map((x) =>
+        x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
+      ),
+    );
+  }, []);
+
+  // Prefer loopback WS when page is loopback (avoids LAN hairpin / fd storms).
+  // Prefer loopback WS when page is loopback (avoids LAN hairpin / fd storms).
+  const wsUrl = useMemo(() => {
+    if (!tab?.connected) return null;
+    if (typeof window !== "undefined") {
+      const h = window.location.hostname;
+      if (h === "127.0.0.1" || h === "localhost") {
+        return "ws://127.0.0.1:7788/ws";
+      }
+    }
+    return DEFAULT_WS;
+  }, [tab?.connected]);
+
+  const hello: HelloMsg = useMemo(
+    () => ({
+      type: "hello",
+      token: token || undefined,
+      host: profile.host,
+      port: profile.port,
+      cols: 80,
+      rows: 28,
+    }),
+    [token, profile],
+  );
+
+  const onSendThroughEngine = useCallback((line: string) => {
+    const expanded = engine.expandInput(line);
+    for (const l of expanded) {
+      const dir = l.trim().toLowerCase();
+      if (["n", "s", "e", "w", "ne", "nw", "se", "sw", "u", "d"].includes(dir)) {
+        clientMap.move(dir as "n", dir);
+        setMapAscii(clientMap.ascii(4));
+      }
+    }
+    return expanded;
+  }, []);
+
+  const downloadLog = () => {
+    const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `assmud-session-${tab.id}.log`;
+    a.click();
+  };
+
+  const exportProfiles = () => {
+    const blob = new Blob([exportProfilesJson(profiles)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "assmud-profiles.json";
+    a.click();
+  };
+
+  const importProfilesFile = async (file: File) => {
+    const text = await file.text();
+    const list = importProfilesJson(text);
+    setProfiles(list);
+    saveProfiles(list);
+  };
+
+  const connectTab = () => {
+    setTabs((ts) =>
+      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+    );
+  };
+
+  const disconnectTab = () => {
+    setTabs((ts) =>
+      ts.map((x) =>
+        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
+      ),
+    );
+  };
+
+  const submitCmd = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    setCmd(trimmed);
+    setInputDraft("");
+  };
+
+  // ── Connect gate (pre-session) ─────────────────────────────────────
+  if (!anyConnected) {
+    return (
+      <ConnectGate
+        profiles={profiles.length ? profiles : DEFAULT_PROFILES}
+        profileId={tab.profileId}
+        token={token}
+        accent={accent}
+        onProfile={(id) => {
+          setActiveProfile(id);
+          setTabs((ts) =>
+            ts.map((x) => (x.id === tabId ? { ...x, profileId: id } : x)),
+          );
+        }}
+        onToken={(tok) => {
+          setToken(tok);
+          localStorage.setItem("assmud_token", tok);
+        }}
+        onAccent={(a) => {
+          setAccent(a);
+          applyAccent(a);
+        }}
+        onConnect={connectTab}
+        onImportProfiles={(f) => void importProfilesFile(f)}
+        onExportProfiles={exportProfiles}
+      />
+    );
+  }
+
+  // ── Play shell ─────────────────────────────────────────────────────
+  return (
+    <div
+      className="h-full flex flex-col min-h-0"
+      style={{ background: "var(--bg-void)" }}
+    >
+      <ConfirmModal
+        open={closeTargetId != null}
+        title={t("tab.close.title")}
+        body={
+          closeTarget?.connected
+            ? t("tab.close.body.connected", { name: closeTargetName })
+            : t("tab.close.body.idle", { name: closeTargetName })
+        }
+        confirmLabel={t("tab.close.confirm")}
+        cancelLabel={t("tab.close.cancel")}
+        dismissLabel={t("modal.dismiss")}
+        danger
+        onConfirm={confirmCloseTab}
+        onCancel={() => setCloseTargetId(null)}
+45:  connected: boolean;
+93:        connected: false,
+148:          connected: false,
+273:      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+280:        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
+424:                  connected: false,
+
+codex
+The required protocol/proxy tests pass, and TypeScript typechecking passes. The full suite has one unrelated environment-dependent failure: the live DNS allowlist test cannot resolve/approve `mud.revivalworld.org` in this restricted environment; all other 63 tests pass. I’m doing the final trace now, including test integrity and the uncommitted branch state.
+exec
+/usr/bin/zsh -lc "npm test -- --run apps/proxy/tests/policy.test.ts -t \"allows RW on allowlist\" --reporter=verbose; git diff -- packages/protocol/src/telnet.ts apps/proxy/src/bridge.ts apps/web/src/lib/mudSocket.ts apps/web/src/App.tsx apps/web/src/TerminalHost.tsx | sed -n '1,800p'; git status --short --branch" in /home/cookys/projects/assmud
+ succeeded in 915ms:
+
+> assmud@0.1.0 test
+> vitest run --run apps/proxy/tests/policy.test.ts -t allows RW on allowlist --reporter=verbose
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ × apps/proxy/tests/policy.test.ts > policy > allows RW on allowlist
+   → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/proxy/tests/policy.test.ts > policy > allows RW on allowlist
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/proxy/tests/policy.test.ts:53:18
+     51|   it("allows RW on allowlist", async () => {
+     52|     const r = await assertDestinationAllowed("mud.revivalworld.org", 4…
+     53|     expect(r.ok).toBe(true);
+       |                  ^
+     54|     if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+     55|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  18:25:03
+   Duration  434ms (transform 51ms, setup 0ms, collect 53ms, tests 14ms, environment 0ms, prepare 78ms)
+
+diff --git a/apps/proxy/src/bridge.ts b/apps/proxy/src/bridge.ts
+index ea9d9aa..251d4f0 100644
+--- a/apps/proxy/src/bridge.ts
++++ b/apps/proxy/src/bridge.ts
+@@ -85,9 +85,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   let closed = false;
+   let finishing = false;
+   let errorSent = false;
++  /** Server ECHO option active → client should mask local input (password). */
++  let echoMask = false;
+ 
+   const sock = net.connect({ host: opts.host, port: opts.port });
+ 
++  const sendJson = (obj: Record<string, unknown>) => {
++    if (closed || ws.readyState !== ws.OPEN) return;
++    try {
++      ws.send(JSON.stringify(obj));
++    } catch {
++      /* ignore */
++    }
++  };
++
++  const setEchoMask = (mask: boolean) => {
++    if (echoMask === mask) return;
++    echoMask = mask;
++    sendJson({ type: "echo", mask });
++  };
++
+   const destroy = (reason: string) => {
+     if (closed) return;
+     closed = true;
+@@ -140,12 +157,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+           mccp: mccpEnabled,
+         });
+         if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(true);
++      } else if (ev.type === "wont") {
++        const reply = replyToNegotiation("wont", ev.option, {
++          mccp: mccpEnabled,
++        });
++        if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(false);
+       } else if (ev.type === "do") {
+         const reply = replyToNegotiation("do", ev.option, {
+           mccp: mccpEnabled,
+         });
+         if (reply) sendTcp(reply);
+         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
++        if (ev.option === OPT.ECHO) setEchoMask(true);
++      } else if (ev.type === "dont") {
++        const reply = replyToNegotiation("dont", ev.option, {
++          mccp: mccpEnabled,
++        });
++        if (reply) sendTcp(reply);
++        if (ev.option === OPT.ECHO) setEchoMask(false);
+       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+         if (ev.payload.length > 0 && ev.payload[0] === 1) {
+           sendTcp(ttypeIs("ANSI"));
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 21f8515..a9c7191 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -99,6 +99,8 @@ export function App() {
+   const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
+   const [cmd, setCmd] = useState("");
+   const [inputDraft, setInputDraft] = useState("");
++  /** Telnet ECHO password-mode — only while server WILL ECHO. */
++  const [echoMask, setEchoMask] = useState(false);
+   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
+   const [showLog, setShowLog] = useState(false);
+   const [drawerOpen, setDrawerOpen] = useState(false);
+@@ -176,10 +178,25 @@ export function App() {
+   const handleStatus = useCallback(
+     (e: StatusEvent) => {
+       setTabStatus(tabIdRef.current, e);
++      // connection lifecycle changes should never leave mask stuck
++      if (
++        e.code === "disconnected" ||
++        e.code === "idle" ||
++        e.code === "connecting" ||
++        e.code === "max_retries" ||
++        e.code === "proxy_error" ||
++        e.code === "error"
++      ) {
++        setEchoMask(false);
++      }
+     },
+     [setTabStatus],
+   );
+ 
++  const handleEchoMask = useCallback((mask: boolean) => {
++    setEchoMask(mask);
++  }, []);
++
+   const handleServerLine = useCallback((line: string) => {
+     engine.onServerLine(line);
+     const id = tabIdRef.current;
+@@ -470,6 +487,7 @@ export function App() {
+                   expandInput={onSendThroughEngine}
+                   onServerLine={handleServerLine}
+                   onStatus={handleStatus}
++                  onEchoMask={handleEchoMask}
+                   terminalFontStack={fontStack}
+                   fontSizePx={termFont.fontSizePx}
+                 />
+@@ -811,21 +829,28 @@ export function App() {
+           <input
+             value={inputDraft}
+             onChange={(e) => setInputDraft(e.target.value)}
++            type={echoMask ? "password" : "text"}
+             autoComplete="off"
++            autoCorrect="off"
++            autoCapitalize="off"
++            spellCheck={false}
+             enterKeyHint="send"
+             disabled={!tab.connected}
++            aria-label={echoMask ? "password" : "command"}
+             className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+             style={{
+               background: "var(--bg-elevated)",
+-              borderColor: "var(--border)",
++              borderColor: echoMask ? "var(--accent)" : "var(--border)",
+               color: "var(--text)",
+               // @ts-expect-error css var
+               "--tw-ring-color": "var(--accent-glow)",
+             }}
+             placeholder={
+-              tab.connected
+-                ? t("shell.cmd.placeholder")
+-                : t("shell.cmd.placeholder.idle")
++              !tab.connected
++                ? t("shell.cmd.placeholder.idle")
++                : echoMask
++                  ? "••••••••"
++                  : t("shell.cmd.placeholder")
+             }
+           />
+           <button
+diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+index 209f774..b2bba7a 100644
+--- a/apps/web/src/TerminalHost.tsx
++++ b/apps/web/src/TerminalHost.tsx
+@@ -13,6 +13,8 @@ type Props = {
+   wsUrl: string | null;
+   hello: HelloMsg;
+   onStatus?: (e: StatusEvent) => void;
++  /** Telnet ECHO password-mode (transient; not connection status). */
++  onEchoMask?: (mask: boolean) => void;
+   injectCommand?: string;
+   onInjectConsumed?: () => void;
+   expandInput?: (line: string) => string[];
+@@ -54,6 +56,7 @@ export function TerminalHost({
+   wsUrl,
+   hello,
+   onStatus,
++  onEchoMask,
+   injectCommand,
+   onInjectConsumed,
+   expandInput,
+@@ -79,6 +82,8 @@ export function TerminalHost({
+   helloRef.current = hello;
+   const onStatusRef = useRef(onStatus);
+   onStatusRef.current = onStatus;
++  const onEchoMaskRef = useRef(onEchoMask);
++  onEchoMaskRef.current = onEchoMask;
+   const onServerLineRef = useRef(onServerLine);
+   onServerLineRef.current = onServerLine;
+   const expandInputRef = useRef(expandInput);
+@@ -160,6 +165,9 @@ export function TerminalHost({
+           if (ln) onServerLineRef.current?.(ln);
+         }
+       },
++      onEchoMask: (mask) => {
++        onEchoMaskRef.current?.(mask);
++      },
+     });
+ 
+     const unsub = sock.subscribeStatus(() => {
+@@ -171,6 +179,7 @@ export function TerminalHost({
+     return () => {
+       unsub();
+       sock.stop();
++      onEchoMaskRef.current?.(false);
+       if (socketRef.current === sock) socketRef.current = null;
+       decoderRef.current.reset();
+       lineAcc.current = "";
+diff --git a/apps/web/src/lib/mudSocket.ts b/apps/web/src/lib/mudSocket.ts
+index 5d41b42..d44555f 100644
+--- a/apps/web/src/lib/mudSocket.ts
++++ b/apps/web/src/lib/mudSocket.ts
+@@ -32,6 +32,11 @@ export type StatusEvent = {
+ export type MudSocketHandlers = {
+   /** Raw binary frame from MUD (Big5 bytes). */
+   onBinary?: (bytes: Uint8Array) => void;
++  /**
++   * Telnet ECHO password-mode: true while server WILL ECHO (mask input);
++   * false on WONT ECHO. Separate from StatusEvent connection lifecycle.
++   */
++  onEchoMask?: (mask: boolean) => void;
+ };
+ 
+ /** Reconnect backoff: base * 2^(n-1), capped, with jitter. */
+@@ -249,7 +254,11 @@ export class MudSocket {
+         const s = ev.data;
+         if (s.startsWith("{")) {
+           try {
+-            const j = JSON.parse(s) as { type?: string; message?: string };
++            const j = JSON.parse(s) as {
++              type?: string;
++              message?: string;
++              mask?: boolean;
++            };
+             if (j.type === "error") {
+               const detail = sanitizeDetail(j.message ?? "");
+               this.setStatus(
+@@ -261,6 +270,10 @@ export class MudSocket {
+               // full session ready — clear backoff counter
+               this.attempt = 0;
+               this.setStatus({ code: "connected" });
++              // new mud hop — never leave password mask sticky
++              this.handlers.onEchoMask?.(false);
++            } else if (j.type === "echo") {
++              this.handlers.onEchoMask?.(j.mask === true);
+             }
+           } catch {
+             this.setStatus({ code: "bad_frame" });
+diff --git a/packages/protocol/src/telnet.ts b/packages/protocol/src/telnet.ts
+index ac12035..49bfe41 100644
+--- a/packages/protocol/src/telnet.ts
++++ b/packages/protocol/src/telnet.ts
+@@ -156,19 +156,34 @@ export type NegotiationOpts = {
+   mccp?: boolean;
+ };
+ 
+-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
++/**
++ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
++ * ECHO accept (password mask): WILL ECHO → DO; DO ECHO → WILL (reversed MUDs).
++ */
+ export function replyToNegotiation(
+-  kind: "will" | "do",
++  kind: "will" | "do" | "wont" | "dont",
+   option: number,
+   opts: NegotiationOpts = {},
+ ): Uint8Array | null {
+   const mccp = opts.mccp === true;
+   if (kind === "will") {
++    if (option === OPT.ECHO) return cmd(DO, OPT.ECHO);
+     if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
+     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+     return cmd(DONT, option);
+   }
++  if (kind === "wont") {
++    // Server stops remote-echo claim → acknowledge DONT (password mask off)
++    if (option === OPT.ECHO) return cmd(DONT, OPT.ECHO);
++    return null;
++  }
++  if (kind === "dont") {
++    // Server demands we not echo; for reversed password path, mask off
++    if (option === OPT.ECHO) return cmd(WONT, OPT.ECHO);
++    return null;
++  }
+   // DO
++  if (option === OPT.ECHO) return cmd(WILL, OPT.ECHO); // reversed MUD password mask
+   if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+   if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+## feat/echo-password-mask
+ M apps/proxy/src/bridge.ts
+ M apps/proxy/tests/mccp-bridge.test.ts
+ M apps/web/src/App.tsx
+ M apps/web/src/TerminalHost.tsx
+ M apps/web/src/lib/mudSocket.ts
+ M docs/plans/2026-07-21-rw-connect-protocols.md
+ M docs/research/zmud-feature-matrix.md
+ M packages/protocol/src/telnet.ts
+ M packages/protocol/tests/telnet.test.ts
+?? docs/plans/2026-07-21-echo-password-mask.md
+?? docs/projects/2026-07-21-echo-password-mask/
+?? docs/reviews/2026-07-21-w05-echo-brief.txt
+?? docs/reviews/2026-07-21-w05-echo-codex.out
+?? docs/reviews/2026-07-21-w05-echo-impl-codex.out
+?? docs/reviews/2026-07-21-w05-echo-impl-minimax.out
+?? docs/reviews/2026-07-21-w05-echo-minimax.out
+
+codex
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: []
+
+NITS:
+- No web test directly verifies `onEchoMask` or the input `type` transition.
+- Full suite: 63/64 passed; one unrelated live-DNS policy test failed in the restricted environment.
+- Implementation is currently uncommitted; `develop...HEAD` is empty.
+
+Evidence: WILL/WONT/DO ECHO replies and JSON mask transitions are correctly implemented and covered by 17 passing targeted tests. `StatusEvent` remains unchanged; echo uses a separate callback. Input is `password` only while `echoMask` is true. Typecheck passes.
+tokens used
+61,547
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: []
+
+NITS:
+- No web test directly verifies `onEchoMask` or the input `type` transition.
+- Full suite: 63/64 passed; one unrelated live-DNS policy test failed in the restricted environment.
+- Implementation is currently uncommitted; `develop...HEAD` is empty.
+
+Evidence: WILL/WONT/DO ECHO replies and JSON mask transitions are correctly implemented and covered by 17 passing targeted tests. `StatusEvent` remains unchanged; echo uses a separate callback. Input is `password` only while `echoMask` is true. Typecheck passes.

@@ -1,8 +1,8 @@
 # zMUD feature matrix — 對照表（assmud / RW）
 
 > **SSOT**：之後要比「zMUD 有什麼、RW 要不要、我們做到哪」看這份。  
-> **更新日期**: 2026-07-21  
-> **來源**: Zugg zMUD 產品頁／MXP·MCCP 文檔、Mudlet protocols、TinTin++、本倉 RW probe + code audit  
+> **更新日期**: 2026-07-21（W05 ECHO survey 補注）  
+> **來源**: Zugg zMUD 產品頁／MXP·MCCP 文檔、Mudlet Supported Protocols（ECHO）、Last Outpost ECHO/SGA、RFC 857、TinTin++、本倉 RW probe + code audit  
 > **連動 plan**: [`docs/plans/2026-07-21-rw-connect-protocols.md`](../plans/2026-07-21-rw-connect-protocols.md)
 
 ### 欄位說明
@@ -33,7 +33,7 @@
 | W02 | IAC 協商（通用） | ✅ | **必須** | done | P0 | `packages/protocol` TelnetParser |
 | W03 | TTYPE | ✅ | **必須** | done | P0 | RW DO 24；回 ANSI |
 | W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
-| W05 | ECHO（密碼遮罩） | ✅ | 高 | partial | P1 | 需確認 DO ECHO 不破壞輸入 UX |
+| W05 | ECHO（密碼遮罩） | ✅ | 高 | done | P1 | 短暫 `type=password`；proxy JSON echo；見 §1.1 |
 | W06 | EOR / GA 忽略 | ✅ | 中 | partial | P1 | 不崩潰即可 |
 | W07 | **MCCP1** | ✅ | 低 | n/a | — | 現代多用 MCCP2 |
 | W08 | **MCCP2**（zlib 壓縮） | ✅ | **高** | partial | **P1** | RW WILL 86；現 **DONT**；util 有、bridge 無串流 |
@@ -51,6 +51,55 @@
 | W20 | UTF-8 MUD | ✅ | 低（RW） | partial | P2 | multi-MUD 路線 |
 | W21 | TLS 到 MUD（telnets） | 部分 | 低（RW 明文） | todo | P3 | backlog |
 | W22 | 瀏覽器 WSS + auth proxy | ❌（桌面直連） | **必須**（我們） | done | P0 | ADR-002；產品差異 |
+
+### 1.1 W05 ECHO — 正確語意（2026-07-21 survey）
+
+> **不是** trigger 抓「第二行輸入」。  
+> **不是** 整場連線關掉 local echo（否則平常就看不到自己打的字）。
+
+#### 協定：短暫 password-mode 旗標
+
+標準 MUD / Mudlet / line-mode 客端慣例（RFC 857 + 實務）：
+
+| 時機 | 伺服器 → 客戶端 | 客端行為 |
+|------|-----------------|----------|
+| 密碼提示前／當下 | `IAC WILL ECHO`（`FF FB 01`） | 輸入列改 **mask**（常見 `*` 或空白） |
+| 密碼收完 | `IAC WONT ECHO`（`FF FC 01`） | **立刻恢復**明文輸入列 |
+
+- 預設 `WONT ECHO`：remote echo 關 → **客端 line editor 自己顯示**正在打的字（平常玩看得到 `n` / `look` 的主因）。  
+- `WILL ECHO`：伺服器宣稱「echo 由我負責」→ 客端 **不要本地回顯明文**；密碼時伺服器 **故意不 echo 任何字** → 畫面無明文。  
+- 伺服器若忘記 `WONT`，客端會一直 mask（Mudlet 文件明列；並提供 user override 關 password masking）。
+
+部分 MUD / 舊實作會把 DO/WILL 搞反；zMUD changelog 曾加 **同時處理 `WILL ECHO` 與 `DO ECHO`**。assmud 應以 **server-initiated WILL/WONT** 為主，並對反轉 DO 做防禦性相容。
+
+#### 三層「echo」（勿混為一談）
+
+| 層 | 含義 | 平常玩 | 密碼時 |
+|----|------|--------|--------|
+| **A. 輸入列顯示** | command line 畫正在打的字 | 明文 | `WILL ECHO` → mask |
+| **B. 指令回顯到輸出窗** | Enter 後把整行印進 scrollback（zMUD Echo commands / Mudlet Show text you sent） | 可開可關 | 不應印密碼明文 |
+| **C. 伺服器 remote echo** | 伺服器 bounce 每個 key | 多數 line-mode MUD **不做** | 密碼更不做 |
+
+zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連印表機。使用者「看得到自己打什麼」≈ **A（± 可選 B）**；密碼隱藏 ≈ **A 進入 mask**。
+
+#### zMUD 額外保險（仍非 trigger 抓密碼）
+
+| 機制 | 作用 |
+|------|------|
+| Telnet ECHO 狀態 | 輸入當下 mask（主路徑） |
+| `#PW` / character DB 送密 | 送出且 **不 echo 到文字窗** |
+| 偏好：隱藏含密碼的行 | scrollback 防洩漏 |
+
+用 trigger 對「Password:」再 `#send` 是 **玩家腳本捷徑**，不穩，也不是內建遮罩實作。
+
+#### assmud 現況（W05 shipped）
+
+| 層 | 狀態 |
+|----|------|
+| `OPT.ECHO` + `replyToNegotiation` | WILL→DO、WONT→DONT、反轉 DO→WILL / DONT→WONT |
+| proxy `bridge` | JSON `{ type: "echo", mask: bool }`（**非** StatusEvent） |
+| web | `onEchoMask` → `input type=password` 僅 mask 期間 |
+| residual | RW 實機 login 抓包確認；server 忘 WONT 的 user escape（P2） |
 
 ---
 
@@ -158,7 +207,7 @@
 
 | 優先 | 建議下一波 | ID 舉例 |
 |------|------------|---------|
-| **P1 連線順** | **MCCP2 DO + 串流 inflate** | W08, W09? |
+| **P1 連線順** | MCCP2 已 ship；下一刀 **ECHO 短暫 mask（W05）** | W05, W09? |
 | **P1 顯示** | 字體試掘／1:2、scrollback UI | T11–T14 |
 | **P1 腳本** | speedwalk／變數強化 | S03, S05, S06 |
 | **P2** | profile auto-login、split、MXP 仍關 | C02, C05 |
@@ -167,7 +216,8 @@
 ### RW「最小可玩」檢查清單
 
 - [x] W01–W04, W18, T01, T03–T05, T07, C01, C03, C04, C10  
-- [ ] **W08 MCCP2**（推薦下一刀）  
+- [x] **W08 MCCP2**（proxy 串流；見 mccp2-stream project）  
+- [x] **W05 ECHO** 短暫 password mask（C2；見 §1.1 / plan echo-password-mask）  
 - [x] W10 MXP 拒絕  
 - [x] S01–S02 基礎  
 - [ ] T12–T14 字體深度（baseline 有）  
@@ -183,7 +233,9 @@
 
 ## 9. 參考連結
 
-- Zugg zMUD info / MXP / MCCP 說明頁  
-- Mudlet Manual: Supported Protocols  
+- Zugg zMUD info / MXP / MCCP 說明頁；zMUD version history（WILL ECHO + DO ECHO 相容）  
+- Mudlet Manual: Supported Protocols → **ECHO (Password Masking)**（WILL 開 mask / WONT 關）  
+- [Last Outpost: ECHO and SGA for MUDs](https://www.last-outpost.com/LO/protocols/echosga.html)（line-mode hidden password entry）  
+- [RFC 857 Telnet Echo Option](https://www.rfc-editor.org/rfc/rfc857.html)  
 - TinTin++ MCCP2  
 - 本倉: `docs/research/rw-probe-2026-07-21.md`, `rw-ansi-and-map-controls.md`  

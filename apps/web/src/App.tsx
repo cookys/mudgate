@@ -99,6 +99,8 @@ export function App() {
   const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
   const [cmd, setCmd] = useState("");
   const [inputDraft, setInputDraft] = useState("");
+  /** Telnet ECHO password-mode — only while server WILL ECHO. */
+  const [echoMask, setEchoMask] = useState(false);
   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
   const [showLog, setShowLog] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -176,9 +178,24 @@ export function App() {
   const handleStatus = useCallback(
     (e: StatusEvent) => {
       setTabStatus(tabIdRef.current, e);
+      // connection lifecycle changes should never leave mask stuck
+      if (
+        e.code === "disconnected" ||
+        e.code === "idle" ||
+        e.code === "connecting" ||
+        e.code === "max_retries" ||
+        e.code === "proxy_error" ||
+        e.code === "error"
+      ) {
+        setEchoMask(false);
+      }
     },
     [setTabStatus],
   );
+
+  const handleEchoMask = useCallback((mask: boolean) => {
+    setEchoMask(mask);
+  }, []);
 
   const handleServerLine = useCallback((line: string) => {
     engine.onServerLine(line);
@@ -470,6 +487,7 @@ export function App() {
                   expandInput={onSendThroughEngine}
                   onServerLine={handleServerLine}
                   onStatus={handleStatus}
+                  onEchoMask={handleEchoMask}
                   terminalFontStack={fontStack}
                   fontSizePx={termFont.fontSizePx}
                 />
@@ -811,21 +829,28 @@ export function App() {
           <input
             value={inputDraft}
             onChange={(e) => setInputDraft(e.target.value)}
+            type={echoMask ? "password" : "text"}
             autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             enterKeyHint="send"
             disabled={!tab.connected}
+            aria-label={echoMask ? "password" : "command"}
             className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
             style={{
               background: "var(--bg-elevated)",
-              borderColor: "var(--border)",
+              borderColor: echoMask ? "var(--accent)" : "var(--border)",
               color: "var(--text)",
               // @ts-expect-error css var
               "--tw-ring-color": "var(--accent-glow)",
             }}
             placeholder={
-              tab.connected
-                ? t("shell.cmd.placeholder")
-                : t("shell.cmd.placeholder.idle")
+              !tab.connected
+                ? t("shell.cmd.placeholder.idle")
+                : echoMask
+                  ? "••••••••"
+                  : t("shell.cmd.placeholder")
             }
           />
           <button

@@ -1,0 +1,14 @@
+Review assmud plan docs/plans/2026-07-21-echo-password-mask.md for W05 Telnet ECHO password masking.
+
+Semantics (must match):
+- Transient mask: WILL ECHO → mask on, WONT ECHO → mask off. NOT permanent local-echo off.
+- NOT trigger-based second-line capture.
+- Proxy sends JSON {type:"echo",mask:bool} — separate from StatusEvent connection codes.
+- replyToNegotiation: WILL ECHO → DO; DO ECHO → WILL (reversed MUD compat).
+- Web input type password only while mask true.
+
+Return exactly:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: [list]
+NITS: [list]
+one paragraph rationale.

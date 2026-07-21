@@ -156,19 +156,34 @@ export type NegotiationOpts = {
   mccp?: boolean;
 };
 
-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+/**
+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+ * ECHO accept (password mask): WILL ECHO → DO; DO ECHO → WILL (reversed MUDs).
+ */
 export function replyToNegotiation(
-  kind: "will" | "do",
+  kind: "will" | "do" | "wont" | "dont",
   option: number,
   opts: NegotiationOpts = {},
 ): Uint8Array | null {
   const mccp = opts.mccp === true;
   if (kind === "will") {
+    if (option === OPT.ECHO) return cmd(DO, OPT.ECHO);
     if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
     return cmd(DONT, option);
   }
+  if (kind === "wont") {
+    // Server stops remote-echo claim → acknowledge DONT (password mask off)
+    if (option === OPT.ECHO) return cmd(DONT, OPT.ECHO);
+    return null;
+  }
+  if (kind === "dont") {
+    // Server demands we not echo; for reversed password path, mask off
+    if (option === OPT.ECHO) return cmd(WONT, OPT.ECHO);
+    return null;
+  }
   // DO
+  if (option === OPT.ECHO) return cmd(WILL, OPT.ECHO); // reversed MUD password mask
   if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
   if (option === OPT.MXP) return cmd(WONT, OPT.MXP);

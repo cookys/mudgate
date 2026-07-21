@@ -1,0 +1,52 @@
+## VERDICT: APPROVE
+
+All four W05 requirements verified. No issues found.
+
+---
+
+### MUST_FIX: []
+None.
+
+---
+
+### NITS: []
+
+None.
+
+---
+
+### Evidence
+
+**W05-1 WILL ECHO → DO + mask true**
+- `telnet.ts:170`: `if (option === OPT.ECHO) return cmd(DO, OPT.ECHO)`
+- `bridge.ts:160`: `if (ev.option === OPT.ECHO) setEchoMask(true)`
+- `bridge.ts:105`: `sendJson({ type: "echo", mask })`
+- Test: `telnet.test.ts:66-71`, `mccp-bridge.test.ts:167-183` ✓
+
+**W05-2 WONT ECHO → DONT + mask false**
+- `telnet.ts:177`: `if (option === OPT.ECHO) return cmd(DONT, OPT.ECHO)`
+- `bridge.ts:166`: `if (ev.option === OPT.ECHO) setEchoMask(false)`
+- Test: `telnet.test.ts:72-76`, `mccp-bridge.test.ts:185-198` ✓
+
+**W05-3 DO ECHO (reversed MUD) → WILL + mask true**
+- `telnet.ts:186`: `if (option === OPT.ECHO) return cmd(WILL, OPT.ECHO)`
+- `bridge.ts:173`: `if (ev.option === OPT.ECHO) setEchoMask(true)`
+- Test: `telnet.test.ts:77-81`, `mccp-bridge.test.ts:201-219` ✓
+
+**W05-4 DONT ECHO → WONT + mask false**
+- `telnet.ts:182`: `if (option === OPT.ECHO) return cmd(WONT, OPT.ECHO)`
+- `bridge.ts:179`: `if (ev.option === OPT.ECHO) setEchoMask(false)`
+- Test: `telnet.test.ts:82-86` ✓
+
+**Web type=password only while mask**
+- `App.tsx:832`: `type={echoMask ? "password" : "text"}` — input switches to password when `echoMask` is true, reverts to text otherwise
+- Border accent highlight on password: `App.tsx:843` ✓
+
+**StatusEvent not polluted**
+- `mudSocket.ts:39`: `onEchoMask` is a separate handler, not part of `StatusEvent`
+- `mudSocket.ts:275-277`: `{ type: "echo" }` parsed independently from status events; no cross-contamination
+- `App.tsx:178-193`: `handleStatus` resets `echoMask` on lifecycle transitions; `handleEchoMask` manages mask independently
+- `TerminalHost.tsx:168-170`: `onEchoMask` wired separately from `subscribeStatus` ✓
+
+**Tests green**
+All protocol tests (`telnet.test.ts`) and bridge tests (`mccp-bridge.test.ts`) cover the four ECHO paths and JSON mask payloads.

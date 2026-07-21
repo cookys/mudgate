@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import zlib from "node:zlib";
 import { EventEmitter } from "node:events";
-import { IAC, WILL, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
+import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
 
 const sockets: FakeSock[] = [];
 
@@ -162,6 +162,60 @@ describe("bridge MCCP2", () => {
     await waitMs(20);
     expect(ws.close).toHaveBeenCalled();
     expect(sock.destroyed).toBe(true);
+  });
+
+  it("WILL ECHO → DO + JSON mask true; WONT → DONT + mask false", async () => {
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+    const sock = sockets[0]!;
+    sock.emit("data", Buffer.from([IAC, WILL, OPT.ECHO]));
+    await waitMs(15);
+    expect(
+      sock.written.some(
+        (b) => b.length >= 3 && b[0] === IAC && b[1] === DO && b[2] === OPT.ECHO,
+      ),
+    ).toBe(true);
+    const maskOn = ws.send.mock.calls
+      .map((c) => c[0])
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
+      .find((j) => j.type === "echo");
+    expect(maskOn).toEqual({ type: "echo", mask: true });
+
+    sock.emit("data", Buffer.from([IAC, WONT, OPT.ECHO]));
+    await waitMs(15);
+    expect(
+      sock.written.some(
+        (b) =>
+          b.length >= 3 && b[0] === IAC && b[1] === DONT && b[2] === OPT.ECHO,
+      ),
+    ).toBe(true);
+    const echoes = ws.send.mock.calls
+      .map((c) => c[0])
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
+      .filter((j) => j.type === "echo");
+    expect(echoes.at(-1)).toEqual({ type: "echo", mask: false });
+  });
+
+  it("reversed DO ECHO → WILL + mask true", async () => {
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+    const sock = sockets[0]!;
+    sock.emit("data", Buffer.from([IAC, DO, OPT.ECHO]));
+    await waitMs(15);
+    expect(
+      sock.written.some(
+        (b) =>
+          b.length >= 3 && b[0] === IAC && b[1] === WILL && b[2] === OPT.ECHO,
+      ),
+    ).toBe(true);
+    const maskOn = ws.send.mock.calls
+      .map((c) => c[0])
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => JSON.parse(s) as { type?: string; mask?: boolean })
+      .find((j) => j.type === "echo");
+    expect(maskOn).toEqual({ type: "echo", mask: true });
   });
 
   it("destroys on inflate cap exceed", async () => {

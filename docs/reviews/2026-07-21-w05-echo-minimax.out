@@ -1,0 +1,16 @@
+Now I have a complete picture. Here's my review:
+
+---
+
+**VERDICT: APPROVE_WITH_NITS**
+
+**MUST_FIX:** (none)
+
+**NITS:**
+- **Layer table says `type=password` or CSS mask** — this is already implemented as `onEchoMask?: (mask: boolean) => void` in `TerminalHost.tsx` (line 17) with cleanup at line 182 (`onEchoMaskRef.current?.(false)`). The plan wording is slightly loose but the intent and effect are correct. Still worth clarifying: the web input `type` attribute (or equivalent CSS) must toggle to `password` **only** when `mask=true`, not be permanently styled otherwise.
+- **Acceptance #1** ("Unit: `replyToNegotiation` ECHO 回覆正確") should explicitly list the 4 cases to cover: `will→DO`, `wont→DONT`, `dont→WONT` (reversed compat), `do→WILL` (reversed compat).
+- **Bridge layer**: The plan says `handleEvents` in bridge needs to emit JSON `echo` on `will/wont/do/dont` ECHO — but the current `bridge.ts` handleEvents (lines 134-156) only has `will`/`do`/`sb` branches and doesn't emit JSON. The plan is correct; the code just isn't updated yet.
+
+**Rationale:**
+
+The plan's semantics are a clean match against all five mandatory requirements. The transient-mask definition (WILL→mask-on, WONT→mask-off, never a permanent local-echo-off state) is precisely stated in Goal and corroborated by matrix §1.1. Trigger-based second-line capture is explicitly listed as a Non-goal. The wire contract uses a dedicated `{type:"echo",mask:bool}` JSON frame that does not touch `StatusEvent` connection codes, and the existing `mudSocket.ts` already has the `MudSocketHandlers` extension point (`onEchoMask`) stubbed in `TerminalHost.tsx`. The `replyToNegotiation` reversal — WILL→DO, DO→WILL for reversed-MUD compat — is specified in both the Wire table and the Layers table, and `OPT.ECHO=1` is already in `telnet.ts`. The existing `packages/protocol` code (`telnet.ts`) confirms the protocol semantics are already being implemented in parallel. Residual items (RW real-server probe, "server forgets WONT" fallback) are appropriately classified as ok-to-ship. The only nits are clarity improvements to the acceptance criteria and a mild ambiguity in the "CSS mask" vs `type=password` wording — neither rises to a must-fix block.

@@ -13,6 +13,8 @@ type Props = {
   wsUrl: string | null;
   hello: HelloMsg;
   onStatus?: (e: StatusEvent) => void;
+  /** Telnet ECHO password-mode (transient; not connection status). */
+  onEchoMask?: (mask: boolean) => void;
   injectCommand?: string;
   onInjectConsumed?: () => void;
   expandInput?: (line: string) => string[];
@@ -54,6 +56,7 @@ export function TerminalHost({
   wsUrl,
   hello,
   onStatus,
+  onEchoMask,
   injectCommand,
   onInjectConsumed,
   expandInput,
@@ -79,6 +82,8 @@ export function TerminalHost({
   helloRef.current = hello;
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
+  const onEchoMaskRef = useRef(onEchoMask);
+  onEchoMaskRef.current = onEchoMask;
   const onServerLineRef = useRef(onServerLine);
   onServerLineRef.current = onServerLine;
   const expandInputRef = useRef(expandInput);
@@ -160,6 +165,9 @@ export function TerminalHost({
           if (ln) onServerLineRef.current?.(ln);
         }
       },
+      onEchoMask: (mask) => {
+        onEchoMaskRef.current?.(mask);
+      },
     });
 
     const unsub = sock.subscribeStatus(() => {
@@ -171,6 +179,7 @@ export function TerminalHost({
     return () => {
       unsub();
       sock.stop();
+      onEchoMaskRef.current?.(false);
       if (socketRef.current === sock) socketRef.current = null;
       decoderRef.current.reset();
       lineAcc.current = "";
