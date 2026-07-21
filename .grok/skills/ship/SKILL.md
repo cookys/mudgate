@@ -21,7 +21,24 @@ Follow **user-global** `~/.grok/skills/ship/SKILL.md` with these pins.
 | Codex | `codex exec` | always when auth works |
 | Qwen / GLM / MiniMax | when CLI present | add to matrix |
 
-Ship claims require **≥2 families** APPROVE* (no BLOCK) on the plan set.
+Ship / expand claims require **≥2 families** APPROVE* (no BLOCK) **on the latest round**, with **ALL_CLEAR**.
+
+### ALL_CLEAR + fold loop (assmud pin — do not skip)
+
+```
+hetero → MUST_FIX or BLOCK? → fold into plan/code → hetero again
+       → adopted NITS? → fold → hetero again
+直到 ALL_CLEAR
+```
+
+| ALL_CLEAR | |
+|-----------|--|
+| ≥2 families APPROVE* | required |
+| MUST_FIX | **[]** every family, **latest** round only |
+| NITS | **[]** or each remaining nit **deferred** in hetero.md |
+| After any fold | **must re-run hetero** — fold alone ≠ APPROVED |
+
+**Forbidden:** fold MUST_FIX/nits then mark plan `APPROVED` / expand / ship without another multi-family round (user catch 2026-07-21 selfhost-proxy-trust).
 
 ## Implementer default
 
