@@ -21,6 +21,8 @@ type Props = {
   onServerLine?: (line: string) => void;
 };
 
+const MAX_ATTEMPTS = 5;
+
 export function TerminalHost({
   wsUrl,
   hello,
@@ -37,8 +39,8 @@ export function TerminalHost({
   const wsRef = useRef<WebSocket | null>(null);
   const helloRef = useRef(hello);
   helloRef.current = hello;
-  // Keep callbacks in refs so status updates don't tear down the WebSocket
-  // (parent re-renders pass new function identities every time).
+
+  // Parent re-renders pass new function identities every time — never put these in effect deps.
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   const onServerLineRef = useRef(onServerLine);
@@ -47,7 +49,18 @@ export function TerminalHost({
   expandInputRef.current = expandInput;
   const onInjectConsumedRef = useRef(onInjectConsumed);
   onInjectConsumedRef.current = onInjectConsumed;
+
   const lineAcc = useRef("");
+  const lastStatusRef = useRef("");
+
+  /** Dedupe + defer status so onerror/onclose cannot nest setState in one turn. */
+  const reportStatus = (s: string) => {
+    if (s === lastStatusRef.current) return;
+    lastStatusRef.current = s;
+    queueMicrotask(() => {
+      if (lastStatusRef.current === s) onStatusRef.current?.(s);
+    });
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,7 +72,6 @@ export function TerminalHost({
 
   useEffect(() => {
     if (!injectCommand) return;
-    // expand once here; sendLine must not re-expand injected pieces
     const expand = expandInputRef.current;
     const lines = expand ? expand(injectCommand) : [injectCommand];
     for (const line of lines) sendRaw(line);
@@ -69,44 +81,94 @@ export function TerminalHost({
 
   useEffect(() => {
     if (!wsUrl) return;
-    onStatusRef.current?.("connecting…");
-    let closed = false;
+
+    let disposed = false;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let ws: WebSocket;
+    let intentionalClose = false;
 
-    const connect = () => {
-      if (closed) return;
-      onStatusRef.current?.(
-        attempt ? `reconnecting… (${attempt})` : "connecting…",
-      );
-      ws = new WebSocket(wsUrl);
+    const tearDownSocket = () => {
+      const prev = wsRef.current;
+      wsRef.current = null;
+      if (!prev) return;
+      intentionalClose = true;
+      prev.onopen = null;
+      prev.onclose = null;
+      prev.onerror = null;
+      prev.onmessage = null;
+      try {
+        if (
+          prev.readyState === WebSocket.OPEN ||
+          prev.readyState === WebSocket.CONNECTING
+        ) {
+          prev.close();
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      attempt += 1;
+      if (attempt > MAX_ATTEMPTS) {
+        reportStatus("disconnected (max retries)");
+        return;
+      }
+      const delayMs = Math.min(1000 * 2 ** (attempt - 1), 16_000);
+      reportStatus(`reconnect in ${Math.round(delayMs / 1000)}s… (${attempt}/${MAX_ATTEMPTS})`);
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (!disposed) open();
+      }, delayMs);
+    };
+
+    const open = () => {
+      if (disposed) return;
+      tearDownSocket();
+      intentionalClose = false;
+      reportStatus(attempt === 0 ? "connecting…" : `reconnecting… (${attempt})`);
+
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
       const paint = () => rendererRef.current.draw(bufRef.current);
 
       ws.onopen = () => {
+        if (disposed || wsRef.current !== ws) return;
         attempt = 0;
-        onStatusRef.current?.("handshaking…");
-        ws.send(JSON.stringify(helloRef.current));
+        reportStatus("handshaking…");
+        try {
+          ws.send(JSON.stringify(helloRef.current));
+        } catch {
+          /* onclose will retry */
+        }
       };
+
+      ws.onerror = () => {
+        // Browser fires onerror then onclose; only annotate, reconnect in onclose.
+        if (disposed || wsRef.current !== ws) return;
+        // Don't call reportStatus("error") here — avoids double setState with onclose.
+      };
+
       ws.onclose = () => {
-        wsRef.current = null;
-        if (closed) {
-          onStatusRef.current?.("disconnected");
+        if (wsRef.current === ws) wsRef.current = null;
+        if (disposed || intentionalClose) {
+          if (disposed) reportStatus("disconnected");
           return;
         }
-        attempt += 1;
-        if (attempt > 5) {
-          onStatusRef.current?.("disconnected");
-          return;
-        }
-        onStatusRef.current?.(`reconnect in ${attempt}s`);
-        timer = setTimeout(connect, attempt * 1000);
+        scheduleReconnect();
       };
-      ws.onerror = () => onStatusRef.current?.("error");
+
       ws.onmessage = (ev) => {
+        if (disposed || wsRef.current !== ws) return;
         if (typeof ev.data === "string") {
           const s = ev.data;
           if (s.startsWith("{")) {
@@ -116,12 +178,12 @@ export function TerminalHost({
                 const msg = (j.message ?? "error")
                   .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
                   .slice(0, 200);
-                onStatusRef.current?.(msg || "error");
+                reportStatus(msg || "error");
               } else if (j.type === "ready") {
-                onStatusRef.current?.("connected");
+                reportStatus("connected");
               }
             } catch {
-              onStatusRef.current?.("bad control frame");
+              reportStatus("bad control frame");
             }
           }
           return;
@@ -131,7 +193,6 @@ export function TerminalHost({
         if (text) {
           bufRef.current.writeDecoded(text);
           paint();
-          // line split for script engine
           lineAcc.current += text;
           const parts = lineAcc.current.split(/\r?\n/);
           lineAcc.current = parts.pop() ?? "";
@@ -142,16 +203,17 @@ export function TerminalHost({
       };
     };
 
-    connect();
+    open();
 
     return () => {
-      closed = true;
+      disposed = true;
       if (timer) clearTimeout(timer);
-      wsRef.current?.close();
-      wsRef.current = null;
+      tearDownSocket();
       decoderRef.current.reset();
       lineAcc.current = "";
+      lastStatusRef.current = "";
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reconnect when URL changes
   }, [wsUrl]);
 
   const sendRaw = (line: string) => {

@@ -96,11 +96,22 @@ export function App() {
   const anyConnected = tabs.some((t) => t.connected);
 
   const setTabStatus = useCallback((id: string, status: string) => {
-    setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, status } : t)));
+    setTabs((ts) => {
+      const cur = ts.find((t) => t.id === id);
+      if (!cur || cur.status === status) return ts; // no-op → no re-render
+      return ts.map((t) => (t.id === id ? { ...t, status } : t));
+    });
   }, []);
 
+  // Prefer loopback WS when page is loopback (avoids LAN hairpin / fd storms).
   const wsUrl = useMemo(() => {
     if (!tab?.connected) return null;
+    if (typeof window !== "undefined") {
+      const h = window.location.hostname;
+      if (h === "127.0.0.1" || h === "localhost") {
+        return "ws://127.0.0.1:7788/ws";
+      }
+    }
     return DEFAULT_WS;
   }, [tab?.connected]);
 
@@ -318,7 +329,7 @@ export function App() {
             >
               {tab.connected ? (
                 <TerminalHost
-                  key={tabId + String(tab.connected)}
+                  key={tabId}
                   wsUrl={wsUrl}
                   hello={hello}
                   injectCommand={cmd}
