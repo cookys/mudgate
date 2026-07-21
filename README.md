@@ -1,29 +1,43 @@
 # assmud
 
-Modern **web zMUD-class** MUD client, deep-tuned for **[重生的世界 / Revival World](https://www.revivalworld.org)**.
+**目標**：在 **電腦或手機** 上，用這個 **網頁專案**，在 **加密、安全** 的條件下連上 **各家 MUD** 遊玩（zMUD 級能力的現代 web client）。
+
+第一個深度適配標竿是 **[重生的世界 / Revival World](https://www.revivalworld.org)**（Big5、完整 ANSI/VT、map_d 等）；通用層則服務任意 Telnet/TCP MUD。
 
 | | |
 |--|--|
-| MUD | `mud.revivalworld.org:4000` (also `5000`, `6000`) |
-| Goal | Browser client with zMUD-depth triggers/aliases/scripts + solid RW support |
-| Status | Bootstrap — tracking & plan only; app stack not scaffolded yet |
+| 裝置 | Desktop browser + mobile browser（PWA 方向） |
+| 連線 | 瀏覽器側 **TLS（HTTPS / WSS）**；MUD 側 **TCP + Telnet**（各家 mud 的真實協定） |
+| 能力 | 終端 / 觸發器 / 別名 / 腳本（zMUD 心智）+ 安全預設 |
+| 深度標竿 | RW：`mud.revivalworld.org:4000/5000/6000` |
+| 狀態 | Bootstrap — 追蹤與計劃；應用 stack 尚未 scaffold |
+
+## 安全邊界（產品語言）
+
+| 區段 | 加密？ | 說明 |
+|------|--------|------|
+| 你 ↔ 本專案（網頁 / relay） | **必須 TLS** | `https://` + `wss://`，不可明文 WebSocket 上公網 |
+| 本專案 proxy ↔ 目標 MUD | 依各家 mud | 多數傳統 MUD 仍是 **明文 TCP:telnet**；若 mud 提供 TLS/telnets 則優先走加密；proxy 不可變成開放大陸 open-relay |
+| 憑證 / 腳本 | 本地優先 | 密碼不上 git；使用者腳本沙箱；MUD 輸出當 untrusted（防 XSS） |
+
+「加密安全回去玩」= **公網路徑加密 + 防濫用 + 客戶端安全**，不是假裝所有 mud 伺服器本身都已 TLS。
 
 ## Project tracking (autopilot)
 
 | Path | Role |
 |------|------|
-| [docs/projects/INDEX.md](docs/projects/INDEX.md) | Active / completed / archived projects |
+| [docs/projects/INDEX.md](docs/projects/INDEX.md) | Active / completed / archived |
 | [docs/plans/](docs/plans/) | Executable plans |
-| [docs/BACKLOG.md](docs/BACKLOG.md) | Not-yet-planned items |
-| [.claude/](.claude/) | Autopilot DI configs (commands, routing, gates) |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Not-yet-planned |
+| [.claude/](.claude/) | Autopilot DI configs |
 
 Current project: [web-zmud-bootstrap](docs/projects/2026-07-21-web-zmud-bootstrap/README.md)  
 Current plan: [web-zmud-rw](docs/plans/2026-07-21-web-zmud-rw.md) (draft)
 
 ## Next
 
-1. Close open questions in the plan (§8): stack, proxy model, existing scripts, encoding, top automations.
-2. Approve plan → Phase 1 monorepo + WS proxy + terminal MVP.
+1. 凍結最終目標措辭（本 README）→ 關閉 plan §8 選型問題  
+2. Approve plan → Phase 1：TLS 可部署的 connect path + 完整 VT 終端 MVP（先 RW 過關）
 
 ## License
 

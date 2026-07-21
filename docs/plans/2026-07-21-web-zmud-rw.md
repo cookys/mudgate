@@ -1,13 +1,24 @@
-# Plan — Web zMUD client (deep support for Revival World)
+# Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
 > **Status**: draft  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after stack pick  
-> **Frame**: modern browser client that recreates zMUD-class power features, tuned first for [重生的世界 / Revival World](https://www.revivalworld.org)
+> **North star (Board)**: 電腦或手機透過本網頁專案，在 **加密安全** 條件下連上 **各家 MUD** 遊玩。  
+> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）作為最難適配標竿。
 
 ## 0. Context / thesis
 
-Classic zMUD (and successors like cMUD) gave power users triggers, aliases, variables, buttons, and automapper. **All MUD game traffic is TCP (Telnet framing)** — that does not change. Revival World is a long-running Chinese LPMud (`mud.revivalworld.org:4000/5000/6000`); **RW deep support is the product north star**.
+### Product goal (final)
+
+| Dimension | Target |
+|-----------|--------|
+| Surfaces | **Desktop + mobile** browsers (responsive; PWA later) |
+| Reach | **Any Telnet/TCP MUD** the user chooses (host:port + charset + options) |
+| Power | zMUD-class: terminal fidelity, triggers, aliases, variables, packages |
+| Security | **TLS on the public path**; no open-relay; untrusted MUD output; no secrets in repo |
+| Depth | RW first as the fidelity ceiling so “各家 mud” don’t regress Chinese/control edge cases |
+
+Classic zMUD (and successors like cMUD) gave power users triggers, aliases, variables, buttons, and automapper. **All MUD game traffic is TCP (Telnet framing)** — that does not change. Revival World is a long-running Chinese LPMud (`mud.revivalworld.org:4000/5000/6000`); **RW is the deep-support benchmark**, not the only host.
 
 **2026-07-21 live probe** ([research](../research/rw-probe-2026-07-21.md)) confirmed:
 
@@ -24,34 +35,49 @@ Classic zMUD (and successors like cMUD) gave power users triggers, aliases, vari
 | B. Native shell | Tauri/Electron/WASI-host opens **raw TCP** | if we ship a desktop wrapper |
 | C. Hosted relay | Browser ⇄ wss ⇄ our relay ⇄ TCP → MudOS | multi-device; needs auth + anti-open-relay |
 
-Product language: **“TCP to the MUD” is non-negotiable.** WebSocket is only the browser-side carriage of that TCP byte stream.
+Product language: **“TCP to the MUD” is non-negotiable.** WebSocket/WebTransport is only the browser-side carriage of that TCP byte stream.
 
-Prior art: RW Java applet client + telnet. We replace that with a modern client that still speaks the same TCP/Telnet/Big5 wire.
+### Encryption model (honest)
+
+| Hop | Requirement |
+|-----|-------------|
+| User device → web app / API | **HTTPS only** in production |
+| Browser → session bridge | **WSS (TLS)** on any non-loopback deployment |
+| Bridge → MUD host | TCP (often cleartext telnet); use **TLS/telnets when the MUD offers it**; never log passwords |
+| Hosted multi-tenant relay | Auth + allowlist/rate-limit + **anti open-relay**; prefer user-run local proxy for maximum trust |
+
+Prior art: RW Java applet client + telnet. We replace that with a modern multi-MUD client that still speaks each mud’s real TCP/Telnet wire (RW: Big5 + full VT).
 
 ## 1. Problem
 
 Players need a **modern web client** that:
 
-1. Connects reliably to Revival World from the browser.
-2. Renders Chinese + ANSI correctly and snappily.
-3. Supports zMUD-depth automation (triggers / aliases / variables / scripts) without shipping a desktop app.
-4. Is secure by default (MUD output is untrusted; scripts can be malicious).
+1. Works on **PC and phone** without installing classic Windows zMUD.
+2. Connects to **各家 MUD** (configurable host/port/charset), with **RW-class fidelity** when the mud needs it.
+3. Keeps the **public path encrypted** and refuses to become an open TCP proxy for the internet.
+4. Supports zMUD-depth automation (triggers / aliases / variables / scripts).
+5. Is secure by default (MUD output untrusted; scripts sandboxed).
 
 ## 2. OKR / KRs
 
-**Objective**: Ship a usable web zMUD-class client that a daily RW player can prefer over telnet/zMUD for core play.
+**Objective**: From phone or desktop browser, securely play MUDs (starting with daily-playable RW, then any user-configured mud).
 
 **Key Results**:
-- KR1 — Connect + login to RW from browser (via proxy), stable 30+ min session without garbled text.
-- KR2 — Trigger/alias/variable engine covers the user’s top 10 RW automation cases (list to be frozen with user).
-- KR3 — Zero stored credentials in repo; XSS from adversarial MUD output blocked in tests.
-- KR4 — Docs tracking (`docs/plans` + `docs/projects` + INDEX) stays current for every L-size phase.
+- KR0 — **North-star demo**: mobile + desktop browsers reach a MUD over **HTTPS/WSS**, session usable 30+ min.
+- KR1 — Connect + login to **RW** without garbled text; map_d control plane works (see VT research).
+- KR2 — Connect to **≥1 non-RW MUD** via same UI (proves multi-mud path; charset selectable).
+- KR3 — Trigger/alias/variable engine covers the user’s top 10 automation cases (list frozen with user).
+- KR4 — Security: TLS in prod config; open-relay tests red; XSS corpus green; no credentials in git.
+- KR5 — Docs tracking (`docs/plans` + `docs/projects` + INDEX) stays current for every L-size phase.
 
 ## 2.5 Global Constraints (copied verbatim into every dispatch)
 
-- Target MUD primary: `mud.revivalworld.org` ports `4000|5000|6000`.
-- **Wire to MudOS is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
+- **Product north star**: PC + mobile web → encrypted public path → play **any** configured MUD; RW is the fidelity benchmark.
+- Target MUD primary (depth): `mud.revivalworld.org` ports `4000|5000|6000`; architecture must not hard-code a single host.
+- **Wire to the game host is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
 - Browser UI may use WebSocket/WebTransport only as a **byte-pipe carriage** into a component that holds the real TCP socket (proxy or native shell). Do not pretend the MUD protocol is JSON-RPC.
+- Production public endpoints: **HTTPS + WSS only**. Cleartext `ws://` allowed only on localhost dev.
+- Hosted relay (if any) must be **authenticated / allowlisted / rate-limited** and fail closed against open-relay abuse.
 - Default session charset for RW: **Big5** (GB switch is secondary). Do not assume UTF-8 on the wire.
 - Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
 - Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
@@ -114,7 +140,14 @@ Players need a **modern web client** that:
 - Optional: link-out to RW online who / 2D map.
 - **Acceptance**: daily-play checklist (incl. **walk city map without scroll thrash**) signed off on live RW; dual-color + map control goldens green.
 
-### Phase 4 — Power features parity slice (Size: L, optional split)
+### Phase 4 — Multi-MUD + mobile hardening (Size: L)
+- Connection profiles: host/port/charset/TLS-to-mud flag; import/export.
+- Responsive UI + mobile keyboard / touch send; optional PWA shell.
+- Hosted or self-host deploy recipe with **TLS** (Caddy/nginx or platform).
+- Second-mud smoke (UTF-8 English mud + RW Big5) on same build.
+- **Acceptance**: KR0 + KR2; Lighthouse/mobile usable checklist; deploy doc with WSS.
+
+### Phase 5 — Power features parity slice (Size: L, optional split)
 - Buttons / keypad, multi-session tabs, basic mapper spike.
 - Log save / search.
 - **Acceptance**: feature matrix vs zMUD core shows planned parity; deferred items in BACKLOG.
@@ -149,10 +182,11 @@ Players need a **modern web client** that:
 ## 7. Out of scope (v1)
 
 - Full cMUD/zMUD binary package format 100% compatibility
-- Hosting a public open proxy for the whole internet
+- **Public unauthenticated open proxy** (anyone → any TCP host) — security red line
+- Guaranteeing end-to-end TLS when the **target MUD only speaks cleartext telnet** (we encrypt user↔us; mud hop is best-effort / optional TLS)
 - 3D RW client (`rw3d`) integration
 - Server-side botting / unattended farming
-- Mobile-native apps (PWA later ok)
+- Native App Store clients (mobile **browser / PWA** is in scope; Swift/Kotlin apps are not v1)
 
 ## 8. Open questions (Board / user)
 
@@ -180,3 +214,4 @@ Players need a **modern web client** that:
 - R0 2026-07-21 — author: onboard bootstrap (draft)
 - R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
 - R2 2026-07-21 — RWlib/Undine audit: map_d/city/area/title_screen require full VT control plane; elevated to Global Constraint + Phase 1 gate
+- R3 2026-07-21 — Board north star: PC+mobile web, encrypted public path, multi-MUD; RW remains depth benchmark; KR0/KR2/Phase 4 added

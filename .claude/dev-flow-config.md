@@ -18,7 +18,11 @@
 - Feature branches: `feat/<short-name>`
 - Hotfix branches: `fix/<short-name>`
 
-## Target MUD (product constraint)
+## Product north star
+- PC + mobile **web** client; public path **HTTPS/WSS**; play **各家 MUD** (configurable)
+- Depth benchmark: Revival World (not the only host)
+
+## Target MUD (depth benchmark)
 - Host: `mud.revivalworld.org`
 - Ports: `4000`, `5000`, `6000` — **raw TCP + Telnet** (not HTTP)
 - Charset: **BIG5** default (live-probed 2026-07-21); GB switch supported by server

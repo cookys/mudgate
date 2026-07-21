@@ -5,12 +5,13 @@
 
 ## OKR
 
-**Objective**: Establish project tracking + product frame for a modern web zMUD client deep-tuned for Revival World MUD.
+**Objective**: Establish tracking + product frame for a **secure multi-MUD web client** (PC + mobile), with RW as depth benchmark.
 
 **Key Results**:
 - KR1 — Autopilot onboard complete (`.claude/*-config.md`, gitignore runtime block).
 - KR2 — `docs/plans/` + `docs/projects/` + INDEX + BACKLOG exist and are the SSOT for `/next`.
-- KR3 — Seed plan captures RW connection facts and phased roadmap (draft until Board open questions answered).
+- KR3 — Seed plan captures RW facts, full VT gate, and north star: encrypted web path → 各家 mud.
+- KR4 — Board north star recorded in README + plan R3.
 
 ## Target MUD (facts)
 
@@ -60,3 +61,4 @@
 - Dual-color (雙色字) needs DBCS-aware cellization; stock xterm.js alone is a risky default.
 - **map_d is not plain text**: RWlib `city_d_main.show_map` / `area_d_main.show_map` / `title_screen` use `\e[s` `\e[u` absolute `\e[r;cH` `\e[2J` scroll-region `\e[t;br`. Complete control support is a **ship gate**, not polish. Detail: `docs/research/rw-ansi-and-map-controls.md`.
 - `assmud` ⇒ WASM is a branding/perf escape hatch, not day-1 mandate.
+- **Final goal (Board)**: PC/phone browser → TLS public path → play any MUD; do not over-promise E2E crypto when mud is cleartext telnet; never ship open-relay.

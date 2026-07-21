@@ -4,17 +4,20 @@
 
 ## Product / client
 
+- [ ] Connection profile library (各家 mud presets + custom host:port/charset)
 - [ ] zMUD-compatible trigger / alias import (`.mud` / package format research)
 - [ ] Offline log viewer / session replay
 - [ ] Multi-character / multi-session split view
 - [ ] Optional RW 2D live map embed (`https://www.revivalworld.org/online/rw/map.html`)
-- [ ] Mobile / PWA installability
+- [ ] Mobile / PWA installability (north-star surface)
 - [ ] Shared trigger package registry (community packs, sandboxed)
 
-## Platform
+## Platform / security
 
-- [ ] Choose production hosting + TLS termination for WS proxy
-- [ ] Self-host vs relay-proxy threat model write-up
+- [ ] Production HTTPS + WSS deploy recipe (Caddy/nginx/platform)
+- [ ] Self-host local proxy vs hosted relay threat model write-up
+- [ ] Optional TLS-to-MUD (telnets) when remote supports it
+- [ ] Open-relay abuse tests + rate limits for any hosted mode
 - [ ] CI: unit + terminal golden streams + e2e against mock MudOS
 
 ## Research spikes (not yet planned)
