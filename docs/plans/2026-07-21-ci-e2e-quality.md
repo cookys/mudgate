@@ -1,6 +1,6 @@
 # Plan — CI e2e + golden terminal streams
 
-> **Status**: **fold R2** (multi-LLM)  
+> **Status**: **SHIP**  
 > **Owner**: cookys  
 > **Seq**: **2** on roadmap  
 > **Backlog**: #12  

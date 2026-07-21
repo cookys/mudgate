@@ -5,6 +5,7 @@ export default defineConfig({
     include: [
       "packages/*/tests/**/*.test.ts",
       "apps/*/tests/**/*.test.ts",
+      "tests/e2e/**/*.test.ts",
     ],
     // workspace packages resolve via package.json exports → src
     environment: "node",
