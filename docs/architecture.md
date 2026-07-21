@@ -1,46 +1,60 @@
 # Architecture (draft)
 
-> Living sketch. Stack decisions: [ADR-001](adr/ADR-001-stack.md). Product plan: [plans/2026-07-21-web-zmud-rw.md](plans/2026-07-21-web-zmud-rw.md).
+> Living sketch.  
+> Stack: [ADR-001](adr/ADR-001-stack.md) · Networking: [ADR-002](adr/ADR-002-mobile-first-proxy.md)  
+> Plan: [plans/2026-07-21-web-zmud-rw.md](plans/2026-07-21-web-zmud-rw.md) · Threat model: [security/hosted-proxy-threat-model.md](security/hosted-proxy-threat-model.md)
 
 ## Goals
 
-- PC + mobile **browser** → **HTTPS/WSS** public path → TCP Telnet to **any** MUD.
+- **Mobile-first**: phone browser/PWA plays MUDs without installing a proxy app on the phone.
+- Desktop browser uses the **same** remote path (or optional local bridge for power users/dev).
+- Public path **HTTPS + WSS**; MUD hop **TCP + Telnet** (TLS-to-MUD when available).
 - Depth benchmark: Revival World (Big5, full VT/map_d).
-- Open source, fail-closed proxy defaults.
+- Open source; official/self-host deploy **fail-closed** (never an open relay).
 
-## Runtime topology
+## What the browser cannot do
+
+- Raw TCP to `host:4000` (not available to web pages).
+- WebAssembly does **not** unlock TCP in the browser sandbox.
+- Therefore networking is always: **browser ↔ (WSS) ↔ process that owns TCP**.
+
+## Runtime topology (product default)
 
 ```text
-┌─────────────┐   WSS (TLS in prod)   ┌──────────────┐   TCP+Telnet   ┌──────────┐
-│  apps/web   │ ───────────────────► │ apps/proxy   │ ─────────────► │ MUD host │
-│  React SPA  │ ◄─────────────────── │ (byte bridge)│ ◄───────────── │ (RW etc) │
-└──────┬──────┘                       └──────────────┘                └──────────┘
-       │
-       │  plain TS APIs (no React inside)
-       ▼
+┌──────────────────┐  WSS + auth (TLS)  ┌─────────────────────────┐  TCP+Telnet  ┌──────────┐
+│ apps/web         │ ─────────────────► │ apps/proxy (remote)     │ ───────────► │ MUD host │
+│ React SPA / PWA  │ ◄───────────────── │ login, allowlist, quota │ ◄─────────── │ (RW …)   │
+│ phone or desktop │                    │ audit metadata          │              └──────────┘
+└────────┬─────────┘                    └─────────────────────────┘
+         │ plain TS APIs (no React inside packages)
+         ▼
 ┌──────────────────────────────────────────────────────────┐
-│ packages/protocol  →  codec-big5  →  vt  →  terminal      │
-│   IAC/MCCP/…            DBCS           CSI     buffer    │
-│                                              + Renderer  │
-│                                         Canvas2D | WebGPU│
+│ packages/protocol → codec-big5 → vt → terminal + Renderer│
+│                              Canvas2D | WebGPU (later)   │
 └──────────────────────────────────────────────────────────┘
 ```
 
-- **Default deploy**: proxy binds **localhost**; browser on same machine.
-- **Phone / remote**: self-hosted or hosted proxy with **WSS + auth/allowlist** (never open-relay).
-- Browser never opens raw TCP.
+### Secondary topologies
+
+| Mode | When |
+|------|------|
+| **Dev localhost proxy** | Developer laptop; same WSS protocol; bind `127.0.0.1` |
+| **User self-host proxy** | Power user runs official image on their VPS with their auth/allowlist |
+| **Desktop native shell** (optional later) | Tauri/etc. may own TCP directly — not required for mobile north star |
+
+**Not a product path:** expecting end users to run a proxy process on iOS/Android.
 
 ## Package responsibilities
 
 | Package | Role | Replaceable backend |
 |---------|------|---------------------|
-| `protocol` | Telnet IAC, options, framing, reconnect policy | — |
-| `codec-big5` | Big5/DBCS tokenize; charset switch hooks | JS default → **WASM** later |
-| `vt` | CSI/C0 state machine (CUP, ED, DECSTBM, SGR, …) | — |
-| `terminal` | Screen buffer, scrollback, input echo policy | Renderer: Canvas2D → **WebGPU** |
-| `script-engine` | triggers/aliases/vars (declarative first) | matcher → WASM later |
-| `apps/web` | React shell, profiles UI, Tailwind chrome | — |
-| `apps/proxy` | WSS↔TCP, origin checks, allowlist | — |
+| `protocol` | Telnet IAC, options, framing, reconnect | — |
+| `codec-big5` | Big5/DBCS streaming | JS → **WASM** later |
+| `vt` | CSI/C0 (CUP, ED, DECSTBM, SGR, …) | — |
+| `terminal` | Screen buffer, scrollback | Renderer: Canvas2D → **WebGPU** |
+| `script-engine` | Declarative triggers/aliases/vars | matcher → WASM later |
+| `apps/web` | React + Tailwind; auth UI; profiles; `TerminalHost` | — |
+| `apps/proxy` | WSS↔TCP; **authn/z**; allowlist; quotas; audit | config: remote vs localhost |
 
 ## Render / compute plug-ins
 
@@ -53,24 +67,25 @@ interface Renderer {
 }
 
 interface CharsetCodec {
-  push(bytes: Uint8Array): CellOrControl[]; // streaming
+  push(bytes: Uint8Array): CellOrControl[];
 }
 ```
 
-- **v1**: `Canvas2DRenderer`, `TsBig5Codec`.
-- **Later**: `WebGpuRenderer` if `navigator.gpu` and profile says paint-bound; `WasmBig5Codec` if CPU-bound.
-- Feature detect once at session start; no React re-render per frame.
+- v1: `Canvas2DRenderer`, `TsBig5Codec`.
+- Later: WebGPU / WASM behind interfaces; feature-detect; no React state-per-frame.
 
-## Security surfaces
+## Security (official remote proxy)
 
-See `SECURITY.md` and plan §2.5. Critical: proxy anti-open-relay, terminal sanitizer (no raw HTML from MUD/MXP), no secrets in git.
+See [hosted-proxy-threat-model.md](security/hosted-proxy-threat-model.md).
+
+Minimum: auth before TCP, destination allowlist, SSRF blocks, quotas, metadata-only audit, WSS-only public endpoints.
 
 ## Testing shape
 
 | Layer | Where |
 |-------|--------|
-| Unit (majority) | `packages/*` via vitest — fixtures under `tests/fixtures/streams/` |
-| Integration | proxy + mock TCP |
-| UI thin | React Testing Library on shell only |
-| E2E | Playwright + mock mud |
-| Human | live RW map walk |
+| Unit | `packages/*` vitest + fixtures |
+| Integration | proxy policy tests (deny private IP, deny unauth, allowlist) |
+| UI thin | React Testing Library |
+| E2E | Playwright + mock mud + mock auth |
+| Human | phone browser against staging WSS + live RW |

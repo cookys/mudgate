@@ -1,11 +1,12 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: draft (stack locked R4; remaining Board items in §8)  
+> **Status**: draft (R5 mobile-first; stack + networking locked; remaining §8 optional)  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
-> **North star (Board)**: 電腦或手機透過本網頁專案，在 **加密安全** 條件下連上 **各家 MUD** 遊玩。  
-> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）作為最難適配標竿。  
-> **Stack**: [ADR-001](../adr/ADR-001-stack.md) — React + Vite + TS + Tailwind; pluggable Canvas2D/WebGPU + WASM hot paths.
+> **North star (Board)**: **手機優先**（及電腦）透過網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩。  
+> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）。  
+> **Stack**: [ADR-001](../adr/ADR-001-stack.md) — React + Vite + TS + Tailwind; pluggable Canvas2D/WebGPU + WASM (compute only).  
+> **Networking**: [ADR-002](../adr/ADR-002-mobile-first-proxy.md) — **remote authenticated WSS↔TCP proxy** is the product path; localhost is dev only.
 
 ## 0. Context / thesis
 
@@ -13,11 +14,12 @@
 
 | Dimension | Target |
 |-----------|--------|
-| Surfaces | **Desktop + mobile** browsers (responsive; PWA later) |
-| Reach | **Any Telnet/TCP MUD** the user chooses (host:port + charset + options) |
+| Surfaces | **Mobile browser/PWA first**, desktop same app |
+| Reach | Configured MUDs via **official/self-host proxy** (allowlist first; custom later) |
 | Power | zMUD-class: terminal fidelity, triggers, aliases, variables, packages |
-| Security | **TLS on the public path**; no open-relay; untrusted MUD output; no secrets in repo |
+| Security | **WSS + login** on proxy; allowlist/quotas/audit; no open-relay; untrusted MUD output |
 | Depth | RW first as the fidelity ceiling so “各家 mud” don’t regress Chinese/control edge cases |
+| Non-goal UX | User must **not** run a proxy app on the phone |
 
 Classic zMUD (and successors like cMUD) gave power users triggers, aliases, variables, buttons, and automapper. **All MUD game traffic is TCP (Telnet framing)** — that does not change. Revival World is a long-running Chinese LPMud (`mud.revivalworld.org:4000/5000/6000`); **RW is the deep-support benchmark**, not the only host.
 
@@ -28,24 +30,25 @@ Classic zMUD (and successors like cMUD) gave power users triggers, aliases, vari
 - Charset: **Traditional Chinese BIG5** (server prints `Current charset is Traditional Chinese (BIG5)`; also accepts `GB`/`BIG5` switch).
 - Payload is **not UTF-8**; decode path must be Big5-aware **before** Unicode UI.
 
-**Browser constraint (not a product choice):** pure web pages cannot open arbitrary TCP sockets. Therefore the **MUD leg is always TCP**; the **browser leg** is either:
+**Browser constraint (not a product choice):** pure web pages (and in-page **WASM**) cannot open arbitrary TCP sockets.
 
-| Mode | Path | When |
+| Mode | Path | Role |
 |------|------|------|
-| A. Local/sidecar proxy | Browser ⇄ WebSocket/WebTransport ⇄ **proxy process** ⇄ **TCP → MudOS** | default web |
-| B. Native shell | Tauri/Electron/WASI-host opens **raw TCP** | if we ship a desktop wrapper |
-| C. Hosted relay | Browser ⇄ wss ⇄ our relay ⇄ TCP → MudOS | multi-device; needs auth + anti-open-relay |
+| **A. Remote authenticated proxy** | Browser ⇄ **WSS+login** ⇄ proxy ⇄ **TCP → MUD** | **Product default (mobile + desktop)** |
+| **B. Dev localhost proxy** | Browser ⇄ WS ⇄ `127.0.0.1` proxy ⇄ TCP | Developers only |
+| **C. Desktop native shell** | App process raw TCP | Optional later — not required for phone |
 
-Product language: **“TCP to the MUD” is non-negotiable.** WebSocket/WebTransport is only the browser-side carriage of that TCP byte stream.
+Product language: **TCP to the MUD is non-negotiable**; **WSS+auth proxy is how phones play**. WASM is **compute-only**, not a TCP tunnel.
 
-### Encryption model (honest)
+### Encryption & trust model (honest)
 
 | Hop | Requirement |
 |-----|-------------|
 | User device → web app / API | **HTTPS only** in production |
-| Browser → session bridge | **WSS (TLS)** on any non-loopback deployment |
-| Bridge → MUD host | TCP (often cleartext telnet); use **TLS/telnets when the MUD offers it**; never log passwords |
-| Hosted multi-tenant relay | Auth + allowlist/rate-limit + **anti open-relay**; prefer user-run local proxy for maximum trust |
+| Browser → proxy | **WSS (TLS)**; **login required** on official/self-host prod |
+| Proxy → MUD host | TCP (often cleartext telnet); TLS-to-MUD when offered; **never log passwords/payloads** by default |
+| Official multi-tenant | Auth + **allowlist** + quotas + metadata audit — see [threat model](../security/hosted-proxy-threat-model.md) |
+| Highest secrecy optional | User self-hosts proxy or future local bridge so mud hop never touches official IP |
 
 Prior art: RW Java applet client + telnet. We replace that with a modern multi-MUD client that still speaks each mud’s real TCP/Telnet wire (RW: Big5 + full VT).
 
@@ -64,11 +67,11 @@ Players need a **modern web client** that:
 **Objective**: From phone or desktop browser, securely play MUDs (starting with daily-playable RW, then any user-configured mud).
 
 **Key Results**:
-- KR0 — **North-star demo**: mobile + desktop browsers reach a MUD over **HTTPS/WSS**, session usable 30+ min.
+- KR0 — **Phone north-star**: mobile browser reaches RW (or mock) over **HTTPS/WSS + logged-in proxy**, session usable 30+ min — **without** any proxy app on the phone.
 - KR1 — Connect + login to **RW** without garbled text; map_d control plane works (see VT research).
-- KR2 — Connect to **≥1 non-RW MUD** via same UI (proves multi-mud path; charset selectable).
-- KR3 — Trigger/alias/variable engine covers the user’s top 10 automation cases (list frozen with user).
-- KR4 — Security: TLS in prod config; open-relay tests red; XSS corpus green; no credentials in git.
+- KR2 — Connect to **≥1 non-RW allowlisted MUD** via same UI (charset selectable).
+- KR3 — Declarative automation: fixed **generic top-10 client capabilities** (alias/trigger/highlight/… — see §8); personal zMUD imports optional later.
+- KR4 — Security: WSS+auth; allowlist/SSRF/quota tests green; open-relay red; XSS corpus green; metadata audit only; no secrets in git.
 - KR5 — Docs tracking (`docs/plans` + `docs/projects` + INDEX) stays current for every L-size phase.
 
 ## 2.5 Global Constraints (copied verbatim into every dispatch)
