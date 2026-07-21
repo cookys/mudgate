@@ -198,6 +198,15 @@ Canvas ANSI 色可對齊 token（`#0a0b0e` 底 + 柔和 16 色，非 Windows 刺
 - reduced-motion、focus、對比抽樣  
 - **Acceptance**: keyboard-only 可完成連線與送指令  
 
+### Phase U+i18n — Locale switch (see dedicated plan)
+
+> **Plan**: [`2026-07-21-i18n-locale.md`](./2026-07-21-i18n-locale.md)  
+> **Hetero R1**: [`docs/reviews/2026-07-21-i18n-hetero.md`](../reviews/2026-07-21-i18n-hetero.md)
+
+- Shell-only en / zh-Hant；`StatusEvent` 結構化狀態；ConnectGate + drawer 切換  
+- **不**翻譯 MUD 世界輸出  
+- Merge gate = I1+I2+I3（禁止半套 status i18n）  
+
 ---
 
 ## 5. Out of scope (this redesign)
