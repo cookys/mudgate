@@ -23,7 +23,8 @@ Classic MUDs are **hard on small touch screens** (dense ANSI maps, heavy typing,
 | **Dev path** | Localhost proxy on the developer machine (same protocol, different config) |
 | **Desktop advanced** | Optional “local bridge” — power users / max privacy; not required for core journeys |
 | **Phone UX honesty** | Support connect + play; invest in usable input/chrome; accept that **map_d / power scripting** may remain better on desktop until proven otherwise |
-| **Official security** | Auth, allowlist (v1), SSRF blocks, quotas, metadata audit — [threat model](../security/hosted-proxy-threat-model.md) |
+| **Official security** | Auth, allowlist (v1), SSRF blocks, Origin check on WSS, quotas, metadata audit — [threat model](../security/hosted-proxy-threat-model.md) |
+| **Session (v1)** | httpOnly Secure SameSite=Strict cookie (or equivalent ticket on first WS frame); ≥30 min sessions with refresh/revoke |
 | **WASM role** | Compute only — **not** networking |
 
 ## Consequences

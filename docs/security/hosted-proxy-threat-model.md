@@ -19,20 +19,31 @@
 |--------|--------------------------------------|
 | Anonymous open-relay | **Auth required** before any upstream TCP |
 | Port scan / attack third parties | **Destination allowlist** (v1) or request+approve; rate limits; fail-closed |
-| SSRF (localhost, metadata, RFC1918) | Block private/link-local/metadata IPs; re-check after DNS |
+| SSRF (localhost, metadata, RFC1918) | Block private/link-local/metadata IPs; re-check after DNS on **every** new upstream connect |
 | Credential logging | **Never** log telnet payloads by default; metadata-only audit |
-| Session theft | Short-lived tokens, HTTPS-only cookies, revoke on logout |
-| Resource exhaustion | Per-user concurrency, connect rate, idle timeout |
-| DNS rebinding | Resolve → validate IP → connect; deny if rebinding class |
+| Session theft | Short-lived tokens; **httpOnly + Secure + SameSite=Strict** session cookie (or equivalent); revoke on logout |
+| Cross-site WebSocket hijack | Validate **`Origin`** (and Host) on WSS upgrade against allowlist; reject missing/mismatched Origin in prod |
+| Resource exhaustion | Per-user concurrency, connect rate, idle timeout; deploy runbook: global max connections |
+| DNS rebinding | Resolve → validate IP → connect; deny if rebinding class; re-validate per connect |
 | Insider / support tools | No default full-stream capture; explicit time-boxed consent only |
+| Malicious trigger package | Declarative engine **cannot** read document cookies, `localStorage` secrets, or arbitrary `fetch` to exfiltrate session |
 
 ## Modes
 
 | Mode | Audience | Auth | Destinations | Bind |
 |------|----------|------|--------------|------|
 | **Official / self-host prod** | Desktop + phone browsers | Required | Allowlist (or approved custom) | Public WSS |
-| **Dev localhost** | Developers | Optional | Public MUDs; still block private IPs | `127.0.0.1` |
+| **Dev localhost** | Developers | Optional (token/dev header OK) | May skip public allowlist **only** for non-private destinations; **always** block private/metadata IPs | `127.0.0.1` |
 | **User-run remote** | Power users | Their choice | Their policy | Their VPS |
+
+### Auth / session (pinned for Phase 1a)
+
+| Decision | Choice (v1) |
+|----------|-------------|
+| Browser session | **HTTP-only Secure cookie** after login (magic-link or OAuth TBD in impl) |
+| WSS auth | Cookie sent on same-site upgrade **or** short-lived ticket in first WS control frame (pick one in impl; document in proxy README) |
+| Duration | Access session ≥30 min with sliding idle refresh; hard logout revoke |
+| CSRF / WS | Origin allowlist + SameSite=Strict; no third-party embedding of authenticated WSS without explicit allow |
 
 ## Minimum ship checklist (official)
 

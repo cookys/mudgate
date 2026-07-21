@@ -42,17 +42,20 @@ sessions/       # client session state
 | Fixture type | Rule |
 |--------------|------|
 | Pre-auth public banners | OK if no account data (e.g. `tests/fixtures/streams/rw-banner-4000.bin`) |
-| Synthetic ANSI/map frames | Prefered — built from public protocol docs / open research notes |
+| Synthetic ANSI/map frames | **Preferred — clean-room**: construct bytes from *observed* wire + research notes (`docs/research/rw-ansi-and-map-controls.md`), **not** by copying RWlib sources into the repo |
+| Dual-color / mid-DBCS SGR cells | Hand-built synthetic sequences OK; document construction |
 | Post-login gameplay | Only with **redaction**; never include typed passwords |
 
-Review every new `tests/fixtures/**` file in PR description: source, charset, why safe.
+**Licensing determination (RWlib/Undine):** public downloads are for learning; full-tree redistribution is out of scope. Fixtures must be clean-room control/wire sequences. Short path citations in research docs are fine; if a fixture would copy substantial copyrighted source text, stop for license review.
+
+Review every new `tests/fixtures/**` in PR description: source, charset, clean-room?, why safe.
 
 ## Third-party & research
 
 | Source | How we use it | In repo? |
 |--------|----------------|----------|
 | Revival World site / live banner | Interop probe, fixture | Small binary fixture + notes |
-| RWlib / Undine public downloads | Research for ANSI/map_d | **Notes only** in `docs/research/` — do not vendor full trees without license pass |
+| RWlib / Undine public downloads | Research for ANSI/map_d | **Notes only** in `docs/research/` — do not vendor full trees |
 | zMUD / cMUD concepts | Feature inspiration | No proprietary binaries or docs dumps |
 | xterm.js / zlib / etc. | Dependencies (later) | Via package manager + LICENSE notices |
 

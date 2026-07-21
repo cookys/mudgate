@@ -17,8 +17,11 @@
 |---------|-------------|
 | Desktop | Full VT/map, triggers, long sessions — primary power-user home |
 | Phone | Connect, read, basic input, sessions on the go; dense map/scripting harder — improve deliberately, don’t over-claim |
+| Tablet | Treat as **wide phone or narrow desktop** via responsive breakpoints (no separate app) |
 
 If we later find UI patterns that make map_d great on phone, treat that as a **win**, not a day-1 promise.
+
+**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
 
 ## What the browser cannot do
 
@@ -62,7 +65,7 @@ If we later find UI patterns that make map_d great on phone, treat that as a **w
 | `terminal` | Screen buffer, scrollback | Renderer: Canvas2D → **WebGPU** |
 | `script-engine` | Declarative triggers/aliases/vars | matcher → WASM later |
 | `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
-| `apps/proxy` | WSS↔TCP; authn/z; allowlist; quotas; audit | config: remote vs localhost |
+| `apps/proxy` | WSS↔TCP; authn/z; allowlist; Origin check; quotas; audit | **config profiles**: `remote-prod` (public WSS+auth) \| `localhost-dev` |
 
 ## Render / compute plug-ins
 
@@ -91,7 +94,8 @@ See [hosted-proxy-threat-model.md](security/hosted-proxy-threat-model.md).
 | Layer | Where |
 |-------|--------|
 | Unit | `packages/*` vitest + fixtures |
-| Integration | proxy policy (deny private IP, deny unauth, allowlist) |
+| Integration | proxy policy (deny private IP, deny unauth, allowlist, Origin reject) |
 | UI thin | React Testing Library |
-| E2E | Playwright + mock mud + mock auth |
+| E2E | Playwright + mock mud + mock auth; WSS drop → reconnect smoke |
 | Human | desktop RW map walk; phone connect/smoke |
+| Security unit | XSS corpus on terminal render; trigger package cannot read cookies |

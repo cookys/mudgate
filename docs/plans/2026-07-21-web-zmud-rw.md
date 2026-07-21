@@ -1,6 +1,6 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: draft (R6 multi-surface; stack + networking locked)  
+> **Status**: draft (R7 post–hetero review fold; ready for Board approve)  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
 > **North star (Board)**: **電腦與手機**都能用網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩（兩表面都要考慮；不假裝 MUD 天生適合手機）。  
@@ -83,12 +83,12 @@ Players need a **modern web client** that:
 - **Wire to the game host is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
 - Browser/WASM never open raw TCP. Browser uses WSS only as a **byte-pipe** into a **proxy process** that holds TCP.
 - Production public endpoints: **HTTPS + WSS only**. Cleartext `ws://` only on localhost **dev**.
-- **Official/self-host prod proxy**: login required; destination **allowlist** (v1); SSRF blocks; per-user quotas; metadata-only audit; kill-switch. See ADR-002 + threat model.
-- **Localhost proxy**: developer / same-machine convenience; same protocol, different config.
-- Default session charset for RW: **Big5** (GB switch is secondary). Do not assume UTF-8 on the wire.
+- **Official/self-host prod proxy**: login required; destination **allowlist** (v1); SSRF blocks; **WSS Origin allowlist**; per-user quotas; metadata-only audit; kill-switch. Session: httpOnly Secure SameSite=Strict cookie (or equivalent WS ticket). See ADR-002 + threat model.
+- **Localhost proxy**: developer / same-machine convenience; same protocol, different config; **still block private/metadata IPs** (dev may relax public allowlist only).
+- Default session charset for RW: **Big5-HKSCS superset** decode (wire still “BIG5” family; GB switch secondary). Do not assume UTF-8 on the wire.
 - Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
-- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
-- **Complete ANSI/VT control plane is mandatory** (not SGR-only). RWlib `map_d` / city&area `show_map` / `title_screen` emit absolute cursor addressing, save/restore cursor, erase display, and scroll-region freeze. See `docs/research/rw-ansi-and-map-controls.md`. Client must maintain a real screen buffer.
+- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+- **Complete ANSI/VT control plane is mandatory for the RW ship gate (Phase 1b+)** (not SGR-only). Phase **1a** is intentionally partial (Big5 + SGR + scrollback + connect). Phase **1b** delivers CUP/save-restore/ED/DECSTBM screen buffer. See research.
 - Minimum must-implement CSI/C0 for RW gate: `CSI s/u` (save/restore), `CSI H` / `CSI r;cH` (CUP), `CSI 2J` (ED), `CSI r` / `CSI t;br` (DECSTBM), full SGR (incl. bold/dim/reverse/underline/blink/fg/bg), BEL/BS/HT/LF/CR, Big5 DBCS with mid-stream SGR (雙色 / `ansi_part` map cells).
 - **雙色字 / DBCS mid-glyph attributes** and map tile SGR carry (`ansi_part`) are first-class; strip-non-color CSI is a **ship blocker**.
 - MUD server output is **untrusted**; terminal render path must not inject raw HTML from MXP/ANSI without a sanitizer.
@@ -98,8 +98,9 @@ Players need a **modern web client** that:
 - **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
 - **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
 - **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
-- **Script engine v1**: **declarative** triggers/aliases/variables first; arbitrary user JS sandbox is later/optional (not Phase 2 blocker). Personal zMUD file import is optional — public patterns + synthetic fixtures are enough to start.
+- **Script engine v1**: **declarative** triggers/aliases/variables first; **no** arbitrary network/`fetch`, **no** reading cookies/`localStorage` secrets. User JS sandbox later/optional. Personal zMUD import optional.
 - **Proxy product default**: **remote authenticated WSS↔TCP** (official or self-host). **Localhost bind** is dev/advanced only.
+- **Reconnect**: client must survive WSS drop → re-auth/ticket → re-IAC negotiate; screen buffer retained client-side (Phase 1a acceptance).
 - Autopilot tracking: every L-size phase updates `docs/projects/.../README.md` + `docs/projects/INDEX.md`.
 - **Open-source hygiene**: no secrets, live credentialed captures, or unlicensed bulk third-party trees in git. Follow `docs/OPEN-SOURCE.md` + `SECURITY.md`. Local dumps only under gitignored `local/` / `private/` / `captures/`.
 
@@ -108,12 +109,12 @@ Players need a **modern web client** that:
 | Path | Responsibility |
 |------|----------------|
 | `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
-| `apps/proxy/` | WSS↔TCP bridge (localhost default; allowlist/auth hooks) |
+| `apps/proxy/` | WSS↔TCP bridge; profiles `remote-prod` \| `localhost-dev`; allowlist/auth/Origin |
 | `packages/terminal/` | Screen buffer, scrollback, `Renderer` (Canvas2D / WebGPU) |
 | `packages/vt/` | CSI/C0 state machine: CUP, ED/EL, DECSTBM, save/restore, SGR |
-| `packages/script-engine/` | declarative triggers / aliases / variables / timers |
-| `packages/protocol/` | Telnet IAC, MCCP2, MSSP/MXP hooks, reconnect |
-| `packages/codec-big5/` | Big5/DBCS streaming codec (TS now; WASM later) |
+| `packages/script-engine/` | declarative triggers / aliases / variables / timers (no secret exfil) |
+| `packages/protocol/` | Telnet IAC, MCCP2 refuse-then-optional, MSSP/MXP hooks, reconnect |
+| `packages/codec-big5/` | Big5-HKSCS-capable streaming codec (TS now; WASM later) |
 | `packages/client-automap/` | optional client-side automap (later; not server map_d) |
 | `docs/adr/` | architecture decision records |
 | `docs/plans/` | executable plans |
@@ -134,34 +135,38 @@ Players need a **modern web client** that:
 ### Phase 1a — Auth proxy + Big5 banner (Size: L)
 - Scaffold monorepo + CI smoke + vitest.
 - **Proxy** (one codebase, two configs):
-  - **prod/staging**: public WSS, **auth required**, allowlist (include RW), SSRF/quota tests.
-  - **dev**: localhost bind, relaxed auth optional.
-- React shell + Tailwind + login/session + `TerminalHost` (usable on narrow and wide viewports).
-- Terminal: Big5 + SGR + scrollback; Canvas2D; banner golden.
-- Manual: desktop browser (required) + phone browser smoke (desired) → RW banner without mojibake.
-- **Acceptance**: KR0 connect path; Big5 banner golden; unauth TCP denied; private-IP denied; no per-cell React rendering.
+  - **prod/staging**: public WSS, **auth required**, allowlist (include RW), SSRF/quota/**Origin** tests.
+  - **dev**: localhost bind; auth optional; **still deny private IPs**.
+- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+- React shell + Tailwind + login/session + `TerminalHost` (narrow + wide viewports).
+- Terminal (**partial**): Big5-HKSCS family + SGR + scrollback; Canvas2D; banner golden (uncompressed path).
+- **Reconnect**: WSS drop → re-establish → re-IAC; buffer kept client-side.
+- Manual: desktop (required) + phone smoke (desired) → RW banner without mojibake.
+- **Acceptance**: KR0 connect path; banner golden; unauth denied; private-IP denied; bad Origin denied; reconnect smoke; no per-cell React rendering.
+- **Explicit non-goal for 1a**: full map_d CSI set (that is 1b).
 
 ### Phase 1b — Screen buffer + map_d control plane (Size: L)
 - Full minimum CSI set: save/restore, CUP, ED, DECSTBM, etc. (see research).
-- Synthetic **city map frame** golden from RWlib sequence template.
+- Synthetic **city map frame** golden — **clean-room** from research control sequences (not vendored RWlib).
+- Synthetic **dual-color / mid-DBCS SGR** cell fixture (hand-built bytes) so `ansi_part`-style path is unit-tested before live capture.
+- Terminal XSS sanitizer tests (adversarial SGR/MXP-like strings) bound here or shared with 1a if render ships early.
 - Human (optional same milestone): after login, `look` map redraws in-place (no scroll thrash).
-- **Acceptance**: synthetic map golden (cursor restore leaves prompt region); “SGR-only client” documented as refuse-to-ship; KR1 path ready pending live login.
+- **Acceptance**: synthetic map + dual-color goldens; “SGR-only client” refuse-to-ship; KR1 path ready pending live login.
 
 ### Phase 2 — Core automation engine (Size: L)
 - Declarative aliases, triggers (regex + simple), variables, send queues.
 - Persist packages locally (IndexedDB); import/export JSON.
-- **No arbitrary user JS required for v1 acceptance.**
-- **Acceptance**: top automation cases from **KR3** green (list frozen with Board); package cannot read cookies/local secrets in tests.
+- **No arbitrary user JS**; packages cannot read cookies / secret storage / arbitrary fetch.
+- **Acceptance**: KR3 top-10 green; exfil negative tests green.
 
 ### Phase 3 — RW deep support pack (Size: L)
 - Login/captcha UX helpers (human-in-the-loop; no captcha bypass).
-- **雙色字** + mid-DBCS SGR + `ansi_part`-style cell paint fixtures; GB/BIG5 switch at login.
-- Live capture: city map + area map + title_screen freeze/unfreeze vs zMUD reference.
-- Expand VT coverage beyond minimum if live probe shows more (EL, relative cursor, DECDHL/DECDWL).
-- Optional MCCP2; careful MXP (off by default until sanitizer green).
-- Common RW triggers pack (HP/bar, combat, channel highlights) — user-validated.
+- Live dual-color / map / title_screen captures (redacted); GB/BIG5 switch at login.
+- Expand VT if live probe shows more (EL, relative cursor, DECDHL/DECDWL).
+- Optional **DO MCCP2 + inflate**; MXP off until sanitizer green.
+- Common RW triggers pack (user-validated).
 - Optional: link-out to RW online who / 2D map.
-- **Acceptance**: daily-play checklist (incl. **walk city map without scroll thrash**) signed off on live RW; dual-color + map control goldens green.
+- **Acceptance**: daily-play checklist (walk city map without scroll thrash) on live RW.
 
 ### Phase 4 — Multi-MUD + mobile polish (Size: L)
 - Connection profiles within allowlist / approved custom; charset; TLS-to-mud flag.
@@ -265,3 +270,4 @@ Players need a **modern web client** that:
 - R4 2026-07-21 — Stack lock: React+Vite+TS+Tailwind; ADR-001 + architecture sketch; pluggable Canvas2D/WebGPU + WASM hot paths; Phase 0' / 1a / 1b split; KR3 automation numbering fix; declarative scripts v1
 - R5 2026-07-21 — Remote authenticated proxy as product path for remote access; localhost demoted to dev; ADR-002 + threat model; WASM not TCP; generic KR3 top-10
 - R6 2026-07-21 — Board correction: **not** mobile-first branding; **desktop + mobile both first-class**; honest MUD-on-phone limits (KR6); rename ADR-002 to remote-auth-proxy
+- R7 2026-07-21 — Hetero plan review (MiniMax-M3 FIX-THEN-SHIP, GLM-5.2 SHIP empty, Qwen3.8-Max-Preview FIX-THEN-SHIP): fold auth/Origin/MCCP DONT/HKSCS/dual-color 1b/reconnect/clean-room fixtures/XSS phase bind
