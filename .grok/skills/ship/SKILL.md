@@ -76,6 +76,28 @@ npm test
 npm run build -w @assmud/web
 ```
 
+## Pre-smoke self-check (mandatory before “請你驗證”)
+
+**User pin 2026-07-22:** 作完叫使用者驗證之前，agent **必須先自己檢查確認沒問題**。
+
+Do **not** say “硬重新整理 / 請試” until this gate is green (or you report residual FAIL with evidence).
+
+```bash
+bash scripts/pre-smoke-check.sh
+```
+
+| Check | Why |
+|-------|-----|
+| `npm test` | logic regressions |
+| `npm run build -w @assmud/web` | tsc + bundle |
+| web :5173 + proxy `/health` | LAN servers actually up |
+| **curl Vite-served modules** | catch **stale HMR** (e.g. ConnectGate still referencing removed `ProfileEditor`) |
+| key component HTTP 200 | missing files / wrong paths |
+
+If Vite is stale: kill :5173, `rm -rf apps/web/node_modules/.vite`, restart `dev:web`, re-run script.
+
+**Only after PASS** may you ask for optional human smoke (login feel, numpad, vault UX).
+
 ## LAN servers (after land)
 
 ```bash
@@ -96,3 +118,5 @@ npm run dev:web
 
 - No `i18n/` + StatusEvent → cannot SHIP i18n plan.  
 - No `setTypography` / termFont storage → cannot SHIP fonts.  
+- **No “請驗證” without `scripts/pre-smoke-check.sh` PASS** (or equivalent evidence).  
+- Disk source green ≠ browser green — always probe **served** Vite transforms after UI refactors.
