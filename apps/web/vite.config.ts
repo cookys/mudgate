@@ -6,8 +6,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    host: "127.0.0.1",
+    host: process.env.VITE_HOST ?? "127.0.0.1",
   },
+
   optimizeDeps: {
     include: ["iconv-lite"],
   },

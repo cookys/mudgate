@@ -1,6 +1,6 @@
 # Plan — UI redesign (modern terminal · MUD-native · RWD)
 
-> **Status**: draft  
+> **Status**: implementing (Board frozen 2026-07-21)  
 > **Owner**: cookys  
 > **Branch**: `feat/ui-redesign` (to cut from `develop`)  
 > **Why**: 現介面被評為「太鳥」— 表單堆疊、終端像 demo、無明確視覺層級、RWD 僅勉強能用。  

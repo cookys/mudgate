@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TerminalHost, type HelloMsg } from "./TerminalHost";
 import {
   DEFAULT_PROFILES,
@@ -11,6 +11,14 @@ import {
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
 import { ClientMap } from "@assmud/mapper";
+import { ConnectGate } from "./components/ConnectGate";
+import { StatusPill } from "./components/StatusPill";
+import {
+  applyAccent,
+  loadAccent,
+  pickTagline,
+  type AccentId,
+} from "./lib/theme";
 
 const DEFAULT_WS =
   import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
@@ -31,12 +39,29 @@ try {
 }
 const clientMap = new ClientMap();
 
+function useIsLg() {
+  const [lg, setLg] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const fn = () => setLg(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+  return lg;
+}
+
 export function App() {
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
   const [token, setToken] = useState(
     () => localStorage.getItem("assmud_token") ?? "",
   );
-  const [activeProfile, setActiveProfile] = useState(profiles[0]?.id ?? "rw-4000");
+  const [accent, setAccent] = useState<AccentId>(() => loadAccent());
+  const [tagline] = useState(() => pickTagline());
+  const [activeProfile, setActiveProfile] = useState(
+    profiles[0]?.id ?? "rw-4000",
+  );
   const [tabs, setTabs] = useState<Tab[]>([
     {
       id: "t1",
@@ -48,13 +73,27 @@ export function App() {
   ]);
   const [tabId, setTabId] = useState("t1");
   const [cmd, setCmd] = useState("");
+  const [inputDraft, setInputDraft] = useState("");
   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
   const [showLog, setShowLog] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const isLg = useIsLg();
+  // Board: map open desktop, closed mobile
+  const [mapOpen, setMapOpen] = useState(true);
+  useEffect(() => {
+    setMapOpen(isLg);
+  }, [isLg]);
+
+  useEffect(() => {
+    applyAccent(accent);
+  }, [accent]);
 
   const tab = tabs.find((t) => t.id === tabId)!;
   const profile =
     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
     profiles[0]!;
+
+  const anyConnected = tabs.some((t) => t.connected);
 
   const setTabStatus = useCallback((id: string, status: string) => {
     setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -77,7 +116,7 @@ export function App() {
     [token, profile],
   );
 
-  const onSendThroughEngine = (line: string) => {
+  const onSendThroughEngine = useCallback((line: string) => {
     const expanded = engine.expandInput(line);
     for (const l of expanded) {
       const dir = l.trim().toLowerCase();
@@ -87,7 +126,7 @@ export function App() {
       }
     }
     return expanded;
-  };
+  }, []);
 
   const downloadLog = () => {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
@@ -97,33 +136,125 @@ export function App() {
     a.click();
   };
 
+  const exportProfiles = () => {
+    const blob = new Blob([exportProfilesJson(profiles)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "assmud-profiles.json";
+    a.click();
+  };
+
+  const importProfilesFile = async (file: File) => {
+    const text = await file.text();
+    const list = importProfilesJson(text);
+    setProfiles(list);
+    saveProfiles(list);
+  };
+
+  const connectTab = () => {
+    setTabs((ts) =>
+      ts.map((t) => (t.id === tabId ? { ...t, connected: true } : t)),
+    );
+  };
+
+  const disconnectTab = () => {
+    setTabs((ts) =>
+      ts.map((t) =>
+        t.id === tabId ? { ...t, connected: false, status: "idle" } : t,
+      ),
+    );
+  };
+
+  const submitCmd = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    setCmd(trimmed);
+    setInputDraft("");
+  };
+
+  // ── Connect gate (pre-session) ─────────────────────────────────────
+  if (!anyConnected) {
+    return (
+      <ConnectGate
+        tagline={tagline}
+        profiles={profiles.length ? profiles : DEFAULT_PROFILES}
+        profileId={tab.profileId}
+        token={token}
+        accent={accent}
+        onProfile={(id) => {
+          setActiveProfile(id);
+          setTabs((ts) =>
+            ts.map((t) => (t.id === tabId ? { ...t, profileId: id } : t)),
+          );
+        }}
+        onToken={(t) => {
+          setToken(t);
+          localStorage.setItem("assmud_token", t);
+        }}
+        onAccent={(a) => {
+          setAccent(a);
+          applyAccent(a);
+        }}
+        onConnect={connectTab}
+        onImportProfiles={(f) => void importProfilesFile(f)}
+        onExportProfiles={exportProfiles}
+      />
+    );
+  }
+
+  // ── Play shell ─────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-6xl p-3 sm:p-4 h-full flex flex-col gap-3">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">assmud</h1>
-          <p className="text-xs sm:text-sm text-zinc-400">
-            multi-MUD · {profile.name} · {tab.status}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`rounded px-2 py-1 text-xs border ${
-                t.id === tabId
-                  ? "bg-sky-800 border-sky-600"
-                  : "bg-zinc-900 border-zinc-700"
-              }`}
-              onClick={() => setTabId(t.id)}
-            >
-              {t.id}
-            </button>
-          ))}
+    <div
+      className="h-full flex flex-col min-h-0"
+      style={{ background: "var(--bg-void)" }}
+    >
+      {/* Topbar */}
+      <header
+        className="flex items-center gap-2 px-3 sm:px-4 shrink-0 border-b"
+        style={{
+          height: "var(--topbar-h)",
+          background: "var(--bg-panel)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <span
+          className="font-mono text-xs font-semibold tracking-widest uppercase shrink-0"
+          style={{ color: "var(--accent)" }}
+        >
+          assmud
+        </span>
+
+        <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
+          {tabs.map((t) => {
+            const p = profiles.find((x) => x.id === t.profileId);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className="rounded-[var(--radius-sm)] px-2.5 py-1 text-xs font-mono shrink-0 border transition"
+                style={{
+                  borderColor:
+                    t.id === tabId ? "var(--accent)" : "var(--border)",
+                  background:
+                    t.id === tabId ? "var(--accent-dim)" : "var(--bg-elevated)",
+                  color: "var(--text)",
+                }}
+                onClick={() => setTabId(t.id)}
+              >
+                {p?.name?.slice(0, 12) ?? t.id}
+              </button>
+            );
+          })}
           <button
             type="button"
-            className="rounded px-2 py-1 text-xs border border-zinc-700 bg-zinc-900"
+            className="rounded-[var(--radius-sm)] px-2 py-1 text-xs border shrink-0"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg-elevated)",
+              color: "var(--text-dim)",
+            }}
             onClick={() => {
               const id = `t${tabs.length + 1}`;
               setTabs((ts) => [
@@ -138,175 +269,420 @@ export function App() {
               ]);
               setTabId(id);
             }}
+            title="New tab"
           >
-            + tab
+            +
           </button>
         </div>
+
+        <StatusPill status={tab.status} />
+
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border hidden sm:inline-flex"
+          style={{
+            borderColor: "var(--border)",
+            background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text-dim)",
+          }}
+          onClick={() => setMapOpen((v) => !v)}
+        >
+          map
+        </button>
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border"
+          style={{
+            borderColor: drawerOpen ? "var(--accent)" : "var(--border)",
+            background: drawerOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text)",
+          }}
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label="Settings"
+        >
+          ⚙
+        </button>
       </header>
 
-      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 rounded-lg border border-zinc-800 p-3 bg-zinc-900/50">
-        <label className="text-xs flex flex-col gap-1">
-          Profile
-          <select
-            className="rounded bg-zinc-950 border border-zinc-700 px-2 py-1.5 text-sm"
-            value={tab.profileId}
-            disabled={tab.connected}
-            onChange={(e) => {
-              const pid = e.target.value;
-              setActiveProfile(pid);
-              setTabs((ts) =>
-                ts.map((t) => (t.id === tabId ? { ...t, profileId: pid } : t)),
-              );
-            }}
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.host}:{p.port})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs flex flex-col gap-1">
-          Auth token
-          <input
-            className="rounded bg-zinc-950 border border-zinc-700 px-2 py-1.5 font-mono text-sm"
-            value={token}
-            disabled={tab.connected}
-            onChange={(e) => {
-              setToken(e.target.value);
-              localStorage.setItem("assmud_token", e.target.value);
-            }}
-          />
-        </label>
-        <div className="flex items-end gap-2 flex-wrap">
-          <button
-            type="button"
-            className="rounded bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm disabled:opacity-40"
-            disabled={tab.connected}
-            onClick={() =>
-              setTabs((ts) =>
-                ts.map((t) =>
-                  t.id === tabId ? { ...t, connected: true } : t,
-                ),
-              )
-            }
-          >
-            連線
-          </button>
-          <button
-            type="button"
-            className="rounded bg-zinc-700 hover:bg-zinc-600 px-3 py-2 text-sm"
-            onClick={() =>
-              setTabs((ts) =>
-                ts.map((t) =>
-                  t.id === tabId
-                    ? { ...t, connected: false, status: "idle" }
-                    : t,
-                ),
-              )
-            }
-          >
-            斷線
-          </button>
-        </div>
-        <div className="flex items-end gap-1 flex-wrap">
-          {["n", "s", "e", "w", "look", "score"].map((b) => (
-            <button
-              key={b}
-              type="button"
-              className="rounded bg-emerald-900/80 border border-emerald-800 px-2 py-1.5 text-xs font-mono active:scale-95"
-              onClick={() => setCmd(b)}
-            >
-              {b}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            className="rounded border border-zinc-700 px-2 py-1.5 text-xs"
-            onClick={() => setShowLog((v) => !v)}
-          >
-            log
-          </button>
-          <button
-            type="button"
-            className="rounded border border-zinc-700 px-2 py-1.5 text-xs"
-            onClick={downloadLog}
-          >
-            save log
-          </button>
-        </div>
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            className="rounded border border-zinc-700 px-2 py-1.5 text-xs"
-            onClick={() => {
-              const blob = new Blob([exportProfilesJson(profiles)], {
-                type: "application/json",
-              });
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = "assmud-profiles.json";
-              a.click();
-            }}
-          >
-            export profiles
-          </button>
-          <label className="rounded border border-zinc-700 px-2 py-1.5 text-xs cursor-pointer">
-            import
-            <input
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                const text = await f.text();
-                const list = importProfilesJson(text);
-                setProfiles(list);
-                saveProfiles(list);
+      {/* Main stage */}
+      <div className="flex-1 min-h-0 flex relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 p-2 sm:p-3">
+            <div
+              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              style={{
+                borderColor: "var(--border)",
+                background: "#0a0b0e",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
               }}
-            />
-          </label>
+            >
+              {tab.connected ? (
+                <TerminalHost
+                  key={tabId + String(tab.connected)}
+                  wsUrl={wsUrl}
+                  hello={hello}
+                  injectCommand={cmd}
+                  onInjectConsumed={() => setCmd("")}
+                  expandInput={onSendThroughEngine}
+                  onServerLine={(line) => {
+                    engine.onServerLine(line);
+                    setTabs((ts) =>
+                      ts.map((t) =>
+                        t.id === tabId
+                          ? { ...t, log: [...t.log.slice(-5000), line] }
+                          : t,
+                      ),
+                    );
+                  }}
+                  onStatus={(s) => setTabStatus(tabId, s)}
+                />
+              ) : (
+                <div
+                  className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  <p className="font-mono text-sm">Session idle — not on the wire.</p>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
+                    style={{
+                      background: "var(--accent)",
+                      color: "#0a0b0e",
+                    }}
+                    onClick={connectTab}
+                  >
+                    Connect →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </section>
 
-      <div className="flex-1 min-h-[280px] grid lg:grid-cols-[1fr_160px] gap-2">
-        <TerminalHost
-          key={tabId + String(tab.connected)}
-          wsUrl={wsUrl}
-          hello={hello}
-          injectCommand={cmd}
-          onInjectConsumed={() => setCmd("")}
-          expandInput={onSendThroughEngine}
-          onServerLine={(line) => {
-            engine.onServerLine(line);
-            setTabs((ts) =>
-              ts.map((t) =>
-                t.id === tabId
-                  ? { ...t, log: [...t.log.slice(-5000), line] }
-                  : t,
-              ),
-            );
-          }}
-          onStatus={(s) => setTabStatus(tabId, s)}
-        />
-        <aside className="hidden lg:block rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[10px] leading-tight whitespace-pre text-zinc-400 overflow-auto">
-          <div className="text-zinc-500 mb-1">client map</div>
-          {mapAscii}
-        </aside>
+        {/* Map panel — open by default on lg+, closed mobile */}
+        {mapOpen && (
+          <aside
+            className="w-[min(280px,42vw)] shrink-0 border-l flex flex-col min-h-0 absolute right-0 top-0 bottom-0 z-10 lg:static lg:z-0"
+            style={{
+              background: "var(--bg-panel)",
+              borderColor: "var(--border)",
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-3 py-2 border-b text-xs"
+              style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
+            >
+              <span className="font-mono tracking-wide">client map</span>
+              <button
+                type="button"
+                className="px-1.5 py-0.5 rounded border text-[11px]"
+                style={{ borderColor: "var(--border)" }}
+                onClick={() => setMapOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <pre
+              className="flex-1 overflow-auto p-3 font-mono text-[10px] leading-tight whitespace-pre"
+              style={{ color: "var(--text-dim)" }}
+            >
+              {mapAscii}
+            </pre>
+          </aside>
+        )}
+
+        {/* Settings drawer */}
+        {drawerOpen && (
+          <>
+            <button
+              type="button"
+              className="absolute inset-0 z-20 bg-black/50 lg:bg-black/30"
+              aria-label="Close settings"
+              onClick={() => setDrawerOpen(false)}
+            />
+            <aside
+              className="absolute right-0 top-0 bottom-0 z-30 w-full max-w-sm border-l flex flex-col shadow-[var(--shadow)]"
+              style={{
+                background: "var(--bg-panel)",
+                borderColor: "var(--border)",
+              }}
+            >
+              <div
+                className="flex items-center justify-between px-4 py-3 border-b"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <h2 className="text-sm font-semibold">Session</h2>
+                <button
+                  type="button"
+                  className="text-xs px-2 py-1 rounded border"
+                  style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
+                  onClick={() => setDrawerOpen(false)}
+                >
+                  close
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto p-4 space-y-4 text-sm">
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
+                    Profile
+                  </div>
+                  <select
+                    className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                      color: "var(--text)",
+                    }}
+                    value={tab.profileId}
+                    disabled={tab.connected}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      setActiveProfile(pid);
+                      setTabs((ts) =>
+                        ts.map((t) =>
+                          t.id === tabId ? { ...t, profileId: pid } : t,
+                        ),
+                      );
+                    }}
+                  >
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.host}:{p.port})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
+                    Auth token
+                  </div>
+                  <input
+                    className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                      color: "var(--text)",
+                    }}
+                    value={token}
+                    disabled={tab.connected}
+                    onChange={(e) => {
+                      setToken(e.target.value);
+                      localStorage.setItem("assmud_token", e.target.value);
+                    }}
+                  />
+                </div>
+                <div>
+                  <div className="text-xs mb-1.5" style={{ color: "var(--text-dim)" }}>
+                    Accent
+                  </div>
+                  <div className="flex gap-2">
+                    {(
+                      [
+                        { id: "mint" as const, label: "Mint", swatch: "#3dffa8" },
+                        { id: "blue" as const, label: "Blue", swatch: "#5b9dff" },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setAccent(opt.id);
+                          applyAccent(opt.id);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border py-2 text-xs"
+                        style={{
+                          borderColor:
+                            accent === opt.id ? "var(--accent)" : "var(--border)",
+                          background:
+                            accent === opt.id
+                              ? "var(--accent-dim)"
+                              : "var(--bg-elevated)",
+                        }}
+                      >
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ background: opt.swatch }}
+                        />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tab.connected ? (
+                    <button
+                      type="button"
+                      className="rounded-[var(--radius-sm)] px-3 py-2 text-xs font-medium"
+                      style={{
+                        background: "var(--danger)",
+                        color: "#0a0b0e",
+                      }}
+                      onClick={disconnectTab}
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="rounded-[var(--radius-sm)] px-3 py-2 text-xs font-semibold"
+                      style={{ background: "var(--accent)", color: "#0a0b0e" }}
+                      onClick={connectTab}
+                    >
+                      Connect
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={() => setShowLog((v) => !v)}
+                  >
+                    {showLog ? "Hide log" : "Show log"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={downloadLog}
+                  >
+                    Save log
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={exportProfiles}
+                  >
+                    Export profiles
+                  </button>
+                  <label
+                    className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs cursor-pointer"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    Import
+                    <input
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void importProfilesFile(f);
+                      }}
+                    />
+                  </label>
+                </div>
+                {showLog && (
+                  <pre
+                    className="max-h-48 overflow-auto text-[11px] font-mono rounded border p-2"
+                    style={{
+                      background: "var(--bg-void)",
+                      borderColor: "var(--border)",
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    {tab.log.slice(-100).join("\n") || "(empty log)"}
+                  </pre>
+                )}
+                <p className="text-[11px]" style={{ color: "var(--text-faint)" }}>
+                  pack: {RW_STARTER_PACK.name} · profiles:{" "}
+                  {profiles.length || DEFAULT_PROFILES.length}
+                </p>
+              </div>
+            </aside>
+          </>
+        )}
       </div>
 
-      {showLog && (
-        <pre className="max-h-40 overflow-auto text-xs font-mono bg-zinc-950 border border-zinc-800 rounded p-2 text-zinc-400">
-          {tab.log.slice(-100).join("\n") || "(empty log)"}
-        </pre>
-      )}
+      {/* Command bar */}
+      <footer
+        className="shrink-0 border-t px-2 sm:px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        style={{
+          background: "var(--bg-panel)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <form
+          className="flex gap-2 items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitCmd(inputDraft);
+          }}
+        >
+          <span
+            className="font-mono text-sm select-none hidden sm:inline"
+            style={{ color: "var(--accent)" }}
+          >
+            ›
+          </span>
+          <input
+            value={inputDraft}
+            onChange={(e) => setInputDraft(e.target.value)}
+            autoComplete="off"
+            enterKeyHint="send"
+            disabled={!tab.connected}
+            className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+              // @ts-expect-error css var
+              "--tw-ring-color": "var(--accent-glow)",
+            }}
+            placeholder={tab.connected ? "command / alias…" : "connect first"}
+          />
+          <button
+            type="submit"
+            disabled={!tab.connected}
+            className="rounded-[var(--radius-sm)] px-4 py-2.5 text-sm font-semibold min-w-[4.5rem] min-h-[44px] disabled:opacity-40"
+            style={{
+              background: "var(--accent)",
+              color: "#0a0b0e",
+            }}
+          >
+            Send
+          </button>
+        </form>
 
-      <footer className="text-[10px] text-zinc-600 pb-2">
-        profiles: {profiles.length || DEFAULT_PROFILES.length} · pack:{" "}
-        {RW_STARTER_PACK.name} · desktop+mobile · develop
+        {/* Thumb pad — always visible on mobile, subtle on desktop */}
+        <div className="flex flex-wrap gap-1.5 mt-2 pb-1">
+          {(
+            [
+              ["n", "n"],
+              ["s", "s"],
+              ["e", "e"],
+              ["w", "w"],
+              ["look", "look"],
+              ["score", "score"],
+            ] as const
+          ).map(([label, val]) => (
+            <button
+              key={label}
+              type="button"
+              disabled={!tab.connected}
+              className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 active:scale-95 disabled:opacity-40"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border)",
+                color: "var(--text-dim)",
+              }}
+              onClick={() => submitCmd(val)}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 sm:hidden"
+            style={{
+              background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+              borderColor: "var(--border)",
+              color: "var(--text-dim)",
+            }}
+            onClick={() => setMapOpen((v) => !v)}
+          >
+            map
+          </button>
+        </div>
       </footer>
     </div>
   );
