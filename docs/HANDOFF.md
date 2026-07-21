@@ -7,7 +7,7 @@ assmud：中文優先 web MUD 客端。**Companion C0 已實作**；下一棒可
 | 項 | 值 |
 |----|-----|
 | Branch | `develop` |
-| HEAD | `2dcc9cf` — `feat: map_d nav companion C0 (snapshot, burst, pins, IDB)` |
+| HEAD | develop tip: `feat: map_d nav companion C0`（`git log -1`） |
 | Working tree | 接手時 `git status`；hetero `*.err` **勿 commit** |
 | Vite `:5173` / Proxy `:7788` | 可能已起（session 若 smoke）；否則一組 `dev:proxy`+`dev:web` |
 | Companion C0 | **code done** · unit/e2e/build green · **manual map_d smoke 未完成** |
