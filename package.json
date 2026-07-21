@@ -16,6 +16,7 @@
     "dev:proxy": "npm run dev -w @assmud/proxy",
     "dev:web": "npm run dev -w @assmud/web",
     "qc": "npm test && npm run test:e2e",
+    "secret-scan": "bash scripts/secret-scan.sh",
     "lint": "echo 'lint: no-op until eslint lands'"
   },
   "devDependencies": {
@@ -25,5 +26,6 @@
   },
   "engines": {
     "node": ">=20.10"
-  }
+  },
+  "license": "MIT"
 }

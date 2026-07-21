@@ -1,6 +1,6 @@
 # Plan — Open-source readiness
 
-> **Status**: **fold R2** (multi-LLM)  
+> **Status**: **SHIP**  
 > **Owner**: cookys  
 > **Seq**: **4** on roadmap  
 > **Backlog**: #13, #14, #8  

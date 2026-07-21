@@ -15,6 +15,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - run: npm run secret-scan
       - run: npm test
       - name: e2e golden streams (blocking)
         run: npm run test:e2e
