@@ -1,8 +1,16 @@
 /**
- * Structural + API path test: ProfileEditor uses validateProfile + secrets store.
- * (Component DOM covered via exports used by ConnectGate.)
+ * Secrets path: vault unlock required for setProfileSecretEntry.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { webcrypto } from "node:crypto";
+
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    configurable: true,
+  });
+}
+
 import {
   validateProfile,
   setProfileSecretEntry,
@@ -11,14 +19,20 @@ import {
   getProfileAutoLogin,
   clearProfileSecret,
   exportProfilesJson,
+  createVault,
+  unlockVault,
+  lockVault,
+  vaultTestResetStorage,
+  isVaultUnlocked,
 } from "@assmud/profiles";
 
-describe("profile CRUD API path (P2 secrets)", () => {
-  beforeEach(() => {
-    if (typeof localStorage !== "undefined") localStorage.clear();
+describe("profile secrets via vault", () => {
+  beforeEach(async () => {
+    vaultTestResetStorage();
+    await createVault("test-master-key");
   });
 
-  it("create-like validate + secret store round-trip", () => {
+  it("stores secrets only while vault unlocked; export clean", async () => {
     const p = validateProfile({
       id: "crud-1",
       name: "CRUD",
@@ -26,7 +40,7 @@ describe("profile CRUD API path (P2 secrets)", () => {
       port: 4000,
       charset: "big5hkscs",
     });
-    setProfileSecretEntry(p.id, {
+    await setProfileSecretEntry(p.id, {
       account: "hero",
       password: "s3cret",
       autoLogin: true,
@@ -34,12 +48,17 @@ describe("profile CRUD API path (P2 secrets)", () => {
     expect(getProfileAccount(p.id)).toBe("hero");
     expect(getProfilePassword(p.id)).toBe("s3cret");
     expect(getProfileAutoLogin(p.id)).toBe(true);
-    // export never includes password/account secrets
     const exp = exportProfilesJson([p]);
     expect(exp).not.toContain("s3cret");
     expect(exp).not.toContain("hero");
-    clearProfileSecret(p.id);
+
+    lockVault();
+    expect(isVaultUnlocked()).toBe(false);
     expect(getProfilePassword(p.id)).toBeUndefined();
-    expect(getProfileAutoLogin(p.id)).toBe(false);
+
+    await unlockVault("test-master-key");
+    expect(getProfilePassword(p.id)).toBe("s3cret");
+    await clearProfileSecret(p.id);
+    expect(getProfilePassword(p.id)).toBeUndefined();
   });
 });

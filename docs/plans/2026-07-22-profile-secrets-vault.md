@@ -1,6 +1,6 @@
 # Plan — Profile manager UX + secrets vault (encrypt at rest)
 
-> **Status**: **APPROVED** · hetero **ALL_CLEAR** (Codex+MiniMax R6) · ready to expand/impl  
+> **Status**: **SHIP** (impl on develop) · plan hetero ALL_CLEAR R6  
 > **Owner**: cookys  
 > **Date**: 2026-07-22  
 > **Supersedes / extends**: `2026-07-21-profile-library.md` (SHIP skeleton; secrets were **plaintext opt-in**)  

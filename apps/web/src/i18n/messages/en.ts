@@ -69,6 +69,8 @@ export const en = {
   "drawer.echoCommands": "Echo commands",
   "drawer.echoCommands.hint":
     "zMUD-style: show › line in terminal after send (never echo passwords)",
+  "drawer.manageProfiles": "Manage profiles…",
+  "connect.manageProfiles": "Manage profiles…",
   "accent.mint": "Mint",
   "accent.blue": "Blue",
   "locale.label": "Language",

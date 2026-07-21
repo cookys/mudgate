@@ -109,7 +109,7 @@ export function TerminalHost({
   const scrollOffsetRef = useRef(0);
   const echoMaskRef = useRef(false);
   /** Live grid size reported in hello + mid-session NAWS. */
-  const termSizeRef = useRef({
+  const termSizeRef = useRef<{ cols: number; rows: number }>({
     cols: TERM_FIT.defaultCols,
     rows: TERM_FIT.defaultRows,
   });

@@ -5,7 +5,7 @@ import { pickTagline, useLocale, useT } from "../i18n";
 import { LocaleSwitch } from "./LocaleSwitch";
 import type { TrustMode } from "../lib/trustMode";
 import { canConnect, readOfficialProxyUrl } from "../lib/trustMode";
-import { ProfileEditor } from "./ProfileEditor";
+import { ProfileManager } from "./ProfileManager";
 
 type Props = {
   profiles: MudProfile[];
@@ -48,6 +48,7 @@ export function ConnectGate({
 }: Props) {
   const t = useT();
   const { locale } = useLocale();
+  const [profileMgrOpen, setProfileMgrOpen] = useState(false);
   const [tagline, setTagline] = useState(() => pickTagline(locale));
   useEffect(() => {
     setTagline(pickTagline(locale));
@@ -243,7 +244,21 @@ export function ConnectGate({
               ))}
             </select>
           </label>
-          <ProfileEditor
+          <button
+            type="button"
+            className="w-full rounded-[var(--radius-sm)] border px-3 py-2 text-sm font-medium"
+            style={{
+              borderColor: "var(--accent)",
+              background: "var(--accent-dim)",
+              color: "var(--accent)",
+            }}
+            onClick={() => setProfileMgrOpen(true)}
+          >
+            {t("connect.manageProfiles")}
+          </button>
+          <ProfileManager
+            open={profileMgrOpen}
+            onClose={() => setProfileMgrOpen(false)}
             profiles={profiles}
             selectedId={profileId}
             onChange={onProfilesChange}

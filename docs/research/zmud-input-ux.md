@@ -170,7 +170,8 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 | Echo commands 偏好 | drawer checkbox · `assmud.echoCommands` |
 | 送出 | `fireInject` → `{ id, line }`（**id 必變**，同指令可連送）→ `MudSocket.send` |
 | 點終端 focus | `onRequestFocusCmd` on click-without-drag |
-| 自動登入 | profile secret: account + password + autoLogin；**ECHO mask** 送密碼，**不是** `Password:` 文字 trigger |
+| 自動登入 | **vault 解鎖後** account + password + autoLogin；ECHO mask 送密；見 `profile-secrets-vault` plan |
+| 密碼 at-rest | WebCrypto AES-GCM vault + 主密碼（`assmud.vault.v1`）；非明文 |
 
 ### Enter 送不出去的 bug（已修）
 

@@ -65,6 +65,8 @@ export type MessageKey =
   | "drawer.closeSettings"
   | "drawer.echoCommands"
   | "drawer.echoCommands.hint"
+  | "drawer.manageProfiles"
+  | "connect.manageProfiles"
   | "accent.mint"
   | "accent.blue"
   | "locale.label"

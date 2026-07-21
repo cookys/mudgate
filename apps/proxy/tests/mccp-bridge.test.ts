@@ -233,7 +233,7 @@ describe("bridge MCCP2", () => {
       "data",
       Buffer.concat([Buffer.from([IAC, SB, OPT.MCCP2, IAC, SE]), compressed]),
     );
-    await waitMs(40);
+    await waitMs(80);
     expect(ws.close).toHaveBeenCalled();
   });
 

@@ -11,8 +11,9 @@ import {
   getProfilePassword,
   getProfileAccount,
   getProfileAutoLogin,
-  getProfileSecret,
+  isVaultUnlocked,
 } from "@assmud/profiles";
+import { ProfileManager } from "./components/ProfileManager";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
 import { ClientMap } from "@assmud/mapper";
@@ -138,6 +139,7 @@ export function App() {
   /** Telnet ECHO password-mode — only while server WILL ECHO. */
   const [echoMask, setEchoMask] = useState(false);
   const [echoCommands, setEchoCommands] = useState(() => loadEchoCommands());
+  const [profileMgrOpen, setProfileMgrOpen] = useState(false);
   const cmdInputRef = useRef<HTMLInputElement>(null);
   const cmdHistoryRef = useRef(new CommandHistory());
   const echoMaskRef = useRef(false);
@@ -380,16 +382,18 @@ export function App() {
     [fireInject],
   );
 
-  // Auto-login: NOT text "Password:" trigger.
-  // 1) After connect → send stored account once (delay for MOTD/login prompt)
+  // Auto-login: requires vault unlocked (A1). NOT text "Password:" trigger.
+  // 1) After connect → send stored account once
   // 2) When Telnet WILL ECHO (mask) → send password once
   useEffect(() => {
     if (!tab.connected || tab.status.code !== "connected") return;
+    if (!isVaultUnlocked()) return;
     if (!getProfileAutoLogin(profile.id)) return;
     const account = getProfileAccount(profile.id);
     if (!account || autoLoginRef.current.accountSent) return;
     const t = window.setTimeout(() => {
       if (autoLoginRef.current.accountSent) return;
+      if (!isVaultUnlocked()) return;
       autoLoginRef.current.accountSent = true;
       fireInject(account, { secret: true, keepDraft: true });
     }, 700);
@@ -399,11 +403,13 @@ export function App() {
   useEffect(() => {
     if (!echoMask) return;
     if (!tab.connected) return;
+    if (!isVaultUnlocked()) return;
     if (!getProfileAutoLogin(profile.id)) return;
     const pw = getProfilePassword(profile.id);
     if (!pw || autoLoginRef.current.passwordSent) return;
     const t = window.setTimeout(() => {
       if (autoLoginRef.current.passwordSent) return;
+      if (!isVaultUnlocked()) return;
       autoLoginRef.current.passwordSent = true;
       fireInject(pw, { secret: true, keepDraft: true });
     }, 250);
@@ -822,6 +828,18 @@ export function App() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="mt-2 w-full rounded-[var(--radius-sm)] border px-3 py-2 text-xs font-medium"
+                    style={{
+                      borderColor: "var(--accent)",
+                      background: "var(--accent-dim)",
+                      color: "var(--accent)",
+                    }}
+                    onClick={() => setProfileMgrOpen(true)}
+                  >
+                    {t("drawer.manageProfiles")}
+                  </button>
                 </div>
                 <div>
                   <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
@@ -1143,6 +1161,25 @@ export function App() {
           </>
         )}
       </div>
+
+      <ProfileManager
+        open={profileMgrOpen}
+        onClose={() => setProfileMgrOpen(false)}
+        profiles={profiles}
+        selectedId={tab.profileId}
+        onChange={(list) => {
+          setProfiles(list);
+          saveProfiles(list);
+        }}
+        onSelect={(id) => {
+          setActiveProfile(id);
+          setTabs((ts) =>
+            ts.map((x) =>
+              x.id === tabId ? { ...x, profileId: id } : x,
+            ),
+          );
+        }}
+      />
 
       {/* Command bar */}
       <footer

@@ -6,13 +6,8 @@ export {
   resolveWidthMode,
 } from "./widthMode.js";
 export {
-  loadProfileSecrets,
-  saveProfileSecrets,
-  setProfilePassword,
   getProfilePassword,
-  setProfileAccount,
   getProfileAccount,
-  setProfileAutoLogin,
   getProfileAutoLogin,
   setProfileSecretEntry,
   getProfileSecret,
@@ -20,6 +15,27 @@ export {
   type ProfileSecrets,
   type ProfileSecretEntry,
 } from "./secrets.js";
+export {
+  vaultExists,
+  hasLegacyPlaintextSecrets,
+  isVaultUnlocked,
+  lockVault,
+  createVault,
+  unlockVault,
+  clearVault,
+  getVaultSecret,
+  setVaultSecret,
+  migrateLegacyIntoVault,
+  tryFinishLegacyDelete,
+  discardLegacyPlaintext,
+  vaultTestResetStorage,
+  VaultError,
+  VAULT_KEY,
+  VAULT_META_KEY,
+  LEGACY_SECRETS_KEY,
+  type VaultSecretEntry,
+  type VaultPayload,
+} from "./vault.js";
 import type { WidthMode } from "./widthMode.js";
 
 export type MudCharset = "big5hkscs" | "big5" | "utf8" | "gbk";

@@ -8,6 +8,7 @@ import {
   setProfileSecretEntry,
   clearProfileSecret,
   validateProfile,
+  isVaultUnlocked,
 } from "@assmud/profiles";
 
 type Props = {
@@ -15,6 +16,8 @@ type Props = {
   selectedId: string;
   onChange: (list: MudProfile[]) => void;
   onSelect: (id: string) => void;
+  /** When false, host/port still editable; secrets fields disabled */
+  secretsEnabled?: boolean;
 };
 
 const emptyDraft = (): Partial<MudProfile> => ({
@@ -30,25 +33,38 @@ export function ProfileEditor({
   selectedId,
   onChange,
   onSelect,
+  secretsEnabled = true,
 }: Props) {
   const selected = profiles.find((p) => p.id === selectedId);
   const [draft, setDraft] = useState<Partial<MudProfile>>(
     () => selected ?? emptyDraft(),
   );
   const [account, setAccount] = useState(() =>
-    selected ? getProfileAccount(selected.id) ?? "" : "",
+    selected && isVaultUnlocked()
+      ? (getProfileAccount(selected.id) ?? "")
+      : "",
   );
   const [password, setPassword] = useState(() =>
-    selected ? getProfilePassword(selected.id) ?? "" : "",
+    selected && isVaultUnlocked()
+      ? (getProfilePassword(selected.id) ?? "")
+      : "",
   );
   const [autoLogin, setAutoLogin] = useState(() =>
-    selected ? getProfileAutoLogin(selected.id) : false,
+    selected && isVaultUnlocked()
+      ? getProfileAutoLogin(selected.id)
+      : false,
   );
-  const [storePlain, setStorePlain] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
+  const [busy, setBusy] = useState(false);
 
   const loadSecretsIntoForm = (id: string) => {
+    if (!isVaultUnlocked()) {
+      setAccount("");
+      setPassword("");
+      setAutoLogin(false);
+      return;
+    }
     const s = getProfileSecret(id);
     setAccount(s?.account ?? "");
     setPassword(s?.password ?? "");
@@ -61,7 +77,6 @@ export function ProfileEditor({
     setAccount("");
     setPassword("");
     setAutoLogin(false);
-    setStorePlain(false);
     setErr(null);
   };
 
@@ -70,7 +85,6 @@ export function ProfileEditor({
     setMode("edit");
     setDraft({ ...selected });
     loadSecretsIntoForm(selected.id);
-    setStorePlain(Boolean(getProfileSecret(selected.id)?.password));
     setErr(null);
   };
 
@@ -83,7 +97,9 @@ export function ProfileEditor({
     }
   };
 
-  const save = () => {
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
     try {
       const p = validateProfile({
         ...draft,
@@ -100,34 +116,42 @@ export function ProfileEditor({
         next = profiles.map((x) => (x.id === selectedId ? p : x));
       }
       onChange(next);
-      if (password || account || autoLogin) {
-        if (password && !storePlain) {
-          throw new Error(
-            "opt-in required to store password in plaintext localStorage",
-          );
+
+      const wantsSecret = Boolean(password || account || autoLogin);
+      if (wantsSecret) {
+        if (!secretsEnabled || !isVaultUnlocked()) {
+          throw new Error("請先解鎖或建立密碼庫再存帳密");
         }
         if (autoLogin && !account && !password) {
           throw new Error("auto-login needs account and/or password");
         }
-        setProfileSecretEntry(p.id, {
+        await setProfileSecretEntry(p.id, {
           account: account.trim() || undefined,
           password: password || undefined,
           autoLogin,
         });
-      } else {
-        clearProfileSecret(p.id);
+      } else if (secretsEnabled && isVaultUnlocked()) {
+        await clearProfileSecret(p.id);
       }
+
       onSelect(p.id);
       setMode("view");
-      setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "invalid");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (!selected || profiles.length <= 1) return;
-    clearProfileSecret(selected.id);
+    if (isVaultUnlocked()) {
+      try {
+        await clearProfileSecret(selected.id);
+      } catch {
+        /* ignore */
+      }
+    }
     const next = profiles.filter((p) => p.id !== selected.id);
     onChange(next);
     onSelect(next[0]!.id);
@@ -144,7 +168,7 @@ export function ProfileEditor({
             style={{ borderColor: "var(--border)", color: "var(--text)" }}
             onClick={startCreate}
           >
-            + New profile
+            + 新增設定檔
           </button>
           <button
             type="button"
@@ -153,26 +177,35 @@ export function ProfileEditor({
             onClick={startEdit}
             disabled={!selected}
           >
-            Edit
+            編輯
           </button>
           <button
             type="button"
             className="text-xs rounded border px-2 py-1"
             style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
-            onClick={remove}
+            onClick={() => void remove()}
             disabled={!selected || profiles.length <= 1}
           >
-            Delete
+            刪除
           </button>
         </div>
         {selected && (
-          <p className="text-[11px] font-mono" style={{ color: "var(--text-faint)" }}>
+          <p
+            className="text-[11px] font-mono"
+            style={{ color: "var(--text-faint)" }}
+          >
             {selected.host}:{selected.port} · {selected.charset}
-            {getProfileAccount(selected.id)
+            {isVaultUnlocked() && getProfileAccount(selected.id)
               ? ` · 👤 ${getProfileAccount(selected.id)}`
               : ""}
-            {getProfilePassword(selected.id) ? " · 🔑 secret" : ""}
-            {getProfileAutoLogin(selected.id) ? " · auto-login" : ""}
+            {isVaultUnlocked() && getProfilePassword(selected.id)
+              ? " · 🔑"
+              : ""}
+            {isVaultUnlocked() && getProfileAutoLogin(selected.id)
+              ? " · auto-login"
+              : !isVaultUnlocked()
+                ? " · 🔒"
+                : ""}
           </p>
         )}
       </div>
@@ -180,9 +213,12 @@ export function ProfileEditor({
   }
 
   return (
-    <div className="space-y-2 rounded border p-2" style={{ borderColor: "var(--border)" }}>
+    <div
+      className="space-y-2 rounded border p-2"
+      style={{ borderColor: "var(--border)" }}
+    >
       <div className="text-xs font-medium" style={{ color: "var(--text)" }}>
-        {mode === "create" ? "New profile" : "Edit profile"}
+        {mode === "create" ? "新增設定檔" : "編輯設定檔"}
       </div>
       {(
         [
@@ -218,35 +254,37 @@ export function ProfileEditor({
           />
         </label>
       ))}
+
       <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
-        Account / character (auto-login, local only)
+        帳號（自動登入，僅密碼庫）
         <input
-          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs disabled:opacity-50"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",
             color: "var(--text)",
           }}
           value={account}
+          disabled={!secretsEnabled}
           onChange={(e) => setAccount(e.target.value)}
           autoComplete="off"
-          placeholder="sent once after connect"
+          placeholder={secretsEnabled ? "連線後送出" : "先解鎖密碼庫"}
         />
       </label>
       <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
-        Password (local only, not exported)
+        密碼（僅密碼庫 · WILL ECHO 時送出）
         <input
           type="password"
-          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs disabled:opacity-50"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",
             color: "var(--text)",
           }}
           value={password}
+          disabled={!secretsEnabled}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="off"
-          placeholder="sent on Telnet ECHO mask (not text trigger)"
         />
       </label>
       <label
@@ -256,23 +294,12 @@ export function ProfileEditor({
         <input
           type="checkbox"
           checked={autoLogin}
+          disabled={!secretsEnabled}
           onChange={(e) => setAutoLogin(e.target.checked)}
         />
-        Enable auto-login: send account after connect; send password when server
-        enables password-mode (WILL ECHO). No fragile “Password:” text trigger.
+        啟用自動登入（帳號延遲送出；密碼在伺服器開 ECHO mask 時送出）
       </label>
-      <label
-        className="flex items-start gap-2 text-[10px] leading-snug"
-        style={{ color: "var(--text-faint)" }}
-      >
-        <input
-          type="checkbox"
-          checked={storePlain}
-          onChange={(e) => setStorePlain(e.target.checked)}
-        />
-        I opt in to store password in **plaintext localStorage** on this device
-        (not exported; proxy/MUD operators can still see it on the wire).
-      </label>
+
       {err && (
         <p className="text-[11px]" style={{ color: "var(--danger)" }}>
           {err}
@@ -281,11 +308,12 @@ export function ProfileEditor({
       <div className="flex gap-2">
         <button
           type="button"
-          className="text-xs rounded px-2 py-1 font-semibold"
+          disabled={busy}
+          className="text-xs rounded px-2 py-1 font-semibold disabled:opacity-40"
           style={{ background: "var(--accent)", color: "#0a0b0e" }}
-          onClick={save}
+          onClick={() => void save()}
         >
-          Save
+          儲存
         </button>
         <button
           type="button"
@@ -293,7 +321,7 @@ export function ProfileEditor({
           style={{ borderColor: "var(--border)", color: "var(--text)" }}
           onClick={cancel}
         >
-          Cancel
+          取消
         </button>
       </div>
     </div>

@@ -68,6 +68,8 @@ export const zhCN = {
   "drawer.closeSettings": "关闭设置",
   "drawer.echoCommands": "回显送出的指令",
   "drawer.echoCommands.hint": "zMUD Echo commands：送出后在终端显示 › 行（密码永不回显）",
+  "drawer.manageProfiles": "管理配置…",
+  "connect.manageProfiles": "管理配置…",
   "accent.mint": "薄荷绿",
   "accent.blue": "蓝",
   "locale.label": "语言",
