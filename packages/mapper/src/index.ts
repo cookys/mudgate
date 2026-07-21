@@ -36,4 +36,6 @@ export {
   type NearbyExit,
   type RoomConfidence,
   type RoomTrackerSnapshot,
+  type LayoutNode,
+  type LayoutEdge,
 } from "./graph.js";

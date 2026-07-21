@@ -183,6 +183,10 @@ export function App() {
     void mapTick;
     return roomTracker.layoutNodes();
   }, [mapTick]);
+  const mapEdges = useMemo(() => {
+    void mapTick;
+    return roomTracker.layoutEdges();
+  }, [mapTick]);
   const cellWidthMode = useMemo(
     () =>
       resolveWidthMode({
@@ -336,20 +340,12 @@ export function App() {
     [bumpMap],
   );
 
-  const walkDir = useCallback(
-    (cmd: string) => {
-      const dir = parseMoveCommand(cmd);
-      if (dir) {
-        roomTracker.noteOutbound(cmd, dir);
-        bumpMap();
-      }
-      // Prefer live socket; inject as fallback
-      if (mudSendRef.current?.(cmd)) return;
-      injectIdRef.current += 1;
-      setInjectPayload({ id: injectIdRef.current, line: cmd });
-    },
-    [bumpMap],
-  );
+  /** Pad click — send only; noteOutbound runs once inside expandInput. */
+  const walkDir = useCallback((cmd: string) => {
+    if (mudSendRef.current?.(cmd)) return;
+    injectIdRef.current += 1;
+    setInjectPayload({ id: injectIdRef.current, line: cmd });
+  }, []);
 
   const downloadLog = () => {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
@@ -835,6 +831,7 @@ export function App() {
             onModeChange={setMapMode}
             nearby={nearbyHud}
             nodes={mapNodes}
+            edges={mapEdges}
             dialect={moveDialect}
             labelsZh={locale !== "en"}
             onWalk={walkDir}

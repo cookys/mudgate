@@ -1,7 +1,9 @@
 /**
  * Room graph for client automap (not server map_d).
- * Identity = fingerprint(title + exits); layout (x,y,z) is presentation only.
- * No auto reverse-link until reverse is observed (skeptic G4).
+ *
+ * Trail = dead-reckoning on every outbound move (always builds nodes).
+ * Title/exits triggers upgrade the current room when parse succeeds.
+ * Identity upgrade uses fingerprint(title+exits); layout (x,y,z) is presentation.
  */
 
 import {
@@ -26,7 +28,7 @@ export type GraphRoom = {
   id: string;
   title: string;
   fingerprint: string;
-  exits: Partial<Record<CompassDir, string | null>>; // null = stub (known open, no dest yet)
+  exits: Partial<Record<CompassDir, string | null>>; // null = stub
   specialExits: string[];
   x: number;
   y: number;
@@ -37,7 +39,6 @@ export type GraphRoom = {
 
 export type NearbyExit = {
   dir: CompassDir;
-  /** stub | linked | unknown (not listed by server) */
   state: "stub" | "linked" | "unknown";
   neighborTitle?: string;
   neighborId?: string;
@@ -50,12 +51,36 @@ export type NearbyHud = {
   roomId: string | null;
   mapping: boolean;
   lastEvent: string | null;
+  roomCount: number;
+};
+
+export type LayoutNode = {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  title: string;
+  current: boolean;
+};
+
+export type LayoutEdge = {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 };
 
 export type RoomTrackerSnapshot = {
   rooms: GraphRoom[];
   currentId: string | null;
   nearby: NearbyHud;
+};
+
+type LastStep = {
+  fromId: string;
+  dir: CompassDir;
+  toId: string;
+  created: boolean;
 };
 
 let seq = 0;
@@ -67,13 +92,12 @@ function newId(): string {
 export class RoomTracker {
   rooms = new Map<string, GraphRoom>();
   currentId: string | null = null;
-  /** Auto-create rooms on move (user can disable). */
   mapping = true;
   lastMoveDir: CompassDir | null = null;
   lastEvent: string | null = null;
-  /** Pending title candidate between move and exits line. */
   private pendingTitle: string | null = null;
-  private byFp = new Map<string, string>(); // fingerprint → roomId
+  private byFp = new Map<string, string>();
+  private lastStep: LastStep | null = null;
 
   reset(): void {
     this.rooms.clear();
@@ -82,64 +106,102 @@ export class RoomTracker {
     this.lastMoveDir = null;
     this.pendingTitle = null;
     this.lastEvent = null;
+    this.lastStep = null;
     seq = 0;
   }
 
-  noteOutbound(line: string, parsedDir: CompassDir | null): void {
-    if (parsedDir) {
-      this.lastMoveDir = parsedDir;
-      this.lastEvent = `move:${parsedDir}`;
-    }
+  /**
+   * Call for every outbound move command (e / 東 / numpad / pad click).
+   * Immediately places a trail room — does not wait for server parse.
+   */
+  noteOutbound(_line: string, parsedDir: CompassDir | null): void {
+    if (!parsedDir || !this.mapping) return;
+    this.lastMoveDir = parsedDir;
+    this.lastEvent = `move:${parsedDir}`;
+    this.ensureStart();
+    this.stepOnMove(parsedDir);
   }
 
-  /**
-   * Feed one decoded server text line (may include residual ANSI — stripped).
-   */
+  /** Feed one decoded server text line. */
   onServerLine(line: string): void {
     const plain = stripAnsi(line);
     if (!plain.trim()) return;
 
     if (isMoveFail(plain)) {
+      this.undoLastStep();
       this.lastMoveDir = null;
       this.pendingTitle = null;
       this.lastEvent = "move_fail";
       return;
     }
+
     if (isVisionFail(plain)) {
-      // keep lastMoveDir so we can still step without rematch
       this.lastEvent = "vision_fail";
-      if (this.lastMoveDir && this.mapping && this.currentId) {
-        this.applyMoveBlind(this.lastMoveDir);
-        this.lastMoveDir = null;
-      }
+      // trail already stepped on outbound; keep position
       return;
     }
 
     const exits = parseExitsLine(plain);
     if (exits) {
-      this.commitRoom(this.pendingTitle, exits.dirs, exits.special);
+      this.upgradeCurrent(this.pendingTitle, exits.dirs, exits.special);
       this.pendingTitle = null;
       this.lastMoveDir = null;
+      this.lastStep = null;
+      this.lastEvent = "exits";
       return;
     }
 
     if (looksLikeTitle(plain)) {
-      this.pendingTitle = normalizeTitle(plain);
+      const t = normalizeTitle(plain);
+      this.pendingTitle = t;
+      // Upgrade placeholder title immediately (RW may delay exits line)
+      const cur = this.currentId ? this.rooms.get(this.currentId) : null;
+      if (cur && (cur.title === "?" || cur.title === "起點" || cur.confidence === "guessed")) {
+        cur.title = t;
+        if (cur.confidence === "guessed") {
+          // still guessed until exits confirm
+        }
+        this.lastEvent = "title";
+      }
     }
   }
 
-  private applyMoveBlind(dir: CompassDir): void {
-    const cur = this.currentId ? this.rooms.get(this.currentId) : null;
+  private ensureStart(): void {
+    if (this.currentId && this.rooms.has(this.currentId)) return;
+    const start = this.createRoom({
+      title: "起點",
+      dirs: [],
+      special: [],
+      x: 0,
+      y: 0,
+      z: 0,
+      confidence: "guessed",
+    });
+    this.currentId = start.id;
+    this.lastEvent = "start";
+  }
+
+  private stepOnMove(dir: CompassDir): void {
+    const cur = this.rooms.get(this.currentId!);
     if (!cur) return;
-    const linked = cur.exits[dir];
-    if (typeof linked === "string") {
-      this.currentId = linked;
-      const r = this.rooms.get(linked);
-      if (r) r.visits += 1;
-      this.lastEvent = "blind_follow";
+
+    if (cur.exits[dir] === undefined) cur.exits[dir] = null;
+
+    const existing = cur.exits[dir];
+    if (typeof existing === "string" && this.rooms.has(existing)) {
+      this.currentId = existing;
+      const n = this.rooms.get(existing)!;
+      n.visits += 1;
+      this.lastStep = {
+        fromId: cur.id,
+        dir,
+        toId: existing,
+        created: false,
+      };
+      this.lastEvent = `follow:${dir}`;
       return;
     }
-    // place guessed room at layout delta
+
     const [dx, dy, dz] = DELTA[dir];
     const room = this.createRoom({
       title: "?",
@@ -151,96 +213,76 @@ export class RoomTracker {
       confidence: "guessed",
     });
     cur.exits[dir] = room.id;
+    // Soft reverse only as stub on destination (not a link) until observed
+    const rev = reverseDir(dir);
+    if (rev && room.exits[rev] === undefined) {
+      room.exits[rev] = null;
+    }
     this.currentId = room.id;
-    this.lastEvent = "blind_new";
+    this.lastStep = {
+      fromId: cur.id,
+      dir,
+      toId: room.id,
+      created: true,
+    };
+    this.lastEvent = `dig:${dir}`;
   }
 
-  private commitRoom(
+  private undoLastStep(): void {
+    const step = this.lastStep;
+    if (!step) return;
+    const from = this.rooms.get(step.fromId);
+    const to = this.rooms.get(step.toId);
+    if (from) {
+      // revert edge to stub or clear if we created the dest
+      if (step.created) {
+        delete from.exits[step.dir];
+      } else {
+        from.exits[step.dir] = step.toId; // keep link
+      }
+    }
+    if (step.created && to && to.confidence === "guessed" && to.visits <= 1) {
+      this.rooms.delete(to.id);
+      this.byFp.delete(to.fingerprint);
+    }
+    this.currentId = step.fromId;
+    this.lastStep = null;
+  }
+
+  /** Enrich current room with title + exit list from triggers. */
+  private upgradeCurrent(
     titleIn: string | null,
     dirs: CompassDir[],
     special: string[],
   ): void {
-    const title = normalizeTitle(titleIn ?? "") || "未知名稱";
-    const fp = fingerprint(title, dirs);
+    this.ensureStart();
+    const cur = this.rooms.get(this.currentId!)!;
+    const title =
+      normalizeTitle(titleIn ?? "") ||
+      (cur.title !== "?" && cur.title !== "起點" ? cur.title : "未知名稱");
 
-    // Match existing by fingerprint first
-    let roomId = this.byFp.get(fp);
-    let room = roomId ? this.rooms.get(roomId) : undefined;
-
-    if (!room && this.lastMoveDir && this.currentId && this.mapping) {
-      const cur = this.rooms.get(this.currentId)!;
-      const existingEdge = cur.exits[this.lastMoveDir];
-      if (typeof existingEdge === "string") {
-        room = this.rooms.get(existingEdge);
-        roomId = room?.id;
-      }
-      if (!room) {
-        const [dx, dy, dz] = DELTA[this.lastMoveDir];
-        room = this.createRoom({
-          title,
-          dirs,
-          special,
-          x: cur.x + dx,
-          y: cur.y + dy,
-          z: cur.z + dz,
-          confidence: "known",
-          fp,
-        });
-        cur.exits[this.lastMoveDir] = room.id;
-        // do NOT invent reverse until observed
-        roomId = room.id;
-      } else {
-        this.syncExits(room, dirs, special);
-        room.title = title;
-        room.fingerprint = fp;
-        this.byFp.set(fp, room.id);
-      }
-    } else if (!room) {
-      room = this.createRoom({
-        title,
-        dirs,
-        special,
-        x: 0,
-        y: 0,
-        z: 0,
-        confidence: "known",
-        fp,
-      });
-      roomId = room.id;
-    } else {
-      this.syncExits(room, dirs, special);
-      room.title = title;
-      room.visits += 1;
-    }
-
-    if (room && this.lastMoveDir && this.currentId && this.currentId !== room.id) {
-      const cur = this.rooms.get(this.currentId);
-      if (cur) cur.exits[this.lastMoveDir] = room.id;
-      // Link reverse only if server listed that dir (stub or empty) — never invent
-      const rev = reverseDir(this.lastMoveDir);
-      if (rev && dirs.includes(rev)) {
-        const existing = room.exits[rev];
-        if (existing === undefined || existing === null) {
-          room.exits[rev] = this.currentId;
-        }
-      }
-    }
-
-    this.currentId = room!.id;
-    this.lastEvent = "room";
-  }
-
-  private syncExits(
-    room: GraphRoom,
-    dirs: CompassDir[],
-    special: string[],
-  ): void {
+    cur.title = title;
     for (const d of dirs) {
-      if (room.exits[d] === undefined) room.exits[d] = null; // stub
+      if (cur.exits[d] === undefined) cur.exits[d] = null;
     }
-    room.specialExits = special;
-    room.fingerprint = fingerprint(room.title, dirs);
-    this.byFp.set(room.fingerprint, room.id);
+    cur.specialExits = special;
+    cur.confidence = "known";
+    cur.fingerprint = fingerprint(title, dirs);
+    this.byFp.set(cur.fingerprint, cur.id);
+    cur.visits += 1;
+
+    // If we arrived via lastStep and reverse is listed, link back
+    if (this.lastStep) {
+      const rev = reverseDir(this.lastStep.dir);
+      if (rev && dirs.includes(rev)) {
+        const existing = cur.exits[rev];
+        if (existing === undefined || existing === null) {
+          cur.exits[rev] = this.lastStep.fromId;
+        }
+        const from = this.rooms.get(this.lastStep.fromId);
+        if (from) from.exits[this.lastStep.dir] = cur.id;
+      }
+    }
   }
 
   private createRoom(opts: {
@@ -251,12 +293,11 @@ export class RoomTracker {
     y: number;
     z: number;
     confidence: RoomConfidence;
-    fp?: string;
   }): GraphRoom {
     const id = newId();
     const exits: GraphRoom["exits"] = {};
     for (const d of opts.dirs) exits[d] = null;
-    const fp = opts.fp ?? fingerprint(opts.title, opts.dirs);
+    const fp = fingerprint(opts.title, opts.dirs) + `#${id}`;
     const room: GraphRoom = {
       id,
       title: opts.title,
@@ -270,7 +311,6 @@ export class RoomTracker {
       visits: 1,
     };
     this.rooms.set(id, room);
-    if (opts.title !== "?") this.byFp.set(fp, id);
     return room;
   }
 
@@ -284,15 +324,12 @@ export class RoomTracker {
         roomId: null,
         mapping: this.mapping,
         lastEvent: this.lastEvent,
+        roomCount: this.rooms.size,
       };
     }
     const exits: NearbyExit[] = [];
-    const listed = new Set(
-      (Object.keys(cur.exits) as CompassDir[]).filter(
-        (d) => cur.exits[d] !== undefined,
-      ),
-    );
-    for (const d of listed) {
+    for (const d of Object.keys(cur.exits) as CompassDir[]) {
+      if (cur.exits[d] === undefined) continue;
       const dest = cur.exits[d];
       if (typeof dest === "string") {
         const n = this.rooms.get(dest);
@@ -313,6 +350,7 @@ export class RoomTracker {
       roomId: cur.id,
       mapping: this.mapping,
       lastEvent: this.lastEvent,
+      roomCount: this.rooms.size,
     };
   }
 
@@ -324,8 +362,7 @@ export class RoomTracker {
     };
   }
 
-  /** Graph nodes for WebGL / canvas POC */
-  layoutNodes(): { id: string; x: number; y: number; z: number; title: string; current: boolean }[] {
+  layoutNodes(): LayoutNode[] {
     return [...this.rooms.values()].map((r) => ({
       id: r.id,
       x: r.x,
@@ -335,9 +372,25 @@ export class RoomTracker {
       current: r.id === this.currentId,
     }));
   }
+
+  layoutEdges(): LayoutEdge[] {
+    const edges: LayoutEdge[] = [];
+    for (const r of this.rooms.values()) {
+      for (const d of Object.keys(r.exits) as CompassDir[]) {
+        const dest = r.exits[d];
+        if (typeof dest !== "string") continue;
+        const n = this.rooms.get(dest);
+        if (!n) continue;
+        // only emit once (lower id first) to avoid double lines
+        if (r.id > dest) continue;
+        edges.push({ x0: r.x, y0: r.y, x1: n.x, y1: n.y });
+      }
+    }
+    return edges;
+  }
 }
 
-/** @deprecated spike — prefer RoomTracker */
+/** @deprecated */
 export class ClientMap {
   private t = new RoomTracker();
   rooms = this.t.rooms;
@@ -347,14 +400,25 @@ export class ClientMap {
   move(dir: CompassDir, nextTitle: string): { id: string } {
     this.t.noteOutbound(dir, dir);
     this.t.onServerLine(nextTitle);
-    this.t.onServerLine(`出口：${dir}`);
+    this.t.onServerLine(`出口：${dirLabel(dir)}`);
     return { id: this.t.currentId ?? "" };
   }
-  ascii(radius = 5): string {
-    void radius;
+  ascii(): string {
     const n = this.t.nearby();
-    return n.title ? `@ ${n.title}` : "(empty)";
+    return n.title ? `@ ${n.title} (${n.roomCount})` : "(empty)";
   }
+}
+
+function dirLabel(d: CompassDir): string {
+  const m: Partial<Record<CompassDir, string>> = {
+    n: "北",
+    s: "南",
+    e: "東",
+    w: "西",
+    u: "上",
+    d: "下",
+  };
+  return m[d] ?? d;
 }
 
 export type { MoveDialect };

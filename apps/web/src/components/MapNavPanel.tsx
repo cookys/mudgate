@@ -17,6 +17,7 @@ type Props = {
     title: string;
     current: boolean;
   }[];
+  edges: { x0: number; y0: number; x1: number; y1: number }[];
   dialect: MoveDialect;
   labelsZh: boolean;
   onWalk: (cmd: string) => void;
@@ -49,6 +50,7 @@ export function MapNavPanel({
   onModeChange,
   nearby,
   nodes,
+  edges,
   dialect,
   labelsZh,
   onWalk,
@@ -139,12 +141,13 @@ export function MapNavPanel({
 
       {mode === "trail" && (
         <div className="flex-1 min-h-0 flex flex-col">
-          <MapGraphPoc nodes={nodes} />
+          <MapGraphPoc nodes={nodes} edges={edges} />
           <p
             className="px-2 py-1 text-[10px] border-t"
             style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}
           >
-            WebGL POC · {nodes.length} rooms · layout only
+            足跡 · {nodes.length} 房 · {edges.length} 邊
+            {nearby.lastEvent ? ` · ${nearby.lastEvent}` : ""}
           </p>
         </div>
       )}
@@ -170,6 +173,15 @@ export function MapNavPanel({
                 style={{ color: "var(--text-faint)" }}
               >
                 {emptyHint}
+              </p>
+            )}
+            {nearby.roomCount > 0 && (
+              <p
+                className="text-[10px] mt-1 font-mono"
+                style={{ color: "var(--text-faint)" }}
+              >
+                足跡 {nearby.roomCount} 房
+                {nearby.lastEvent ? ` · ${nearby.lastEvent}` : ""}
               </p>
             )}
           </div>
