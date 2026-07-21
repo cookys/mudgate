@@ -10,6 +10,8 @@
 | map_d / show_map / title_screen / screen buffer / scroll region | autopilot:debug |
 | telnet IAC / MCCP / MXP / MSSP / GMCP / option negotiate | autopilot:debug |
 | wasm / webassembly / codec hot path | autopilot:profiling |
+| webgpu / canvas / renderer / rAF paint | autopilot:profiling |
+| react shell / tailwind / TerminalHost | autopilot:debug |
 | trigger / alias / macro / script engine / matcher | autopilot:debug |
 | mapper / automap / room graph / pathfind | autopilot:debug |
 | XSS / HTML escape / MUD output sanitize / injection | autopilot:reviewer |

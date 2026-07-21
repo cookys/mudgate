@@ -22,6 +22,11 @@
 - PC + mobile **web** client; public path **HTTPS/WSS**; play **各家 MUD** (configurable)
 - Depth benchmark: Revival World (not the only host)
 
+## Stack (ADR-001)
+- UI: React + Vite + TypeScript + Tailwind (no heavy UI kit v1)
+- Terminal: framework-free packages; Canvas2D default; WebGPU/WASM pluggable hot paths
+- See `docs/adr/ADR-001-stack.md`, `docs/architecture.md`
+
 ## Target MUD (depth benchmark)
 - Host: `mud.revivalworld.org`
 - Ports: `4000`, `5000`, `6000` — **raw TCP + Telnet** (not HTTP)

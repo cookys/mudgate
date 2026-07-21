@@ -1,7 +1,7 @@
 # Web zMUD — bootstrap & tracking
 
 > **Status**: In progress · **Size**: L · **Branch**: `main`  
-> **Started**: 2026-07-21 · **Plan**: [2026-07-21-web-zmud-rw](../../plans/2026-07-21-web-zmud-rw.md)
+> **Started**: 2026-07-21 · **Plan**: [2026-07-21-web-zmud-rw](../../plans/2026-07-21-web-zmud-rw.md) (R4)
 
 ## OKR
 
@@ -12,6 +12,7 @@
 - KR2 — `docs/plans/` + `docs/projects/` + INDEX + BACKLOG exist and are the SSOT for `/next`.
 - KR3 — Seed plan captures RW facts, full VT gate, and north star: encrypted web path → 各家 mud.
 - KR4 — Board north star recorded in README + plan R3.
+- KR5 — Stack locked: React + Vite + TS + Tailwind; WebGPU/WASM pluggable ([ADR-001](../../adr/ADR-001-stack.md)).
 
 ## Target MUD (facts)
 
@@ -27,38 +28,50 @@
 | Lineage | LPMud / MudOS-family (**Undine 1.5** banner), RWlib v1.1.0 |
 | Online tools | [who](https://www.revivalworld.org/rw/online/who), [2D map](https://www.revivalworld.org/online/rw/map.html) |
 | Probe | [docs/research/rw-probe-2026-07-21.md](../../research/rw-probe-2026-07-21.md) |
+| Controls | [docs/research/rw-ansi-and-map-controls.md](../../research/rw-ansi-and-map-controls.md) |
+
+## Stack (locked R4)
+
+| Layer | Choice |
+|-------|--------|
+| Shell | React + Vite + TypeScript + Tailwind |
+| Terminal | Framework-free packages; Canvas2D default |
+| Later | WebGPU renderer / WASM codec via interfaces |
+| Proxy | Local WSS↔TCP (localhost default) |
 
 ## Phases
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| P0 — Onboard + docs framework | ✅ done | this project dir + configs |
-| P0b — Product/architecture design | pending | close plan open questions; ADR stack |
-| P1 — Connect + terminal MVP | pending | blocked on P0b |
-| P2 — Automation engine | pending | |
-| P3 — RW deep support pack | pending | |
-| P4 — Power features slice | pending | optional |
+| P0 — Onboard + docs framework | ✅ done | configs + INDEX + OSS hygiene |
+| P0' — Design gates | 🟡 partial | ADR-001 + architecture done; §8 #3/#5 still open |
+| P1a — Connect + Big5 banner | pending | monorepo + proxy + shell |
+| P1b — map_d VT screen buffer | pending | synthetic map golden |
+| P2 — Declarative automation | pending | needs KR3 top-10 list |
+| P3 — RW deep support | pending | live map / 雙色 |
+| P4 — Multi-MUD + mobile + TLS deploy | pending | |
+| P5 — Power features | pending | optional |
 
 ## Success criteria
 
 - [x] `.claude/` configs scaffolded and judgment-enriched for web MUD domain
 - [x] `docs/projects/INDEX.md` tracks this project
 - [x] Seed plan in `docs/plans/` with phases + constraints
-- [ ] User answers plan §8 open questions
-- [ ] Stack ADR accepted → start Phase 1 scaffold
+- [x] Stack ADR-001 accepted (React/Tailwind/pluggable GPU/WASM)
+- [ ] Remaining §8: top-10 automations; optional script/雙色 fixtures
+- [ ] Plan `status: approved` → start Phase 1a scaffold
 
 ## Next actions
 
-1. Answer plan open questions (stack, proxy model, existing scripts, encoding, top-10 automations).
-2. Optional: short survey of web MUD clients + xterm.js vs custom render.
-3. Run Phase 0 design → approve plan `status: approved` → implement Phase 1.
+1. Board: freeze top-10 automations (KR3) when ready; optional fixture logs.
+2. Confirm carriage default (local proxy) — Tauri not required for v1.
+3. Approve plan → Phase 1a monorepo scaffold.
 
 ## Learnings
 
 - Repo was empty greenfield: detector reported `package_manager: unknown`, no test/build commands yet. Re-run `project-detect.js` + update configs after stack scaffold.
 - **RW is still BIG5 on the wire** (2026-07-21 probe). UTF-8-first clients will mojibake the entire banner.
-- “走 TCP” is correct for MudOS; browser still needs a TCP-owning hop (proxy/native). Do not reframe the product as non-TCP.
-- Dual-color (雙色字) needs DBCS-aware cellization; stock xterm.js alone is a risky default.
-- **map_d is not plain text**: RWlib `city_d_main.show_map` / `area_d_main.show_map` / `title_screen` use `\e[s` `\e[u` absolute `\e[r;cH` `\e[2J` scroll-region `\e[t;br`. Complete control support is a **ship gate**, not polish. Detail: `docs/research/rw-ansi-and-map-controls.md`.
-- `assmud` ⇒ WASM is a branding/perf escape hatch, not day-1 mandate.
-- **Final goal (Board)**: PC/phone browser → TLS public path → play any MUD; do not over-promise E2E crypto when mud is cleartext telnet; never ship open-relay.
+- “走 TCP” is correct for MudOS; browser still needs a TCP-owning hop (proxy/native).
+- Dual-color + **full VT** are ship gates for RW map_d.
+- React vs Vue runtime is a wash for this architecture; React chosen for maintain/test density. Hot path stays in packages → **WebGPU/WASM OK later**.
+- **Final goal (Board)**: PC/phone browser → TLS public path → play any MUD; never ship open-relay.

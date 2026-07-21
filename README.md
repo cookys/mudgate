@@ -34,7 +34,8 @@
 | [.claude/](.claude/) | Autopilot DI configs |
 
 Current project: [web-zmud-bootstrap](docs/projects/2026-07-21-web-zmud-bootstrap/README.md)  
-Current plan: [web-zmud-rw](docs/plans/2026-07-21-web-zmud-rw.md) (draft)
+Current plan: [web-zmud-rw](docs/plans/2026-07-21-web-zmud-rw.md) (draft R4)  
+Architecture: [docs/architecture.md](docs/architecture.md) · [ADR-001 stack](docs/adr/ADR-001-stack.md)
 
 ## Open source hygiene
 

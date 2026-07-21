@@ -1,10 +1,11 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: draft  
+> **Status**: draft (stack locked R4; remaining Board items in §8)  
 > **Owner**: cookys  
-> **Branch**: `main` (bootstrap); feature work on `feat/*` after stack pick  
+> **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
 > **North star (Board)**: 電腦或手機透過本網頁專案，在 **加密安全** 條件下連上 **各家 MUD** 遊玩。  
-> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）作為最難適配標竿。
+> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）作為最難適配標竿。  
+> **Stack**: [ADR-001](../adr/ADR-001-stack.md) — React + Vite + TS + Tailwind; pluggable Canvas2D/WebGPU + WASM hot paths.
 
 ## 0. Context / thesis
 
@@ -87,22 +88,28 @@ Players need a **modern web client** that:
 - MUD server output is **untrusted**; terminal render path must not inject raw HTML from MXP/ANSI without a sanitizer.
 - No player passwords, session tokens, or captcha solutions committed to git.
 - Traditional Chinese UI first; English secondary.
-- Performance: **TypeScript-first**; WASM only where measured hotspots need it (see §0 WASM note / ADR). Repo name `assmud` is an intentional WASM wink, not a mandate to write the whole client in AssemblyScript day one.
+- **UI stack (locked)**: **React + Vite + TypeScript** shell; **Tailwind** for chrome; **no heavy UI kit** v1. See [ADR-001](../adr/ADR-001-stack.md).
+- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+- **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
+- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
+- **Script engine v1**: **declarative** triggers/aliases/variables first; arbitrary user JS sandbox is later/optional (not Phase 2 blocker).
+- **Proxy default**: local sidecar bind **127.0.0.1**; hosted/multi-tenant relay is opt-in and fail-closed (auth/allowlist). Phone/remote play uses self-host or hosted **WSS**, not open TCP from the browser.
 - Autopilot tracking: every L-size phase updates `docs/projects/.../README.md` + `docs/projects/INDEX.md`.
 - **Open-source hygiene**: no secrets, live credentialed captures, or unlicensed bulk third-party trees in git. Follow `docs/OPEN-SOURCE.md` + `SECURITY.md`. Local dumps only under gitignored `local/` / `private/` / `captures/`.
 
-## 3. File-structure map (intended — after Phase 0)
+## 3. File-structure map (intended — after Phase 0')
 
 | Path | Responsibility |
 |------|----------------|
-| `apps/web/` | SPA: terminal, settings, package manager UI |
-| `apps/proxy/` (or `packages/proxy/`) | WS server bridging to MudOS TCP |
-| `packages/terminal/` | Screen buffer + VT control + Big5/DBCS cellizer + dual-color + scrollback + render |
-| `packages/vt/` (or inside terminal) | CSI/C0 state machine: CUP, ED/EL, DECSTBM, save/restore, SGR |
-| `packages/script-engine/` | triggers / aliases / variables / timers (match on decoded lines + raw optional) |
-| `packages/protocol/` | Telnet IAC, MCCP2, MSSP/MXP hooks, encoding, reconnect |
-| `packages/codec-big5/` (or inside protocol) | Big5↔Unicode + DBCS-safe split; WASM candidate later |
-| `packages/mapper/` | optional automap (later phase) |
+| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+| `apps/proxy/` | WSS↔TCP bridge (localhost default; allowlist/auth hooks) |
+| `packages/terminal/` | Screen buffer, scrollback, `Renderer` (Canvas2D / WebGPU) |
+| `packages/vt/` | CSI/C0 state machine: CUP, ED/EL, DECSTBM, save/restore, SGR |
+| `packages/script-engine/` | declarative triggers / aliases / variables / timers |
+| `packages/protocol/` | Telnet IAC, MCCP2, MSSP/MXP hooks, reconnect |
+| `packages/codec-big5/` | Big5/DBCS streaming codec (TS now; WASM later) |
+| `packages/client-automap/` | optional client-side automap (later; not server map_d) |
+| `docs/adr/` | architecture decision records |
 | `docs/plans/` | executable plans |
 | `docs/projects/` | L-size execution tracking + INDEX |
 | `docs/research/` | RW fixtures notes, encoding notes (no secrets) |
@@ -110,26 +117,32 @@ Players need a **modern web client** that:
 
 ## 4. Phases
 
-### Phase 0 — Product + architecture design (Size: L)
-- Confirm must-have zMUD features vs nice-to-have.
-- Capture RW constraints (encoding, captcha, line discipline) with user-assisted probes.
-- Pick stack (e.g. Vite+React/Svelte + xterm.js vs custom canvas; Node/Bun proxy).
-- Write `docs/architecture.md` + ADR-001 stack.
-- **Acceptance**: ADR approved by user; Phase 1 file map frozen; open questions closed or deferred to BACKLOG.
+### Phase 0' — Close design gates (Size: S)
+- ~~Stack pick~~ → **done (ADR-001)**.
+- ~~RW encoding / VT research~~ → **done** (`docs/research/*`).
+- Remaining: Board §8 items (carriage confirmation, top-10 automations, optional script fixtures); freeze v1 feature cut.
+- Keep `docs/architecture.md` + ADR-001 in sync.
+- **Acceptance**: remaining §8 either answered or explicitly BACKLOG'd; plan → `status: approved` for Phase 1a.
 
-### Phase 1 — Connect path + terminal MVP (Size: L)
-- Scaffold monorepo + CI smoke.
-- **TCP-owning** proxy (or Tauri TCP) with origin checks; reconnect; idle handling; Telnet IAC (TTYPE/NAWS minimum).
-- Terminal MVP: **Big5** + **screen buffer** + SGR + CUP + save/restore + ED + scroll region (the map_d minimum set).
-- Fixtures: live banner + **synthetic city map frame** from RWlib sequence template (`docs/research/rw-ansi-and-map-controls.md`).
-- Manual: connect to RW, see banner without mojibake; after login (human), `look` map must redraw in-place (not dump garbage scroll).
-- **Acceptance**: KR1; Big5 banner golden; **synthetic map frame golden** (cursor restore leaves prompt region intact); open-relay refused; “SGR-only client” regression test documents failure mode we refuse to ship.
+### Phase 1a — Connect path + Big5 banner (Size: L)
+- Scaffold monorepo (pnpm/npm workspaces) + CI smoke + vitest.
+- **TCP-owning** proxy: WSS↔TCP, bind localhost by default, origin checks, reconnect, idle; Telnet IAC (TTYPE/NAWS minimum).
+- React shell + Tailwind layout + `TerminalHost` wiring.
+- Terminal: Big5 decode + SGR + scrollback; Canvas2D renderer; banner fixture golden.
+- Manual: connect to RW, see「重生的世界」without mojibake, type at name prompt.
+- **Acceptance**: Big5 banner golden; open-relay refused on default config; `ws://` localhost dev documented; no per-cell React rendering.
+
+### Phase 1b — Screen buffer + map_d control plane (Size: L)
+- Full minimum CSI set: save/restore, CUP, ED, DECSTBM, etc. (see research).
+- Synthetic **city map frame** golden from RWlib sequence template.
+- Human (optional same milestone): after login, `look` map redraws in-place (no scroll thrash).
+- **Acceptance**: synthetic map golden (cursor restore leaves prompt region); “SGR-only client” documented as refuse-to-ship; KR1 path ready pending live login.
 
 ### Phase 2 — Core automation engine (Size: L)
-- Aliases, triggers (regex + simple), variables, send queues.
+- Declarative aliases, triggers (regex + simple), variables, send queues.
 - Persist packages locally (IndexedDB); import/export JSON.
-- Sandbox constraints for any user JS (if allowed).
-- **Acceptance**: top automation cases from KR2 green; malicious script package cannot read cookies/local secrets in tests.
+- **No arbitrary user JS required for v1 acceptance.**
+- **Acceptance**: top automation cases from **KR3** green (list frozen with Board); package cannot read cookies/local secrets in tests.
 
 ### Phase 3 — RW deep support pack (Size: L)
 - Login/captcha UX helpers (human-in-the-loop; no captcha bypass).
@@ -157,12 +170,14 @@ Players need a **modern web client** that:
 
 | Layer | What |
 |-------|------|
-| Unit | ANSI parser, trigger matcher, encoding, sanitize |
+| Unit (primary) | `packages/*`: VT, codec, trigger matcher, sanitize — vitest |
 | Integration | proxy framing, reconnect, mock TCP server |
 | Golden streams | anonymized RW-like fixtures (never live passwords) |
+| UI (thin) | React Testing Library on shell only — not cell grid |
 | E2E | Playwright against mock Mud; optional manual live RW |
 | Security | XSS corpus on terminal; open-relay tests on proxy |
-| Human-gated | live RW captcha/login, feel of latency, package UX |
+| Human-gated | live RW captcha/login, map walk, feel of latency, package UX |
+| Perf gate (later) | only then consider WASM/WebGPU swaps; measure first |
 
 ## 6. Risks + inversion
 
@@ -178,7 +193,9 @@ Players need a **modern web client** that:
 | XSS via MUD output | `innerHTML` raw | pure text/ANSI pipeline + tests |
 | Scope explosion (full zMUD clone) | build everything before connect works | Phase 1 MVP gate |
 | Captcha / ToS | automate captcha | human-in-the-loop only |
-| Script sandbox escape | eval user JS in page context | isolate or restrict to declarative triggers first |
+| Script sandbox escape | eval user JS in page context | v1 declarative only; JS sandbox later + isolate |
+| React paint bottleneck | per-cell components / setState per frame | thin host + Canvas2D/WebGPU package loop |
+| WebGPU unavailable | assume GPU everywhere | feature detect; Canvas2D fallback required |
 
 ## 7. Out of scope (v1)
 
@@ -188,27 +205,34 @@ Players need a **modern web client** that:
 - 3D RW client (`rw3d`) integration
 - Server-side botting / unattended farming
 - Native App Store clients (mobile **browser / PWA** is in scope; Swift/Kotlin apps are not v1)
+- Heavy UI component libraries (MUI/Ant/etc.) as the design system
+- Day-1 mandatory WebGPU or whole-app WASM (interfaces only; implement when measured)
 
 ## 8. Open questions (Board / user)
 
-1. Preferred UI stack: React vs Svelte vs Solid? (recommend: **Vite + React**; terminal likely **custom Big5 cell renderer**, not stock xterm.js alone — xterm is UTF-8/Unicode oriented)
-2. Carriage mode first: **local TCP proxy sidecar** vs **Tauri raw TCP** vs hosted relay?
-3. Do you have existing zMUD/Mudlet scripts + a **雙色字 sample log** to freeze as fixtures?
-4. ~~Encoding?~~ **Resolved by probe: BIG5** (GB switch still supported). Confirm you still play in BIG5 mode.
-5. Must-have automation list (top 10) for KR2 freeze?
-6. WASM appetite: **hot path only** (Big5/ANSI tokenizer, trigger matcher) vs “brand as WASM client”?
+| # | Question | Status |
+|---|----------|--------|
+| 1 | UI stack | **Resolved (R4)**: React + Vite + TS + Tailwind; custom terminal buffer (not xterm-only). [ADR-001](../adr/ADR-001-stack.md) |
+| 2 | Carriage mode first | **Default (R4)**: local WSS↔TCP proxy on localhost; hosted relay opt-in fail-closed. Confirm if Board wants Tauri raw TCP in v1 (not required). |
+| 3 | Existing zMUD/Mudlet scripts + 雙色字 sample log? | **Open** — nice for fixtures; synthetic map frames can proceed without |
+| 4 | Encoding | **Resolved**: wire BIG5; GB switch supported |
+| 5 | Top 10 automations for **KR3** freeze? | **Open** — blocks Phase 2 acceptance list |
+| 6 | WASM appetite | **Resolved (R4)**: hot path only, pluggable; not brand-mandated day-1 |
+| 7 | WebGPU | **Resolved (R4)**: optional `Renderer` backend; Canvas2D default + fallback |
 
-## 9. WASM note (`assmud` 惡趣味)
+## 9. WASM + WebGPU note (`assmud`)
 
-| Layer | Need WASM day-1? | Why |
-|-------|------------------|-----|
-| TCP/Telnet I/O | No | OS socket / Node net / Tauri |
-| Big5 + ANSI cellizer | **Maybe later** | JS is fine for 80×24×N; WASM if profiling shows multi-MB scrollback or 1k+ triggers/frame |
-| Trigger regex engine | Maybe later | many concurrent RE on hot path |
-| MCCP2 zlib | No | browser/`pako`/Node zlib enough |
-| UI React/DOM | No | WASM does not help |
+| Layer | Day-1 | Later |
+|-------|-------|--------|
+| TCP/Telnet I/O | OS / Node net | — |
+| Big5 + cellizer | **TypeScript** | **WASM** if CPU-bound |
+| VT / screen buffer | **TypeScript** | stay TS unless proven hot |
+| Trigger matcher | **TypeScript** declarative | WASM if 1k+ rules/frame |
+| MCCP2 zlib | pako / Node zlib | — |
+| Paint | **Canvas2D** | **WebGPU** if paint-bound + `navigator.gpu` |
+| React UI | DOM/Tailwind | never WASM/GPU for chrome |
 
-**Recommendation:** ship TypeScript pipeline first; design `packages/codec-big5` + `packages/terminal` with a stable byte-oriented API so a **Rust/WASM** (or AssemblyScript) backend can swap in without rewriting the app. That honors the `assmud` joke without blocking MVP.
+**Rule:** stable byte-oriented APIs in `packages/*` so Rust/WASM or WebGPU backends swap without rewriting `apps/web`. Honor the name without blocking MVP.
 
 ## Review log
 
@@ -216,3 +240,4 @@ Players need a **modern web client** that:
 - R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
 - R2 2026-07-21 — RWlib/Undine audit: map_d/city/area/title_screen require full VT control plane; elevated to Global Constraint + Phase 1 gate
 - R3 2026-07-21 — Board north star: PC+mobile web, encrypted public path, multi-MUD; RW remains depth benchmark; KR0/KR2/Phase 4 added
+- R4 2026-07-21 — Stack lock: React+Vite+TS+Tailwind; ADR-001 + architecture sketch; pluggable Canvas2D/WebGPU + WASM hot paths; Phase 0' / 1a / 1b split; KR3 automation numbering fix; declarative scripts v1
