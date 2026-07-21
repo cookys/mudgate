@@ -1,4 +1,9 @@
-import { Attrs, defaultAttrs, tokenizeAnsi } from "@assmud/vt";
+import {
+  Attrs,
+  defaultAttrs,
+  sgrDelta,
+  tokenizeAnsi,
+} from "@assmud/vt";
 
 export type Cell = { ch: string; attrs: Attrs };
 
@@ -239,10 +244,118 @@ export class ScreenBuffer {
     this.cursor.c = 0;
   }
 
+  /** Visible screen, plain text (no ANSI). Wide-char trail cells skipped. */
   snapshotText(): string {
-    return this.cells
-      .map((row) => row.map((c) => c.ch).join("").replace(/\s+$/, ""))
-      .join("\n");
+    return this.exportRegionPlain(0, 0, this.rows - 1, this.cols - 1);
+  }
+
+  /** Visible screen with reconstructed SGR color codes. */
+  snapshotAnsi(): string {
+    return this.exportRegionAnsi(0, 0, this.rows - 1, this.cols - 1);
+  }
+
+  /** Scrollback + current screen, plain (session-friendly). */
+  snapshotScrollbackPlain(): string {
+    const screen = this.snapshotText();
+    if (!this.scrollback.length) return screen;
+    return [...this.scrollback, screen].join("\n");
+  }
+
+  /**
+   * Linear selection (terminal-style): from (r0,c0) through (r1,c1) in reading order.
+   * Emits plain text; wide-char trail cells skipped.
+   */
+  exportSelectionPlain(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    return this.walkSelection(r0, c0, r1, c1, false);
+  }
+
+  /** Same range with reconstructed SGR. */
+  exportSelectionAnsi(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    return this.walkSelection(r0, c0, r1, c1, true);
+  }
+
+  /** Full screen rectangle plain (all columns). */
+  exportRegionPlain(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    // treat as linear corners of a box: top-left → bottom-right
+    const ra = Math.max(0, Math.min(r0, r1));
+    const rb = Math.min(this.rows - 1, Math.max(r0, r1));
+    const ca = Math.max(0, Math.min(c0, c1));
+    const cb = Math.min(this.cols - 1, Math.max(c0, c1));
+    return this.walkSelection(ra, ca, rb, cb, false);
+  }
+
+  exportRegionAnsi(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    const ra = Math.max(0, Math.min(r0, r1));
+    const rb = Math.min(this.rows - 1, Math.max(r0, r1));
+    const ca = Math.max(0, Math.min(c0, c1));
+    const cb = Math.min(this.cols - 1, Math.max(c0, c1));
+    return this.walkSelection(ra, ca, rb, cb, true);
+  }
+
+  private walkSelection(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+    ansi: boolean,
+  ): string {
+    // normalize reading order
+    let sr = r0;
+    let sc = c0;
+    let er = r1;
+    let ec = c1;
+    if (sr > er || (sr === er && sc > ec)) {
+      sr = r1;
+      sc = c1;
+      er = r0;
+      ec = c0;
+    }
+    sr = Math.max(0, Math.min(this.rows - 1, sr));
+    er = Math.max(0, Math.min(this.rows - 1, er));
+    sc = Math.max(0, Math.min(this.cols - 1, sc));
+    ec = Math.max(0, Math.min(this.cols - 1, ec));
+
+    const lines: string[] = [];
+    let prev: Attrs | null = null;
+    for (let r = sr; r <= er; r++) {
+      const ca = r === sr ? sc : 0;
+      const cb = r === er ? ec : this.cols - 1;
+      let s = "";
+      if (ansi) prev = null;
+      for (let c = ca; c <= cb; c++) {
+        const cell = this.cells[r]![c]!;
+        if (cell.ch === "") continue;
+        if (ansi) {
+          s += sgrDelta(prev, cell.attrs);
+          prev = cell.attrs;
+        }
+        s += cell.ch;
+      }
+      if (ansi) s += "\x1b[0m";
+      else s = s.replace(/\s+$/, "");
+      lines.push(s);
+    }
+    return lines.join("\n");
   }
 
   /** Cell attr snapshot for dual-color tests */

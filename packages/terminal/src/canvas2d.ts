@@ -40,15 +40,30 @@ function colorFor(attrs: Attrs): { fg: string; bg: string } {
   return { fg, bg };
 }
 
+export type SelectionRange = {
+  r0: number;
+  c0: number;
+  r1: number;
+  c1: number;
+};
+
 export class Canvas2DRenderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
-  private cellW = 9;
-  private cellH = 18;
+  /** CSS pixel size of one half-width cell */
+  cellW = 9;
+  cellH = 18;
+  private dpr = 1;
+  private fontFamily =
+    '"Sarasa Mono TC", "Sarasa Term TC", "Noto Sans Mono CJK TC", "Noto Sans Mono", ui-monospace, monospace';
+  /** last draw buffer size for hit-test clamp */
+  private lastCols = 80;
+  private lastRows = 28;
 
   mount(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
+    this.ctx = canvas.getContext("2d", { alpha: false });
+    this.dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   }
 
   dispose(): void {
@@ -56,31 +71,112 @@ export class Canvas2DRenderer {
     this.ctx = null;
   }
 
-  draw(buf: ScreenBuffer): void {
+  setFontFamily(family: string): void {
+    this.fontFamily = family;
+  }
+
+  /** Map pointer client coords → cell index. */
+  hitTest(clientX: number, clientY: number): { r: number; c: number } | null {
+    const canvas = this.canvas;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const x = ((clientX - rect.left) / rect.width) * this.lastCols * this.cellW;
+    const y = ((clientY - rect.top) / rect.height) * this.lastRows * this.cellH;
+    const c = Math.floor(x / this.cellW);
+    const r = Math.floor(y / this.cellH);
+    if (r < 0 || c < 0 || r >= this.lastRows || c >= this.lastCols) return null;
+    return { r, c };
+  }
+
+  private syncBackingStore(cssW: number, cssH: number): void {
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    if (!canvas || !ctx) return;
+    this.dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const bw = Math.max(1, Math.round(cssW * this.dpr));
+    const bh = Math.max(1, Math.round(cssH * this.dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  }
+
+  draw(buf: ScreenBuffer, selection?: SelectionRange | null): void {
     const ctx = this.ctx;
     const canvas = this.canvas;
     if (!ctx || !canvas) return;
-    const w = buf.cols * this.cellW;
-    const h = buf.rows * this.cellH;
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
+
+    this.lastCols = buf.cols;
+    this.lastRows = buf.rows;
+    const cssW = buf.cols * this.cellW;
+    const cssH = buf.rows * this.cellH;
+    this.syncBackingStore(cssW, cssH);
+
     ctx.fillStyle = VOID;
-    ctx.fillRect(0, 0, w, h);
-    ctx.font = `500 ${this.cellH - 4}px "JetBrains Mono", "Noto Sans Mono", ui-monospace, monospace`;
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    const fontPx = Math.max(10, this.cellH - 4);
+    ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
     ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+
     for (let r = 0; r < buf.rows; r++) {
       for (let c = 0; c < buf.cols; c++) {
         const cell = buf.cells[r]![c]!;
         const { fg, bg } = colorFor(cell.attrs);
+        const x = c * this.cellW;
+        const y = r * this.cellH;
         if (bg !== VOID) {
           ctx.fillStyle = bg;
-          ctx.fillRect(c * this.cellW, r * this.cellH, this.cellW, this.cellH);
+          ctx.fillRect(x, y, this.cellW, this.cellH);
         }
         if (cell.ch && cell.ch !== " ") {
           ctx.fillStyle = fg;
-          ctx.fillText(cell.ch, c * this.cellW, r * this.cellH + 2);
+          ctx.fillText(cell.ch, Math.round(x), Math.round(y + 1));
         }
       }
+    }
+
+    if (selection) {
+      this.paintSelection(ctx, buf, selection);
+    }
+  }
+
+  private paintSelection(
+    ctx: CanvasRenderingContext2D,
+    buf: ScreenBuffer,
+    sel: SelectionRange,
+  ): void {
+    // linear selection highlight
+    let sr = sel.r0;
+    let sc = sel.c0;
+    let er = sel.r1;
+    let ec = sel.c1;
+    if (sr > er || (sr === er && sc > ec)) {
+      sr = sel.r1;
+      sc = sel.c1;
+      er = sel.r0;
+      ec = sel.c0;
+    }
+    sr = Math.max(0, Math.min(buf.rows - 1, sr));
+    er = Math.max(0, Math.min(buf.rows - 1, er));
+    sc = Math.max(0, Math.min(buf.cols - 1, sc));
+    ec = Math.max(0, Math.min(buf.cols - 1, ec));
+
+    ctx.fillStyle = "rgba(91, 157, 255, 0.32)";
+    for (let r = sr; r <= er; r++) {
+      const ca = r === sr ? sc : 0;
+      const cb = r === er ? ec : buf.cols - 1;
+      ctx.fillRect(
+        ca * this.cellW,
+        r * this.cellH,
+        (cb - ca + 1) * this.cellW,
+        this.cellH,
+      );
     }
   }
 }

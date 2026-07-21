@@ -125,3 +125,49 @@ export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()):
 export function visibleText(input: string): string {
   return input.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
+
+function attrsEqual(a: Attrs, b: Attrs): boolean {
+  return (
+    a.bold === b.bold &&
+    a.dim === b.dim &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.blink === b.blink &&
+    a.reverse === b.reverse &&
+    a.fg === b.fg &&
+    a.bg === b.bg
+  );
+}
+
+/** Encode Attrs as a full SGR reset+set sequence (self-contained). */
+export function attrsToSgr(attrs: Attrs): string {
+  const p: number[] = [0];
+  if (attrs.bold) p.push(1);
+  if (attrs.dim) p.push(2);
+  if (attrs.italic) p.push(3);
+  if (attrs.underline) p.push(4);
+  if (attrs.blink) p.push(5);
+  if (attrs.reverse) p.push(7);
+  if (attrs.fg != null) {
+    if (attrs.fg >= 8) p.push(90 + (attrs.fg - 8));
+    else p.push(30 + attrs.fg);
+  }
+  if (attrs.bg != null) {
+    if (attrs.bg >= 8) p.push(100 + (attrs.bg - 8));
+    else p.push(40 + attrs.bg);
+  }
+  if (p.length === 1) return "\x1b[0m";
+  return `\x1b[${p.join(";")}m`;
+}
+
+/**
+ * Minimal SGR delta from previous attrs (or full set if prev is null).
+ * Always safe to paste into another ANSI-aware terminal.
+ */
+export function sgrDelta(prev: Attrs | null, next: Attrs): string {
+  if (prev && attrsEqual(prev, next)) return "";
+  // simplest correctness: full reset+set (avoids partial-off bugs)
+  return attrsToSgr(next);
+}
+
+export { attrsEqual };
