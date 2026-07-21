@@ -1,15 +1,13 @@
-import { useEffect, useRef } from "react";
-import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ScreenBuffer,
+  Canvas2DRenderer,
+  type SelectionRange,
+} from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { MudSocket, type HelloMsg } from "./lib/mudSocket";
 
-export type HelloMsg = {
-  type: "hello";
-  token?: string;
-  host?: string;
-  port?: number;
-  cols?: number;
-  rows?: number;
-};
+export type { HelloMsg };
 
 type Props = {
   wsUrl: string | null;
@@ -21,6 +19,34 @@ type Props = {
   onServerLine?: (line: string) => void;
 };
 
+type CopyMenuMode = "selection" | "screen";
+
+// @refresh reset
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function TerminalHost({
   wsUrl,
   hello,
@@ -31,163 +57,334 @@ export function TerminalHost({
   onServerLine,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const bufRef = useRef(new ScreenBuffer(80, 28));
   const rendererRef = useRef(new Canvas2DRenderer());
   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
-  const wsRef = useRef<WebSocket | null>(null);
+  const lineAcc = useRef("");
+  const socketRef = useRef<MudSocket | null>(null);
+  const selecting = useRef(false);
+  const selRef = useRef<SelectionRange | null>(null);
+
+  const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
   const helloRef = useRef(hello);
   helloRef.current = hello;
-  const lineAcc = useRef("");
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const onServerLineRef = useRef(onServerLine);
+  onServerLineRef.current = onServerLine;
+  const expandInputRef = useRef(expandInput);
+  expandInputRef.current = expandInput;
+  const onInjectConsumedRef = useRef(onInjectConsumed);
+  onInjectConsumedRef.current = onInjectConsumed;
+
+  const redraw = useCallback(() => {
+    rendererRef.current.draw(bufRef.current, selRef.current);
+  }, []);
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 1600);
+  };
+
+  const copyText = async (kind: "plain" | "ansi", scope: "selection" | "screen") => {
+    const buf = bufRef.current;
+    const sel = selRef.current;
+    let text: string;
+    if (scope === "selection" && sel) {
+      text =
+        kind === "ansi"
+          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+    } else {
+      text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
+    }
+    const ok = await writeClipboard(text);
+    setMenuMode(null);
+    flash(
+      ok
+        ? kind === "ansi"
+          ? "已複製（含色碼）"
+          : "已複製（純文字）"
+        : "複製失敗",
+    );
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     rendererRef.current.mount(canvas);
-    rendererRef.current.draw(bufRef.current);
+    redraw();
     return () => rendererRef.current.dispose();
-  }, []);
-
-  useEffect(() => {
-    if (!injectCommand) return;
-    // expand once here; sendLine must not re-expand injected pieces
-    const lines = expandInput ? expandInput(injectCommand) : [injectCommand];
-    for (const line of lines) sendRaw(line);
-    onInjectConsumed?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [injectCommand]);
+  }, [redraw]);
 
   useEffect(() => {
     if (!wsUrl) return;
-    onStatus?.("connecting…");
-    let closed = false;
-    let attempt = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let ws: WebSocket;
 
-    const connect = () => {
-      if (closed) return;
-      onStatus?.(attempt ? `reconnecting… (${attempt})` : "connecting…");
-      ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
+    const sock = new MudSocket(wsUrl, () => helloRef.current);
+    socketRef.current = sock;
 
-      const paint = () => rendererRef.current.draw(bufRef.current);
-
-      ws.onopen = () => {
-        attempt = 0;
-        onStatus?.("handshaking…");
-        ws.send(JSON.stringify(helloRef.current));
-      };
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (closed) {
-          onStatus?.("disconnected");
-          return;
-        }
-        attempt += 1;
-        if (attempt > 5) {
-          onStatus?.("disconnected");
-          return;
-        }
-        onStatus?.(`reconnect in ${attempt}s`);
-        timer = setTimeout(connect, attempt * 1000);
-      };
-      ws.onerror = () => onStatus?.("error");
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === "string") {
-          const s = ev.data;
-          if (s.startsWith("{")) {
-            try {
-              const j = JSON.parse(s) as { type?: string; message?: string };
-              if (j.type === "error") {
-                const msg = (j.message ?? "error")
-                  .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
-                  .slice(0, 200);
-                onStatus?.(msg || "error");
-              } else if (j.type === "ready") {
-                onStatus?.("connected");
-              }
-            } catch {
-              onStatus?.("bad control frame");
-            }
-          }
-          return;
-        }
-        const bytes = new Uint8Array(ev.data as ArrayBuffer);
+    sock.setHandlers({
+      onBinary: (bytes) => {
         const text = decoderRef.current.push(bytes);
-        if (text) {
-          bufRef.current.writeDecoded(text);
-          paint();
-          // line split for script engine
-          lineAcc.current += text;
-          const parts = lineAcc.current.split(/\r?\n/);
-          lineAcc.current = parts.pop() ?? "";
-          for (const ln of parts) {
-            if (ln) onServerLine?.(ln);
-          }
+        if (!text) return;
+        bufRef.current.writeDecoded(text);
+        redraw();
+        lineAcc.current += text;
+        const parts = lineAcc.current.split(/\r?\n/);
+        lineAcc.current = parts.pop() ?? "";
+        for (const ln of parts) {
+          if (ln) onServerLineRef.current?.(ln);
         }
-      };
-    };
+      },
+    });
 
-    connect();
+    const unsub = sock.subscribeStatus(() => {
+      onStatusRef.current?.(sock.getStatus());
+    });
+
+    sock.start();
 
     return () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      wsRef.current?.close();
-      wsRef.current = null;
+      unsub();
+      sock.stop();
+      if (socketRef.current === sock) socketRef.current = null;
       decoderRef.current.reset();
       lineAcc.current = "";
     };
-  }, [wsUrl, onStatus, onServerLine]);
+  }, [wsUrl, redraw]);
 
-  const sendRaw = (line: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      if (line.length > 4096) return;
-      ws.send(line);
-    }
+  useEffect(() => {
+    if (!injectCommand) return;
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(injectCommand) : [injectCommand];
+    for (const line of lines) socketRef.current?.send(line);
+    onInjectConsumedRef.current?.();
+  }, [injectCommand]);
+
+  // Keyboard: Ctrl/Cmd+C copies plain (or opens choice if shift)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+      // if page has other selection, don't steal
+      const native = window.getSelection()?.toString();
+      if (native && native.length > 0) return;
+      if (!selRef.current && !e.shiftKey) return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        // Shift+Ctrl+C → ANSI
+        void copyText("ansi", selRef.current ? "selection" : "screen");
+      } else {
+        void copyText("plain", selRef.current ? "selection" : "screen");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const hit = rendererRef.current.hitTest(e.clientX, e.clientY);
+    if (!hit) return;
+    setMenuMode(null);
+    selecting.current = true;
+    const next = { r0: hit.r, c0: hit.c, r1: hit.r, c1: hit.c };
+    selRef.current = next;
+    setSelection(next);
+    redraw();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
-  /** User input: expand aliases once, then send. */
-  const sendLine = (line: string) => {
-    const lines = expandInput ? expandInput(line) : [line];
-    for (const l of lines) sendRaw(l);
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!selecting.current) return;
+    const hit = rendererRef.current.hitTest(e.clientX, e.clientY);
+    if (!hit || !selRef.current) return;
+    const next = { ...selRef.current, r1: hit.r, c1: hit.c };
+    selRef.current = next;
+    setSelection(next);
+    redraw();
+  };
+
+  const onPointerUp = () => {
+    if (!selecting.current) return;
+    selecting.current = false;
+    const sel = selRef.current;
+    if (!sel) return;
+    // click without drag → clear selection
+    if (sel.r0 === sel.r1 && sel.c0 === sel.c1) {
+      selRef.current = null;
+      setSelection(null);
+      setMenuMode(null);
+      redraw();
+      return;
+    }
+    // float copy bar above command input (bottom of terminal stage)
+    setMenuMode("selection");
+  };
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuMode(selRef.current ? "selection" : "screen");
   };
 
   return (
-    <div className="flex flex-col gap-2 h-full min-h-0">
-      <div className="overflow-auto touch-pan-y">
-        <canvas
-          ref={canvasRef}
-          className="rounded border border-zinc-700 bg-black max-w-full"
-          style={{ imageRendering: "pixelated" }}
-        />
-      </div>
-      <form
-        className="flex gap-2 sticky bottom-0 bg-zinc-950/90 py-1"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          const line = String(fd.get("line") ?? "");
-          sendLine(line);
-          e.currentTarget.reset();
-        }}
+    <div
+      ref={wrapRef}
+      className="relative h-full min-h-0 w-full overflow-auto touch-pan-y"
+      onContextMenu={onContextMenu}
+    >
+      {/* toolbar */}
+      <div
+        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,20rem)]"
+        style={{ pointerEvents: "auto" }}
       >
-        <input
-          name="line"
-          autoComplete="off"
-          enterKeyHint="send"
-          className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono"
-          placeholder="指令 / alias…"
-        />
         <button
-          type="submit"
-          className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm min-w-[4rem]"
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy screen without ANSI"
+          onClick={() => void copyText("plain", "screen")}
         >
-          送出
+          複製純文字
         </button>
-      </form>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy screen with ANSI color codes"
+          onClick={() => void copyText("ansi", "screen")}
+        >
+          複製含色碼
+        </button>
+      </div>
+
+      <canvas
+        ref={canvasRef}
+        className="block cursor-text"
+        style={{
+          // never use pixelated — it freckles glyph edges when CSS-scaled
+          imageRendering: "auto",
+          background: "#0a0b0e",
+          maxWidth: "100%",
+          height: "auto",
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          selecting.current = false;
+        }}
+      />
+
+      {/* Float on the bottom edge of the terminal stage → sits on top of shell input bar */}
+      {menuMode && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-2 pt-1 pointer-events-none"
+        >
+          <div
+            className="pointer-events-auto flex flex-wrap items-center justify-center gap-1 rounded-[var(--radius)] border px-2 py-1.5 text-xs max-w-full"
+            style={{
+              background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+              backdropFilter: "blur(10px)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+              boxShadow: "0 8px 28px rgba(0,0,0,0.5)",
+            }}
+            role="menu"
+            aria-label="複製選單"
+          >
+            <span
+              className="px-1.5 text-[10px] font-mono shrink-0"
+              style={{ color: "var(--text-faint)" }}
+            >
+              {menuMode === "selection" ? "選取" : "整屏"}
+            </span>
+            <button
+              type="button"
+              role="menuitem"
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 font-medium min-h-[36px]"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+              onClick={() => void copyText("plain", menuMode)}
+            >
+              純文字
+              <span className="hidden sm:inline" style={{ color: "var(--text-faint)" }}>
+                {" "}
+                · 去色碼
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 font-medium min-h-[36px]"
+              style={{
+                background: "var(--accent-dim)",
+                borderColor: "var(--accent)",
+                color: "var(--accent)",
+              }}
+              onClick={() => void copyText("ansi", menuMode)}
+            >
+              含色碼
+              <span className="hidden sm:inline opacity-80"> · ANSI</span>
+            </button>
+            {selection && (
+              <button
+                type="button"
+                role="menuitem"
+                className="rounded-[var(--radius-sm)] px-2 py-1.5 min-h-[36px]"
+                style={{ color: "var(--text-dim)" }}
+                onClick={() => {
+                  selRef.current = null;
+                  setSelection(null);
+                  setMenuMode(null);
+                  redraw();
+                }}
+              >
+                清除
+              </button>
+            )}
+            <button
+              type="button"
+              className="rounded-[var(--radius-sm)] px-2 py-1.5 min-h-[36px]"
+              style={{ color: "var(--text-faint)" }}
+              aria-label="關閉"
+              onClick={() => setMenuMode(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-40 rounded-full px-3 py-1 text-xs font-medium pointer-events-none"
+          style={{
+            // sit just above typical command bar (~cmd + thumb pad)
+            bottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 5rem))",
+            background: "var(--accent-dim)",
+            color: "var(--accent)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

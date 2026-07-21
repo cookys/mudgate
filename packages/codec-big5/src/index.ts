@@ -1,15 +1,30 @@
 import * as iconv from "iconv-lite";
 import { Buffer } from "buffer";
 
+export type Big5Encoding = "big5hkscs" | "big5";
+
+/**
+ * iconv-lite lazy-loads encoding tables on first use. Touch the table once so
+ * browser bundles fail fast with a clear error if polyfills are missing.
+ */
+function assertEncoding(encoding: Big5Encoding): void {
+  if (!iconv.encodingExists(encoding)) {
+    throw new Error(
+      `iconv-lite encoding "${encoding}" unavailable — check browser polyfills (stream/string_decoder/buffer)`,
+    );
+  }
+}
+
 /**
  * Streaming Big5-family decoder (HKSCS-capable via iconv-lite 'big5hkscs').
  * Holds a pending lead byte across chunks.
  */
 export class Big5StreamDecoder {
   private pending: number | null = null;
-  private readonly encoding: string;
+  private readonly encoding: Big5Encoding;
 
-  constructor(encoding: "big5hkscs" | "big5" = "big5hkscs") {
+  constructor(encoding: Big5Encoding = "big5hkscs") {
+    assertEncoding(encoding);
     this.encoding = encoding;
   }
 
@@ -46,7 +61,8 @@ export class Big5StreamDecoder {
 
 export function decodeBig5(
   bytes: Uint8Array,
-  encoding: "big5hkscs" | "big5" = "big5hkscs",
+  encoding: Big5Encoding = "big5hkscs",
 ): string {
+  assertEncoding(encoding);
   return iconv.decode(Buffer.from(bytes), encoding);
 }

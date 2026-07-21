@@ -1,0 +1,77 @@
+/* assmud design tokens — ink terminal */
+:root {
+  --bg-void: #0a0b0e;
+  --bg-panel: #12141a;
+  --bg-elevated: #1a1d27;
+  --bg-hover: #222633;
+  --border: #2a2e3a;
+  --border-strong: #3a4154;
+  --text: #e8eaef;
+  --text-dim: #8b93a7;
+  --text-faint: #5c6478;
+  --danger: #ff5c7a;
+  --warn: #ffc14d;
+  --ok: #3dffa8;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --font-ui: "DM Sans", "Noto Sans TC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Sans Mono", ui-monospace, monospace;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --topbar-h: 52px;
+  --cmd-h: 56px;
+
+  /* default accent = mint */
+  --accent: #3dffa8;
+  --accent-dim: rgba(61, 255, 168, 0.14);
+  --accent-glow: rgba(61, 255, 168, 0.22);
+  --ok: var(--accent);
+}
+
+html[data-accent="blue"] {
+  --accent: #5b9dff;
+  --accent-dim: rgba(91, 157, 255, 0.16);
+  --accent-glow: rgba(91, 157, 255, 0.25);
+  --ok: #3dffa8; /* keep ok green even on blue theme */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-void);
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* soft grid void — subtle, not noisy */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-dim), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

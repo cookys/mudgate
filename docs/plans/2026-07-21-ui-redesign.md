@@ -1,8 +1,9 @@
 # Plan — UI redesign (modern terminal · MUD-native · RWD)
 
-> **Status**: draft  
+> **Status**: **SHIP** (shell core 2026-07-21) — see [`2026-07-21-ui-shell-ship.md`](./2026-07-21-ui-shell-ship.md)  
 > **Owner**: cookys  
-> **Branch**: `feat/ui-redesign` (to cut from `develop`)  
+> **Branch**: `feat/ui-redesign` → `develop`  
+
 > **Why**: 現介面被評為「太鳥」— 表單堆疊、終端像 demo、無明確視覺層級、RWD 僅勉強能用。  
 > **Goal**: 用 2025–26 審美（dark minimal + 精準 accent）重做 shell，**終端仍是主角**，桌面/手機都好用。
 
@@ -198,6 +199,21 @@ Canvas ANSI 色可對齊 token（`#0a0b0e` 底 + 柔和 16 色，非 Windows 刺
 - reduced-motion、focus、對比抽樣  
 - **Acceptance**: keyboard-only 可完成連線與送指令  
 
+### Phase U+i18n — Locale switch (see dedicated plan)
+
+> **Plan**: [`2026-07-21-i18n-locale.md`](./2026-07-21-i18n-locale.md)  
+> **Hetero R1**: [`docs/reviews/2026-07-21-i18n-hetero.md`](../reviews/2026-07-21-i18n-hetero.md)  
+> **Board 2026-07-21**: zh-TW / zh-CN / en；站台預設優先；中文 tagline 包；topbar 要；StatusEvent 必做  
+
+### Phase U+fonts — Terminal typeface (RW map)
+
+> **Spec**: [`docs/design/terminal-fonts.md`](../design/terminal-fonts.md)
+
+- Dual-width mono 可切換（推薦 Sarasa Mono TC / Term）  
+- 字級、字寬 scale、行高、letter-spacing；ligature 預設關  
+- Canvas `measureText` 校正 cellW；1:2 警告  
+
+
 ---
 
 ## 5. Out of scope (this redesign)
@@ -249,3 +265,5 @@ Canvas ANSI 色可對齊 token（`#0a0b0e` 底 + 柔和 16 色，非 Windows 刺
 ## Review log
 
 - R0 2026-07-21 — research (modern dark terminal + Mudlet layout) + design plan authored  
+- SHIP 2026-07-21 — U0–U1 shell + WS stability + copy UX landed on develop; U+i18n / U+fonts remain planned only（see ui-shell-ship.md）  
+
