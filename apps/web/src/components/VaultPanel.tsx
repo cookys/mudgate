@@ -9,6 +9,7 @@ import {
   hasLegacyPlaintextSecrets,
   migrateLegacyIntoVault,
   discardLegacyPlaintext,
+  hasWebCryptoSubtle,
   VaultError,
 } from "@assmud/profiles";
 
@@ -58,8 +59,11 @@ export function VaultPanel({ onChange }: Props) {
         </span>
       </div>
       <p className="text-[10px] leading-snug" style={{ color: "var(--text-faint)" }}>
-        AES-256-GCM + PBKDF2 at-rest。解鎖當下 XSS/擴充仍可能竊取主密碼；線上
-        telnet 亦非 E2E。
+        AES-256-GCM + PBKDF2 at-rest
+        {hasWebCryptoSubtle()
+          ? "（WebCrypto）"
+          : "（純 JS 後備 — LAN HTTP 無 subtle）"}
+        。解鎖當下 XSS/擴充仍可能竊取主密碼；線上 telnet 亦非 E2E。
       </p>
 
       {legacy && (

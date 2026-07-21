@@ -1,6 +1,10 @@
 /**
- * Encrypted profile secrets vault (WebCrypto AES-256-GCM + PBKDF2).
+ * Encrypted profile secrets vault (AES-256-GCM + PBKDF2-SHA-256).
  * Spec: docs/plans/2026-07-22-profile-secrets-vault.md
+ *
+ * Backend:
+ * - Prefer WebCrypto `crypto.subtle` (HTTPS / localhost secure context)
+ * - Fallback `@noble/*` when subtle is missing (e.g. http://192.168.x.x LAN)
  */
 
 export const VAULT_KEY = "assmud.vault.v1";
@@ -72,18 +76,116 @@ export class VaultError extends Error {
   }
 }
 
-function getSubtle(): SubtleCrypto {
-  const c = globalThis.crypto;
-  if (!c?.subtle) {
-    throw new VaultError("WebCrypto subtle unavailable", "corrupt");
-  }
-  return c.subtle;
+/** True when browser WebCrypto SubtleCrypto is usable (secure context). */
+export function hasWebCryptoSubtle(): boolean {
+  return Boolean(globalThis.crypto?.subtle);
 }
 
 function randomBytes(n: number): Uint8Array {
   const u = new Uint8Array(n);
-  globalThis.crypto.getRandomValues(u);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(u);
+    return u;
+  }
+  // Extremely rare; not cryptographically strong
+  for (let i = 0; i < n; i++) u[i] = (Math.random() * 256) | 0;
   return u;
+}
+
+/** Raw 32-byte AES key via PBKDF2-SHA-256 (noble — works without subtle). */
+async function deriveKeyBytes(
+  password: string,
+  salt: Uint8Array,
+  iter: number,
+): Promise<Uint8Array> {
+  if (iter < VAULT_MIN_ITER || iter > VAULT_MAX_ITER) {
+    throw new VaultError("iter out of range", "iter");
+  }
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const base = await subtle.importKey(
+      "raw",
+      utf8(password) as BufferSource,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: salt as BufferSource,
+        iterations: iter,
+        hash: "SHA-256",
+      },
+      base,
+      256,
+    );
+    return new Uint8Array(bits);
+  }
+  // LAN HTTP / non-secure context
+  const { pbkdf2 } = await import("@noble/hashes/pbkdf2.js");
+  const { sha256 } = await import("@noble/hashes/sha2.js");
+  return pbkdf2(sha256, password, salt, { c: iter, dkLen: 32 });
+}
+
+async function aesGcmEncrypt(
+  keyBytes: Uint8Array,
+  iv: Uint8Array,
+  plain: Uint8Array,
+): Promise<Uint8Array> {
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const key = await subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"],
+    );
+    return new Uint8Array(
+      await subtle.encrypt(
+        { name: "AES-GCM", iv: iv as BufferSource },
+        key,
+        plain as BufferSource,
+      ),
+    );
+  }
+  const { gcm } = await import("@noble/ciphers/aes.js");
+  return gcm(keyBytes, iv).encrypt(plain);
+}
+
+async function aesGcmDecrypt(
+  keyBytes: Uint8Array,
+  iv: Uint8Array,
+  ct: Uint8Array,
+): Promise<Uint8Array> {
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const key = await subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "AES-GCM" },
+      false,
+      ["decrypt"],
+    );
+    try {
+      return new Uint8Array(
+        await subtle.decrypt(
+          { name: "AES-GCM", iv: iv as BufferSource },
+          key,
+          ct as BufferSource,
+        ),
+      );
+    } catch {
+      throw new VaultError("wrong password or corrupt vault", "auth");
+    }
+  }
+  try {
+    const { gcm } = await import("@noble/ciphers/aes.js");
+    return gcm(keyBytes, iv).decrypt(ct);
+  } catch {
+    throw new VaultError("wrong password or corrupt vault", "auth");
+  }
 }
 
 function b64encode(u: Uint8Array): string {
@@ -220,38 +322,8 @@ function parseEnvelope(raw: string): Envelope {
   return env;
 }
 
-async function deriveKey(
-  password: string,
-  salt: Uint8Array,
-  iter: number,
-): Promise<CryptoKey> {
-  if (iter < VAULT_MIN_ITER || iter > VAULT_MAX_ITER) {
-    throw new VaultError("iter out of range", "iter");
-  }
-  const subtle = getSubtle();
-  const base = await subtle.importKey(
-    "raw",
-    utf8(password) as BufferSource,
-    "PBKDF2",
-    false,
-    ["deriveKey"],
-  );
-  return subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt as BufferSource,
-      iterations: iter,
-      hash: "SHA-256",
-    },
-    base,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
 async function encryptPayload(
-  key: CryptoKey,
+  keyBytes: Uint8Array,
   payload: VaultPayload,
   gen: number,
   rev: number,
@@ -263,13 +335,7 @@ async function encryptPayload(
     throw new VaultError("payload too large", "size");
   }
   const iv = randomBytes(12);
-  const ct = new Uint8Array(
-    await getSubtle().encrypt(
-      { name: "AES-GCM", iv: iv as BufferSource },
-      key,
-      plain as BufferSource,
-    ),
-  );
+  const ct = await aesGcmEncrypt(keyBytes, iv, plain);
   if (ct.length > MAX_CT_BYTES) {
     throw new VaultError("ciphertext too large", "size");
   }
@@ -289,7 +355,7 @@ async function encryptPayload(
 async function decryptEnvelope(
   password: string,
   raw: string,
-): Promise<{ key: CryptoKey; payload: VaultPayload; env: Envelope }> {
+): Promise<{ keyBytes: Uint8Array; payload: VaultPayload; env: Envelope }> {
   const env = parseEnvelope(raw);
   const salt = b64decode(env.salt_b64);
   const iv = b64decode(env.iv_b64);
@@ -297,17 +363,8 @@ async function decryptEnvelope(
   if (ct.length > MAX_CT_BYTES) {
     throw new VaultError("ciphertext too large", "size");
   }
-  const key = await deriveKey(password, salt, env.iter);
-  let plain: ArrayBuffer;
-  try {
-    plain = await getSubtle().decrypt(
-      { name: "AES-GCM", iv: iv as BufferSource },
-      key,
-      ct as BufferSource,
-    );
-  } catch {
-    throw new VaultError("wrong password or corrupt vault", "auth");
-  }
+  const keyBytes = await deriveKeyBytes(password, salt, env.iter);
+  const plain = await aesGcmDecrypt(keyBytes, iv, ct);
   if (plain.byteLength > MAX_PLAIN_BYTES) {
     throw new VaultError("plaintext too large", "size");
   }
@@ -320,11 +377,11 @@ async function decryptEnvelope(
   if (!payload.profiles || typeof payload.profiles !== "object") {
     payload = { profiles: {} };
   }
-  return { key, payload, env };
+  return { keyBytes, payload, env };
 }
 
 type Session = {
-  key: CryptoKey;
+  keyBytes: Uint8Array;
   payload: VaultPayload;
   gen: number;
   rev: number;
@@ -379,9 +436,16 @@ export async function createVault(masterPassword: string): Promise<void> {
     const metaGen = before.metaGen + 1;
     const salt = randomBytes(16);
     const iter = VAULT_DEFAULT_ITER;
-    const key = await deriveKey(masterPassword, salt, iter);
+    const keyBytes = await deriveKeyBytes(masterPassword, salt, iter);
     const payload: VaultPayload = { profiles: {} };
-    const raw = await encryptPayload(key, payload, metaGen, 1, salt, iter);
+    const raw = await encryptPayload(
+      keyBytes,
+      payload,
+      metaGen,
+      1,
+      salt,
+      iter,
+    );
     if (storageGet(VAULT_KEY) != null) {
       throw new VaultError("vault conflict", "conflict");
     }
@@ -392,7 +456,7 @@ export async function createVault(masterPassword: string): Promise<void> {
       throw new VaultError("persist failed", "persist");
     }
     session = {
-      key,
+      keyBytes,
       payload,
       gen: metaGen,
       rev: 1,
@@ -406,10 +470,13 @@ export async function createVault(masterPassword: string): Promise<void> {
 export async function unlockVault(masterPassword: string): Promise<void> {
   const raw = storageGet(VAULT_KEY);
   if (!raw) throw new VaultError("no vault", "missing");
-  const { key, payload, env } = await decryptEnvelope(masterPassword, raw);
+  const { keyBytes, payload, env } = await decryptEnvelope(
+    masterPassword,
+    raw,
+  );
   const salt = b64decode(env.salt_b64);
   session = {
-    key,
+    keyBytes,
     payload: structuredClonePayload(payload),
     gen: env.gen,
     rev: env.rev,
@@ -439,7 +506,7 @@ async function persistSession(s: Session): Promise<void> {
     }
     const nextRev = s.rev + 1;
     const raw = await encryptPayload(
-      s.key,
+      s.keyBytes,
       s.payload,
       s.gen,
       nextRev,

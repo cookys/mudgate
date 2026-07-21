@@ -29,6 +29,7 @@ export {
   tryFinishLegacyDelete,
   discardLegacyPlaintext,
   vaultTestResetStorage,
+  hasWebCryptoSubtle,
   VaultError,
   VAULT_KEY,
   VAULT_META_KEY,

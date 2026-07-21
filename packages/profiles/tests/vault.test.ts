@@ -118,4 +118,28 @@ describe("vault crypto", () => {
     await createVault("one-two-three");
     expect(getVaultSecret("x")).toBeUndefined();
   });
+
+  it("works without crypto.subtle (LAN HTTP / noble fallback)", async () => {
+    const real = globalThis.crypto;
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: {
+        getRandomValues: (u: Uint8Array) => real.getRandomValues(u),
+        // no subtle — simulate non-secure context
+      },
+    });
+    try {
+      vaultTestResetStorage();
+      await createVault("lan-http-master");
+      await setVaultSecret("rw", { account: "a", password: "b" });
+      lockVault();
+      await unlockVault("lan-http-master");
+      expect(getVaultSecret("rw")?.password).toBe("b");
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        configurable: true,
+        value: real,
+      });
+    }
+  });
 });
