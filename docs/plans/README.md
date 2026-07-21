@@ -7,16 +7,43 @@ Executable plans live here as `YYYY-MM-DD-<slug>.md`.
 | `draft` | Authoring / Board open questions |
 | `approved` | Ready to bootstrap / implement |
 | `superseded-by: <plan>` | Replaced by another plan |
-| `done` | All phases shipped or archived |
+| `done` / `SHIP` | Shipped or archived |
+
+## SHIP / done
 
 | Plan | Status |
 |------|--------|
 | [2026-07-21-web-zmud-rw.md](./2026-07-21-web-zmud-rw.md) | done / SHIP |
-| [2026-07-21-ui-shell-ship.md](./2026-07-21-ui-shell-ship.md) | **SHIP** 2026-07-21 |
+| [2026-07-21-ui-shell-ship.md](./2026-07-21-ui-shell-ship.md) | SHIP |
 | [2026-07-21-ui-redesign.md](./2026-07-21-ui-redesign.md) | SHIP shell core |
-| [2026-07-21-i18n-locale.md](./2026-07-21-i18n-locale.md) | **SHIP baseline** (StatusEvent + 三語 shell) |
-| [terminal-fonts.md](../design/terminal-fonts.md) | **baseline SHIP** · F2+ residual |
-| [2026-07-21-backlog-candidates.md](./2026-07-21-backlog-candidates.md) | draft · **Board triage** |
-| [2026-07-21-rw-connect-protocols.md](./2026-07-21-rw-connect-protocols.md) | draft · RW wire / MCCP P1 |
+| [2026-07-21-i18n-locale.md](./2026-07-21-i18n-locale.md) | SHIP baseline |
+| [terminal-fonts.md](../design/terminal-fonts.md) | baseline SHIP · F2 → separate plan |
 
-After approval for L-size work, bootstrap into `docs/projects/YYYY-MM-DD-<slug>/` and update `docs/projects/INDEX.md`.
+## Implement queue (approved · projects bootstrapped)
+
+See **[roadmap-priority](./2026-07-21-roadmap-priority.md)** + **[projects INDEX](../projects/INDEX.md)**.
+
+| Seq | Plan | Project |
+|-----|------|---------|
+| 0 | [roadmap-priority](./2026-07-21-roadmap-priority.md) | meta |
+| 1 | [mccp2-stream](./2026-07-21-mccp2-stream.md) | [project](../projects/2026-07-21-mccp2-stream/) |
+| 2 | [ci-e2e-quality](./2026-07-21-ci-e2e-quality.md) | [project](../projects/2026-07-21-ci-e2e-quality/) |
+| 3 | [terminal-fonts-f2](./2026-07-21-terminal-fonts-f2.md) | [project](../projects/2026-07-21-terminal-fonts-f2/) |
+| 4 | [open-source-readiness](./2026-07-21-open-source-readiness.md) | [project](../projects/2026-07-21-open-source-readiness/) |
+| 5 | [proxy-abuse-limits](./2026-07-21-proxy-abuse-limits.md) | [project](../projects/2026-07-21-proxy-abuse-limits/) |
+| 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) |
+| 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) |
+
+## Research / triage
+
+| Plan | Status |
+|------|--------|
+| [zmud-feature-matrix](../research/zmud-feature-matrix.md) | SSOT matrix |
+| [rw-connect-protocols](./2026-07-21-rw-connect-protocols.md) | research; C1 → mccp2-stream |
+| [backlog-candidates](./2026-07-21-backlog-candidates.md) | CEO triaged → formal plans |
+
+## Hetero
+
+| Review | Scope |
+|--------|-------|
+| [roadmap-plans-hetero](../reviews/2026-07-21-roadmap-plans-hetero.md) | R1 all new queue plans |

@@ -1,6 +1,6 @@
 # Plan — RW 連線協定與 zMUD 對齊（先能穩連、再擴）
 
-> **Status**: draft → **awaiting Board GO** · research 2026-07-21  
+> **Status**: research retained; **C1 execution →** `2026-07-21-mccp2-stream.md` (approved)  
 > **Owner**: cookys  
 > **Why**: 對齊 zMUD 生態裡 **RW 真的會碰到的 wire 能力**，優先「能連、能玩地圖」，再補壓縮／腳本。  
 > **North**: 先 **connect-complete**，不是一次做滿 zMUD 全功能。

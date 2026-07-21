@@ -1,6 +1,6 @@
 # Plan candidates — from BACKLOG (待 Board 核對成案)
 
-> **Status**: draft · **awaiting Board triage**  
+> **Status**: **CEO triaged 2026-07-21** → formal plans + projects (see roadmap-priority.md)  
 > **Owner**: cookys  
 > **Source**: `docs/BACKLOG.md`（16 項未成案）  
 > **Goal**: 與你核對優先級後，勾選項升級為正式 `docs/plans/YYYY-MM-DD-*.md` → hetero review → 成案。
