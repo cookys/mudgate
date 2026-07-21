@@ -13,7 +13,7 @@
 | 非路徑 | 瀏覽器/WASM raw TCP；要求用戶在手機跑本機 proxy |
 | Stack | **React + Vite + TS + Tailwind**；terminal 無框架 package |
 | Hot path | Canvas2D 預設；**WebGPU / WASM** 可插拔（算力，不是網路） |
-| 狀態 | Bootstrap — 文件與計劃；應用尚未 scaffold |
+| 狀態 | **Phase 1a in progress** (`feat/phase-1a-connect`) — monorepo scaffold + tests green |
 | 授權 | **MIT**（[LICENSE](LICENSE)）— 打算開源 |
 
 ## 為什麼需要 proxy？
@@ -40,6 +40,18 @@
 | [docs/adr/](docs/adr/) | ADR-001 stack · ADR-002 remote auth proxy |
 | [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | 開源衛生 |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | 安全與貢獻 |
+
+## Dev (Phase 1a)
+
+```bash
+npm install
+npm test
+# terminal 1
+ASSMUD_PROXY_MODE=localhost-dev npm run dev:proxy
+# terminal 2
+npm run dev:web
+# open http://127.0.0.1:5173 — Connect to mud.revivalworld.org:4000
+```
 
 ## License
 

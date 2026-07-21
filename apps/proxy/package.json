@@ -1,0 +1,21 @@
+{
+  "name": "@assmud/proxy",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "assmud-proxy": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@assmud/protocol": "0.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2"
+  }
+}
