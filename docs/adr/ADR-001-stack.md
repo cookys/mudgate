@@ -2,8 +2,8 @@
 
 - **Date**: 2026-07-21
 - **Status**: accepted
-- **Plan**: [2026-07-21-web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) R5  
-- **Related**: [ADR-002 mobile-first proxy](ADR-002-mobile-first-proxy.md)
+- **Plan**: [2026-07-21-web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) R6  
+- **Related**: [ADR-002 remote auth proxy](ADR-002-remote-auth-proxy.md)
 
 ## Context
 

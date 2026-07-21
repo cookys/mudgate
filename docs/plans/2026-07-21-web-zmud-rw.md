@@ -1,12 +1,12 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: draft (R5 mobile-first; stack + networking locked; remaining §8 optional)  
+> **Status**: draft (R6 multi-surface; stack + networking locked)  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
-> **North star (Board)**: **手機優先**（及電腦）透過網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩。  
+> **North star (Board)**: **電腦與手機**都能用網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩（兩表面都要考慮；不假裝 MUD 天生適合手機）。  
 > **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）。  
 > **Stack**: [ADR-001](../adr/ADR-001-stack.md) — React + Vite + TS + Tailwind; pluggable Canvas2D/WebGPU + WASM (compute only).  
-> **Networking**: [ADR-002](../adr/ADR-002-mobile-first-proxy.md) — **remote authenticated WSS↔TCP proxy** is the product path; localhost is dev only.
+> **Networking**: [ADR-002](../adr/ADR-002-remote-auth-proxy.md) — remote authenticated WSS↔TCP proxy for remote/phone access; localhost = dev.
 
 ## 0. Context / thesis
 
@@ -14,12 +14,13 @@
 
 | Dimension | Target |
 |-----------|--------|
-| Surfaces | **Mobile browser/PWA first**, desktop same app |
+| Surfaces | **Desktop + mobile** browsers (same app; optional PWA) — **both first-class** |
 | Reach | Configured MUDs via **official/self-host proxy** (allowlist first; custom later) |
 | Power | zMUD-class: terminal fidelity, triggers, aliases, variables, packages |
-| Security | **WSS + login** on proxy; allowlist/quotas/audit; no open-relay; untrusted MUD output |
-| Depth | RW first as the fidelity ceiling so “各家 mud” don’t regress Chinese/control edge cases |
-| Non-goal UX | User must **not** run a proxy app on the phone |
+| Security | **WSS + login** on remote/public proxy; allowlist/quotas/audit; no open-relay |
+| Depth | RW fidelity ceiling (map_d / Big5) — expect **best on desktop** |
+| Mobile honesty | Phone: connect + play + decent chrome; dense map/scripting harder — improve if we can, **don’t over-claim** |
+| Non-goal UX | Require a **proxy app on the phone** |
 
 Classic zMUD (and successors like cMUD) gave power users triggers, aliases, variables, buttons, and automapper. **All MUD game traffic is TCP (Telnet framing)** — that does not change. Revival World is a long-running Chinese LPMud (`mud.revivalworld.org:4000/5000/6000`); **RW is the deep-support benchmark**, not the only host.
 
@@ -34,11 +35,11 @@ Classic zMUD (and successors like cMUD) gave power users triggers, aliases, vari
 
 | Mode | Path | Role |
 |------|------|------|
-| **A. Remote authenticated proxy** | Browser ⇄ **WSS+login** ⇄ proxy ⇄ **TCP → MUD** | **Product default (mobile + desktop)** |
-| **B. Dev localhost proxy** | Browser ⇄ WS ⇄ `127.0.0.1` proxy ⇄ TCP | Developers only |
-| **C. Desktop native shell** | App process raw TCP | Optional later — not required for phone |
+| **A. Remote authenticated proxy** | Browser ⇄ **WSS+login** ⇄ proxy ⇄ **TCP → MUD** | Product path for phone **and** remote desktop |
+| **B. Dev localhost proxy** | Browser ⇄ WS ⇄ `127.0.0.1` proxy ⇄ TCP | Developers / same-machine desktop |
+| **C. Desktop native shell** | App process raw TCP | Optional later |
 
-Product language: **TCP to the MUD is non-negotiable**; **WSS+auth proxy is how phones play**. WASM is **compute-only**, not a TCP tunnel.
+Product language: **TCP to the MUD is non-negotiable**; **WSS+auth proxy is how a browser reaches TCP without a phone-side daemon**. WASM is **compute-only**, not a TCP tunnel.
 
 ### Encryption & trust model (honest)
 
@@ -64,24 +65,26 @@ Players need a **modern web client** that:
 
 ## 2. OKR / KRs
 
-**Objective**: From phone or desktop browser, securely play MUDs (starting with daily-playable RW, then any user-configured mud).
+**Objective**: From **desktop or phone** browser, securely play MUDs (daily-playable RW on desktop-class fidelity; phone usable; then multi-mud).
 
 **Key Results**:
-- KR0 — **Phone north-star**: mobile browser reaches RW (or mock) over **HTTPS/WSS + logged-in proxy**, session usable 30+ min — **without** any proxy app on the phone.
-- KR1 — Connect + login to **RW** without garbled text; map_d control plane works (see VT research).
+- KR0 — **Multi-surface connect**: desktop **and** phone browsers reach a MUD over **HTTPS/WSS + logged-in remote proxy** (or dev localhost), 30+ min session — phone needs **no** on-device proxy app.
+- KR1 — **Desktop-class RW**: login without garbled text; map_d control plane works (VT research).
 - KR2 — Connect to **≥1 non-RW allowlisted MUD** via same UI (charset selectable).
-- KR3 — Declarative automation: fixed **generic top-10 client capabilities** (alias/trigger/highlight/… — see §8); personal zMUD imports optional later.
-- KR4 — Security: WSS+auth; allowlist/SSRF/quota tests green; open-relay red; XSS corpus green; metadata audit only; no secrets in git.
-- KR5 — Docs tracking (`docs/plans` + `docs/projects` + INDEX) stays current for every L-size phase.
+- KR3 — Declarative automation: **generic top-10 client capabilities** (see §8); personal zMUD imports optional.
+- KR4 — Security: WSS+auth on public proxy; allowlist/SSRF/quota green; open-relay red; XSS green; metadata audit only.
+- KR5 — Docs tracking stays current for every L-size phase.
+- KR6 — **Mobile adequacy** (honest bar): readable terminal, send input, reconnect; not required to match desktop map power-user flow on day-1.
 
 ## 2.5 Global Constraints (copied verbatim into every dispatch)
 
-- **Product north star**: PC + mobile web → encrypted public path → play **any** configured MUD; RW is the fidelity benchmark.
-- Target MUD primary (depth): `mud.revivalworld.org` ports `4000|5000|6000`; architecture must not hard-code a single host.
+- **Product north star (multi-surface)**: desktop **and** phone browsers → **HTTPS/WSS + authenticated remote proxy** (when not using dev localhost) → TCP MUD. No on-phone proxy app required. RW is the fidelity benchmark; **desktop is the natural power-user home**.
+- Target MUD primary (depth): `mud.revivalworld.org` ports `4000|5000|6000`; architecture must not hard-code a single host in libraries (config/allowlist instead).
 - **Wire to the game host is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
-- Browser UI may use WebSocket/WebTransport only as a **byte-pipe carriage** into a component that holds the real TCP socket (proxy or native shell). Do not pretend the MUD protocol is JSON-RPC.
-- Production public endpoints: **HTTPS + WSS only**. Cleartext `ws://` allowed only on localhost dev.
-- Hosted relay (if any) must be **authenticated / allowlisted / rate-limited** and fail closed against open-relay abuse.
+- Browser/WASM never open raw TCP. Browser uses WSS only as a **byte-pipe** into a **proxy process** that holds TCP.
+- Production public endpoints: **HTTPS + WSS only**. Cleartext `ws://` only on localhost **dev**.
+- **Official/self-host prod proxy**: login required; destination **allowlist** (v1); SSRF blocks; per-user quotas; metadata-only audit; kill-switch. See ADR-002 + threat model.
+- **Localhost proxy**: developer / same-machine convenience; same protocol, different config.
 - Default session charset for RW: **Big5** (GB switch is secondary). Do not assume UTF-8 on the wire.
 - Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
 - Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
@@ -95,8 +98,8 @@ Players need a **modern web client** that:
 - **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
 - **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
 - **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
-- **Script engine v1**: **declarative** triggers/aliases/variables first; arbitrary user JS sandbox is later/optional (not Phase 2 blocker).
-- **Proxy default**: local sidecar bind **127.0.0.1**; hosted/multi-tenant relay is opt-in and fail-closed (auth/allowlist). Phone/remote play uses self-host or hosted **WSS**, not open TCP from the browser.
+- **Script engine v1**: **declarative** triggers/aliases/variables first; arbitrary user JS sandbox is later/optional (not Phase 2 blocker). Personal zMUD file import is optional — public patterns + synthetic fixtures are enough to start.
+- **Proxy product default**: **remote authenticated WSS↔TCP** (official or self-host). **Localhost bind** is dev/advanced only.
 - Autopilot tracking: every L-size phase updates `docs/projects/.../README.md` + `docs/projects/INDEX.md`.
 - **Open-source hygiene**: no secrets, live credentialed captures, or unlicensed bulk third-party trees in git. Follow `docs/OPEN-SOURCE.md` + `SECURITY.md`. Local dumps only under gitignored `local/` / `private/` / `captures/`.
 
@@ -122,18 +125,21 @@ Players need a **modern web client** that:
 
 ### Phase 0' — Close design gates (Size: S)
 - ~~Stack pick~~ → **done (ADR-001)**.
+- ~~Networking / mobile path~~ → **done (ADR-002 + threat model)**.
 - ~~RW encoding / VT research~~ → **done** (`docs/research/*`).
-- Remaining: Board §8 items (carriage confirmation, top-10 automations, optional script fixtures); freeze v1 feature cut.
-- Keep `docs/architecture.md` + ADR-001 in sync.
-- **Acceptance**: remaining §8 either answered or explicitly BACKLOG'd; plan → `status: approved` for Phase 1a.
+- Remaining optional: personal top automations flavor; zMUD import samples.
+- Keep architecture + ADRs in sync.
+- **Acceptance**: plan ready for `status: approved` → Phase 1a.
 
-### Phase 1a — Connect path + Big5 banner (Size: L)
-- Scaffold monorepo (pnpm/npm workspaces) + CI smoke + vitest.
-- **TCP-owning** proxy: WSS↔TCP, bind localhost by default, origin checks, reconnect, idle; Telnet IAC (TTYPE/NAWS minimum).
-- React shell + Tailwind layout + `TerminalHost` wiring.
-- Terminal: Big5 decode + SGR + scrollback; Canvas2D renderer; banner fixture golden.
-- Manual: connect to RW, see「重生的世界」without mojibake, type at name prompt.
-- **Acceptance**: Big5 banner golden; open-relay refused on default config; `ws://` localhost dev documented; no per-cell React rendering.
+### Phase 1a — Auth proxy + Big5 banner (Size: L)
+- Scaffold monorepo + CI smoke + vitest.
+- **Proxy** (one codebase, two configs):
+  - **prod/staging**: public WSS, **auth required**, allowlist (include RW), SSRF/quota tests.
+  - **dev**: localhost bind, relaxed auth optional.
+- React shell + Tailwind + login/session + `TerminalHost` (usable on narrow and wide viewports).
+- Terminal: Big5 + SGR + scrollback; Canvas2D; banner golden.
+- Manual: desktop browser (required) + phone browser smoke (desired) → RW banner without mojibake.
+- **Acceptance**: KR0 connect path; Big5 banner golden; unauth TCP denied; private-IP denied; no per-cell React rendering.
 
 ### Phase 1b — Screen buffer + map_d control plane (Size: L)
 - Full minimum CSI set: save/restore, CUP, ED, DECSTBM, etc. (see research).
@@ -157,12 +163,12 @@ Players need a **modern web client** that:
 - Optional: link-out to RW online who / 2D map.
 - **Acceptance**: daily-play checklist (incl. **walk city map without scroll thrash**) signed off on live RW; dual-color + map control goldens green.
 
-### Phase 4 — Multi-MUD + mobile hardening (Size: L)
-- Connection profiles: host/port/charset/TLS-to-mud flag; import/export.
-- Responsive UI + mobile keyboard / touch send; optional PWA shell.
-- Hosted or self-host deploy recipe with **TLS** (Caddy/nginx or platform).
-- Second-mud smoke (UTF-8 English mud + RW Big5) on same build.
-- **Acceptance**: KR0 + KR2; Lighthouse/mobile usable checklist; deploy doc with WSS.
+### Phase 4 — Multi-MUD + mobile polish (Size: L)
+- Connection profiles within allowlist / approved custom; charset; TLS-to-mud flag.
+- Mobile keyboard / touch send; PWA installability.
+- Deploy recipe for **official/self-host** (TLS, secrets, allowlist ops).
+- Second-mud smoke (UTF-8 mud + RW Big5).
+- **Acceptance**: KR0 hardened + KR2; mobile checklist; runbook for bans/quotas.
 
 ### Phase 5 — Power features parity slice (Size: L, optional split)
 - Buttons / keypad, multi-session tabs, basic mapper spike.
@@ -215,13 +221,26 @@ Players need a **modern web client** that:
 
 | # | Question | Status |
 |---|----------|--------|
-| 1 | UI stack | **Resolved (R4)**: React + Vite + TS + Tailwind; custom terminal buffer (not xterm-only). [ADR-001](../adr/ADR-001-stack.md) |
-| 2 | Carriage mode first | **Default (R4)**: local WSS↔TCP proxy on localhost; hosted relay opt-in fail-closed. Confirm if Board wants Tauri raw TCP in v1 (not required). |
-| 3 | Existing zMUD/Mudlet scripts + 雙色字 sample log? | **Open** — nice for fixtures; synthetic map frames can proceed without |
-| 4 | Encoding | **Resolved**: wire BIG5; GB switch supported |
-| 5 | Top 10 automations for **KR3** freeze? | **Open** — blocks Phase 2 acceptance list |
-| 6 | WASM appetite | **Resolved (R4)**: hot path only, pluggable; not brand-mandated day-1 |
-| 7 | WebGPU | **Resolved (R4)**: optional `Renderer` backend; Canvas2D default + fallback |
+| 1 | UI stack | **Resolved**: React + Vite + TS + Tailwind. [ADR-001](../adr/ADR-001-stack.md) |
+| 2 | Carriage / surfaces | **Resolved (R6)**: remote auth proxy for remote/phone access; localhost = dev; desktop + phone both in scope; MUD-on-phone hard — honest KR6. [ADR-002](../adr/ADR-002-remote-auth-proxy.md). |
+| 3 | zMUD scripts / dual-color logs | **Non-blocking**: use public patterns + synthetic/RWlib-derived fixtures; personal imports optional |
+| 4 | Encoding | **Resolved**: BIG5 on wire |
+| 5 | Top 10 automations (KR3) | **Resolved as generic client capabilities** (below); personal RW flavor packs later |
+| 6 | WASM | **Resolved**: compute hot path only; **not** TCP |
+| 7 | WebGPU | **Resolved**: optional renderer; Canvas2D default |
+
+### KR3 — generic top-10 automation capabilities (v1)
+
+1. Alias expand (short → command string)  
+2. Regex trigger → send command  
+3. Regex trigger → highlight line  
+4. Variable capture from trigger + substitute in alias  
+5. Gag / suppress matching lines  
+6. Simple multi-command send queue (`a;b;c`)  
+7. Package enable/disable  
+8. Import/export package JSON  
+9. Persist packages in IndexedDB  
+10. Basic cooldown / rate-limit on a trigger (anti-spam)
 
 ## 9. WASM + WebGPU note (`assmud`)
 
@@ -244,3 +263,5 @@ Players need a **modern web client** that:
 - R2 2026-07-21 — RWlib/Undine audit: map_d/city/area/title_screen require full VT control plane; elevated to Global Constraint + Phase 1 gate
 - R3 2026-07-21 — Board north star: PC+mobile web, encrypted public path, multi-MUD; RW remains depth benchmark; KR0/KR2/Phase 4 added
 - R4 2026-07-21 — Stack lock: React+Vite+TS+Tailwind; ADR-001 + architecture sketch; pluggable Canvas2D/WebGPU + WASM hot paths; Phase 0' / 1a / 1b split; KR3 automation numbering fix; declarative scripts v1
+- R5 2026-07-21 — Remote authenticated proxy as product path for remote access; localhost demoted to dev; ADR-002 + threat model; WASM not TCP; generic KR3 top-10
+- R6 2026-07-21 — Board correction: **not** mobile-first branding; **desktop + mobile both first-class**; honest MUD-on-phone limits (KR6); rename ADR-002 to remote-auth-proxy

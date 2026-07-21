@@ -19,15 +19,15 @@
 - Hotfix branches: `fix/<short-name>`
 
 ## Product north star
-- **Mobile-first** web/PWA; desktop same app
-- Path: browser **WSS + login** → remote proxy → TCP MUD (no on-phone proxy app)
+- **Desktop + mobile** web (both first-class); MUD denser on desktop — honest mobile bar
+- Path: browser **WSS + login** → remote proxy → TCP MUD when not on localhost dev
 - Depth benchmark: Revival World
 
 ## Stack (ADR-001 / ADR-002)
 - UI: React + Vite + TypeScript + Tailwind (no heavy UI kit v1)
 - Terminal: framework-free packages; Canvas2D; WebGPU/WASM = compute only (not TCP)
-- Proxy: remote auth + allowlist product default; localhost = dev only
-- See `docs/adr/ADR-001-stack.md`, `docs/adr/ADR-002-mobile-first-proxy.md`, `docs/architecture.md`, `docs/security/hosted-proxy-threat-model.md`
+- Proxy: remote auth + allowlist for public/remote; localhost = dev only
+- See `docs/adr/ADR-001-stack.md`, `docs/adr/ADR-002-remote-auth-proxy.md`, `docs/architecture.md`, `docs/security/hosted-proxy-threat-model.md`
 
 ## Target MUD (depth benchmark)
 - Host: `mud.revivalworld.org`

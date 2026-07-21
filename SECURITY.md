@@ -37,8 +37,8 @@ Use ignored paths: `.env`, `local/`, `private/`, `captures/`, `sessions/`.
 1. **MUD server output is untrusted** — treat as hostile HTML/ANSI for XSS purposes.
 2. **User scripts are untrusted** — sandbox; no ambient credential access.
 3. **Open-relay is a ship blocker** — official/self-host bridges require auth + allowlist + quotas.
-4. **Mobile product path** uses a **remote** authenticated proxy — do not require a proxy app on the phone; localhost proxy is for developers only.
+4. **Remote/public access** uses an **authenticated** proxy — do not require a proxy app on the phone; localhost proxy is for developers / same-machine use.
 5. **Browser/WASM cannot raw-TCP** — never document WASM as a networking escape hatch.
 6. **Fixtures are reviewed** — only anonymized pre-auth banners or synthetic streams under `tests/fixtures/`.
 
-See also: `docs/OPEN-SOURCE.md`, `docs/security/hosted-proxy-threat-model.md`, `docs/adr/ADR-002-mobile-first-proxy.md`.
+See also: `docs/OPEN-SOURCE.md`, `docs/security/hosted-proxy-threat-model.md`, `docs/adr/ADR-002-remote-auth-proxy.md`.

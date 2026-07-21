@@ -1,7 +1,7 @@
-# Hosted proxy threat model (mobile-first)
+# Hosted proxy threat model
 
-> Product path: **phone/desktop browser → authenticated WSS → official/self-hosted proxy → TCP MUD**.  
-> Localhost proxy is **dev/advanced desktop only**, not how mobile users play.
+> Product path: **browser (desktop or phone) → authenticated WSS → official/self-hosted proxy → TCP MUD**.  
+> Localhost proxy is **dev / advanced desktop** only — not how phone users connect.
 
 ## Assets
 
@@ -30,8 +30,8 @@
 
 | Mode | Audience | Auth | Destinations | Bind |
 |------|----------|------|--------------|------|
-| **Official / self-host prod** | Mobile + remote | Required | Allowlist (or approved custom) | Public WSS |
-| **Dev localhost** | Developers | Optional | Often open to public MUDs only still block private IPs | `127.0.0.1` |
+| **Official / self-host prod** | Desktop + phone browsers | Required | Allowlist (or approved custom) | Public WSS |
+| **Dev localhost** | Developers | Optional | Public MUDs; still block private IPs | `127.0.0.1` |
 | **User-run remote** | Power users | Their choice | Their policy | Their VPS |
 
 ## Minimum ship checklist (official)
@@ -46,5 +46,6 @@
 ## Explicit non-goals
 
 - Guaranteeing E2E encryption when the target MUD is cleartext telnet.
-- Expecting mobile users to run a local proxy app.
-- Browser/WASM raw TCP (impossible on the normal web).
+- Expecting phone users to run a local proxy app.
+- Browser/WASM raw TCP.
+- Claiming phone UX equals desktop for dense map_d / power-user scripting (we improve mobile; we stay honest).
