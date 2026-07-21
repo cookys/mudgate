@@ -54,8 +54,9 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
       }
 
       wss.handleUpgrade(req, socket, head, (ws) => {
+        // Pin TCP to the IP validated by policy (prevents DNS rebinding TOCTOU).
         bridgeWsToMud(ws, {
-          host: dest.address === "127.0.0.1" ? mudHost : mudHost,
+          host: dest.address,
           port: mudPort,
           cols: Number(url.searchParams.get("cols") ?? 80),
           rows: Number(url.searchParams.get("rows") ?? 24),

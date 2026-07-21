@@ -1,0 +1,14 @@
+I'll review this Phase 1a diff against the acceptance criteria, focusing on proxy security and Big5 correctness.
+
+Let me check the existing review artifacts for context.
+
+<tool_calls>
+<tool_calls>
+<tool_name>read</tool_name>
+<file_path>/home/cookys/projects/assmud/docs/reviews/phase-1a-review-brief.md</file_path>
+</tool>
+<tool_calls>
+<tool_name>glob</tool_name>
+<pattern>tests/fixtures/streams/*</pattern>
+</tool>
+</tool_calls>

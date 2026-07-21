@@ -43,28 +43,52 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
 }
 
 export function isPrivateOrBlockedIp(ip: string): boolean {
+  // IPv4-mapped IPv6
+  if (ip.startsWith("::ffff:")) {
+    return isPrivateOrBlockedIp(ip.slice(7));
+  }
   if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") {
-    // loopback blocked in remote-prod; allowed only when explicitly in allowlist as host 127.0.0.1 for tests
+    return true;
+  }
+  // IPv6 ULA / link-local
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:")) {
     return true;
   }
   if (ip.startsWith("10.")) return true;
   if (ip.startsWith("192.168.")) return true;
   if (ip.startsWith("169.254.")) return true;
+  // CGNAT 100.64.0.0/10
+  const cgn = /^100\.(\d+)\./.exec(ip);
+  if (cgn) {
+    const n = Number(cgn[1]);
+    if (n >= 64 && n <= 127) return true;
+  }
   const m = /^172\.(\d+)\./.exec(ip);
   if (m) {
     const n = Number(m[1]);
     if (n >= 16 && n <= 31) return true;
   }
-  if (ip === "169.254.169.254") return true;
   return false;
 }
 
-export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
-  if (cfg.mode === "localhost-dev") {
-    if (!origin) return true;
-    return cfg.originAllowlist.includes(origin) || origin.startsWith("http://127.0.0.1") || origin.startsWith("http://localhost");
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  } catch {
+    return false;
   }
-  if (!origin) return false;
+}
+
+export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
+  if (!origin) {
+    return cfg.mode === "localhost-dev";
+  }
+  if (cfg.mode === "localhost-dev") {
+    return cfg.originAllowlist.includes(origin) || isLocalDevOrigin(origin);
+  }
   if (!cfg.originAllowlist.length) return false;
   return cfg.originAllowlist.includes(origin);
 }

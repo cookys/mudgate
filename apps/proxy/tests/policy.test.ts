@@ -35,6 +35,12 @@ describe("policy", () => {
     expect(checkOrigin("https://mud.example.com", prod)).toBe(true);
   });
 
+  it("does not accept origin prefix tricks in dev", () => {
+    expect(checkOrigin("http://127.0.0.1.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://localhost.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://127.0.0.1:5173", dev)).toBe(true);
+  });
+
   it("denies non-allowlisted host in prod", async () => {
     const r = await assertDestinationAllowed("example.com", 22, prod);
     expect(r.ok).toBe(false);
