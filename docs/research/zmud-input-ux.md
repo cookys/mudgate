@@ -168,5 +168,21 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 | Command bar + ↑↓ | `App.tsx` footer `input` |
 | ECHO mask | `App.tsx` `echoMask` → `type=password` |
 | Echo commands 偏好 | drawer checkbox · `assmud.echoCommands` |
-| 送出 | `submitCmd` → history + localEcho + inject → `MudSocket.send` |
+| 送出 | `fireInject` → `{ id, line }`（**id 必變**，同指令可連送）→ `MudSocket.send` |
 | 點終端 focus | `onRequestFocusCmd` on click-without-drag |
+| 自動登入 | profile secret: account + password + autoLogin；**ECHO mask** 送密碼，**不是** `Password:` 文字 trigger |
+
+### Enter 送不出去的 bug（已修）
+
+舊實作：`setCmd("n")` 當 state 已是 `"n"` 時 React **不重跑** effect → 第二次 Enter 靜默失敗。  
+新實作：每次送出 `injectPayload = { id: ++n, line }`，effect 依 `id` 觸發。
+
+### 自動密碼：不要用 Password trigger
+
+| 做法 | 評價 |
+|------|------|
+| 抓畫面「Password:」文字 | 多語系/改提示就炸；RW 未必英文字串 |
+| **Telnet WILL ECHO → mask → 送密** | 協定級，zMUD/Mudlet 同語意；**assmud 採用** |
+| 連線後延遲送 account | 對齊「login 提示後打帳號」的實務 |
+
+Profile 編輯：Account + Password + Enable auto-login + plaintext opt-in。

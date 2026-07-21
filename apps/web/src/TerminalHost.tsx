@@ -18,7 +18,11 @@ type Props = {
   onStatus?: (e: StatusEvent) => void;
   /** Telnet ECHO password-mode (transient; not connection status). */
   onEchoMask?: (mask: boolean) => void;
-  injectCommand?: string;
+  /**
+   * Reliable inject: always include a unique `id` so repeating the same line
+   * (e.g. Enter `n` twice) still fires. Plain string was a React state no-op bug.
+   */
+  injectCommand?: { id: number; line: string } | null;
   onInjectConsumed?: () => void;
   expandInput?: (line: string) => string[];
   onServerLine?: (line: string) => void;
@@ -361,12 +365,15 @@ export function TerminalHost({
   }, [wsUrl, redraw, applyFit]);
 
   useEffect(() => {
-    if (!injectCommand) return;
+    if (!injectCommand?.line) return;
     const expand = expandInputRef.current;
-    const lines = expand ? expand(injectCommand) : [injectCommand];
+    const lines = expand
+      ? expand(injectCommand.line)
+      : [injectCommand.line];
     for (const line of lines) socketRef.current?.send(line);
     onInjectConsumedRef.current?.();
-  }, [injectCommand]);
+    // Depend on id so identical lines still re-send
+  }, [injectCommand?.id, injectCommand?.line]);
 
   // zMUD Echo commands: paint a dim › line into the live buffer (not server)
   useEffect(() => {

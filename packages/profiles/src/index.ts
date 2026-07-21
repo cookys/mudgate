@@ -10,8 +10,15 @@ export {
   saveProfileSecrets,
   setProfilePassword,
   getProfilePassword,
+  setProfileAccount,
+  getProfileAccount,
+  setProfileAutoLogin,
+  getProfileAutoLogin,
+  setProfileSecretEntry,
+  getProfileSecret,
   clearProfileSecret,
   type ProfileSecrets,
+  type ProfileSecretEntry,
 } from "./secrets.js";
 import type { WidthMode } from "./widthMode.js";
 

@@ -9,6 +9,9 @@ import {
   importProfilesJson,
   resolveWidthMode,
   getProfilePassword,
+  getProfileAccount,
+  getProfileAutoLogin,
+  getProfileSecret,
 } from "@assmud/profiles";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
@@ -121,8 +124,15 @@ export function App() {
     ];
   });
   const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
-  const [cmd, setCmd] = useState("");
+  /** Reliable inject payload — `id` must change every send (same line OK). */
+  const [injectPayload, setInjectPayload] = useState<{
+    id: number;
+    line: string;
+  } | null>(null);
+  const injectIdRef = useRef(0);
   const [inputDraft, setInputDraft] = useState("");
+  const inputDraftRef = useRef("");
+  inputDraftRef.current = inputDraft;
   /** Local echo line painted into terminal (zMUD Echo commands). */
   const [localEcho, setLocalEcho] = useState("");
   /** Telnet ECHO password-mode — only while server WILL ECHO. */
@@ -132,6 +142,8 @@ export function App() {
   const cmdHistoryRef = useRef(new CommandHistory());
   const echoMaskRef = useRef(false);
   echoMaskRef.current = echoMask;
+  /** Per-connect auto-login progress (not text "Password:" trigger). */
+  const autoLoginRef = useRef({ accountSent: false, passwordSent: false });
   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
   const [showLog, setShowLog] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -317,20 +329,38 @@ export function App() {
     });
   }, []);
 
+  /**
+   * Fire a line to the MUD. Always increments id so React re-sends identical lines.
+   * @param secret — password / auto-login: no history, no › echo
+   */
+  const fireInject = useCallback(
+    (line: string, opts?: { secret?: boolean; keepDraft?: boolean }) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const secret = Boolean(opts?.secret || echoMaskRef.current);
+      if (!secret) {
+        cmdHistoryRef.current.push(trimmed);
+        if (echoCommands) setLocalEcho(trimmed);
+      }
+      injectIdRef.current += 1;
+      setInjectPayload({ id: injectIdRef.current, line: trimmed });
+      if (!opts?.keepDraft) setInputDraft("");
+      if (!secret) focusCmd();
+    },
+    [echoCommands, focusCmd],
+  );
+
   const connectTab = () => {
+    autoLoginRef.current = { accountSent: false, passwordSent: false };
     setTabs((ts) =>
       ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
     );
-    // Optional auto-login: queue password after connect if secret stored (opt-in store)
-    const pw = getProfilePassword(profile.id);
-    if (pw) {
-      window.setTimeout(() => setCmd(pw), 800);
-    }
     // zMUD: focus command line after connect
     window.setTimeout(() => focusCmd(), 50);
   };
 
   const disconnectTab = () => {
+    autoLoginRef.current = { accountSent: false, passwordSent: false };
     setTabs((ts) =>
       ts.map((x) =>
         x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
@@ -345,46 +375,86 @@ export function App() {
    */
   const submitCmd = useCallback(
     (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      if (!echoMaskRef.current) {
-        cmdHistoryRef.current.push(trimmed);
-        if (echoCommands) setLocalEcho(trimmed);
-      }
-      setCmd(trimmed);
-      setInputDraft("");
-      focusCmd();
+      fireInject(line, { secret: echoMaskRef.current });
     },
-    [echoCommands, focusCmd],
+    [fireInject],
   );
 
-  // Type-anywhere → command line (printable keys when not in a form field)
+  // Auto-login: NOT text "Password:" trigger.
+  // 1) After connect → send stored account once (delay for MOTD/login prompt)
+  // 2) When Telnet WILL ECHO (mask) → send password once
+  useEffect(() => {
+    if (!tab.connected || tab.status.code !== "connected") return;
+    if (!getProfileAutoLogin(profile.id)) return;
+    const account = getProfileAccount(profile.id);
+    if (!account || autoLoginRef.current.accountSent) return;
+    const t = window.setTimeout(() => {
+      if (autoLoginRef.current.accountSent) return;
+      autoLoginRef.current.accountSent = true;
+      fireInject(account, { secret: true, keepDraft: true });
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [tab.connected, tab.status.code, profile.id, fireInject]);
+
+  useEffect(() => {
+    if (!echoMask) return;
+    if (!tab.connected) return;
+    if (!getProfileAutoLogin(profile.id)) return;
+    const pw = getProfilePassword(profile.id);
+    if (!pw || autoLoginRef.current.passwordSent) return;
+    const t = window.setTimeout(() => {
+      if (autoLoginRef.current.passwordSent) return;
+      autoLoginRef.current.passwordSent = true;
+      fireInject(pw, { secret: true, keepDraft: true });
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [echoMask, tab.connected, profile.id, fireInject]);
+
+  // Type-anywhere + Enter-anywhere → command line (zMUD)
   useEffect(() => {
     if (!tab.connected) return;
+    const isFormField = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "SELECT" || el.isContentEditable) return true;
+      if (tag === "TEXTAREA") return true;
+      if (tag === "INPUT") {
+        const al = el.getAttribute("aria-label") ?? "";
+        // command/password bar is OK for Enter to submit via form; skip type-in
+        return al !== "command" && al !== "password";
+      }
+      return false;
+    };
+    const isCmdBar = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const al = el.getAttribute("aria-label") ?? "";
+      return al === "command" || al === "password";
+    };
+
     const onKey = (e: KeyboardEvent) => {
-      if (echoMaskRef.current) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Enter outside form fields: send draft (form handles Enter inside cmd bar)
+      if (e.key === "Enter") {
+        if (isCmdBar(e.target)) return; // native form submit
+        if (isFormField(e.target)) return;
+        e.preventDefault();
+        submitCmd(inputDraftRef.current);
+        return;
+      }
+
+      if (echoMaskRef.current) return;
       if (e.key.length !== 1) return;
       // Numpad is movement hotkey — don't insert digits into draft
       if (e.code.startsWith("Numpad") || numpadDirection(e)) return;
-      const el = e.target as HTMLElement | null;
-      if (!el) return;
-      const tag = el.tagName;
-      if (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        el.isContentEditable
-      ) {
-        return;
-      }
+      if (isFormField(e.target) || isCmdBar(e.target)) return;
       e.preventDefault();
       focusCmd();
       setInputDraft((d) => d + e.key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab.connected, focusCmd]);
+  }, [tab.connected, focusCmd, submitCmd]);
 
   // ── Connect gate (pre-session) ─────────────────────────────────────
   if (!anyConnected) {
@@ -615,8 +685,8 @@ export function App() {
                   key={tabId}
                   wsUrl={wsUrl}
                   hello={hello}
-                  injectCommand={cmd}
-                  onInjectConsumed={() => setCmd("")}
+                  injectCommand={injectPayload}
+                  onInjectConsumed={() => setInjectPayload(null)}
                   expandInput={onSendThroughEngine}
                   onServerLine={handleServerLine}
                   onStatus={handleStatus}

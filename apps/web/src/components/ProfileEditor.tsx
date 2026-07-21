@@ -2,7 +2,10 @@ import { useState } from "react";
 import type { MudProfile } from "@assmud/profiles";
 import {
   getProfilePassword,
-  setProfilePassword,
+  getProfileAccount,
+  getProfileAutoLogin,
+  getProfileSecret,
+  setProfileSecretEntry,
   clearProfileSecret,
   validateProfile,
 } from "@assmud/profiles";
@@ -32,17 +35,33 @@ export function ProfileEditor({
   const [draft, setDraft] = useState<Partial<MudProfile>>(
     () => selected ?? emptyDraft(),
   );
+  const [account, setAccount] = useState(() =>
+    selected ? getProfileAccount(selected.id) ?? "" : "",
+  );
   const [password, setPassword] = useState(() =>
     selected ? getProfilePassword(selected.id) ?? "" : "",
+  );
+  const [autoLogin, setAutoLogin] = useState(() =>
+    selected ? getProfileAutoLogin(selected.id) : false,
   );
   const [storePlain, setStorePlain] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
 
+  const loadSecretsIntoForm = (id: string) => {
+    const s = getProfileSecret(id);
+    setAccount(s?.account ?? "");
+    setPassword(s?.password ?? "");
+    setAutoLogin(Boolean(s?.autoLogin));
+  };
+
   const startCreate = () => {
     setMode("create");
     setDraft(emptyDraft());
+    setAccount("");
     setPassword("");
+    setAutoLogin(false);
+    setStorePlain(false);
     setErr(null);
   };
 
@@ -50,7 +69,8 @@ export function ProfileEditor({
     if (!selected) return;
     setMode("edit");
     setDraft({ ...selected });
-    setPassword(getProfilePassword(selected.id) ?? "");
+    loadSecretsIntoForm(selected.id);
+    setStorePlain(Boolean(getProfileSecret(selected.id)?.password));
     setErr(null);
   };
 
@@ -59,7 +79,7 @@ export function ProfileEditor({
     setErr(null);
     if (selected) {
       setDraft({ ...selected });
-      setPassword(getProfilePassword(selected.id) ?? "");
+      loadSecretsIntoForm(selected.id);
     }
   };
 
@@ -80,12 +100,23 @@ export function ProfileEditor({
         next = profiles.map((x) => (x.id === selectedId ? p : x));
       }
       onChange(next);
-      if (password) {
-        if (!storePlain) {
-          throw new Error("opt-in required to store password in plaintext localStorage");
+      if (password || account || autoLogin) {
+        if (password && !storePlain) {
+          throw new Error(
+            "opt-in required to store password in plaintext localStorage",
+          );
         }
-        setProfilePassword(p.id, password);
-      } else clearProfileSecret(p.id);
+        if (autoLogin && !account && !password) {
+          throw new Error("auto-login needs account and/or password");
+        }
+        setProfileSecretEntry(p.id, {
+          account: account.trim() || undefined,
+          password: password || undefined,
+          autoLogin,
+        });
+      } else {
+        clearProfileSecret(p.id);
+      }
       onSelect(p.id);
       setMode("view");
       setErr(null);
@@ -137,7 +168,11 @@ export function ProfileEditor({
         {selected && (
           <p className="text-[11px] font-mono" style={{ color: "var(--text-faint)" }}>
             {selected.host}:{selected.port} · {selected.charset}
-            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+            {getProfileAccount(selected.id)
+              ? ` · 👤 ${getProfileAccount(selected.id)}`
+              : ""}
+            {getProfilePassword(selected.id) ? " · 🔑 secret" : ""}
+            {getProfileAutoLogin(selected.id) ? " · auto-login" : ""}
           </p>
         )}
       </div>
@@ -184,7 +219,22 @@ export function ProfileEditor({
         </label>
       ))}
       <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
-        Auto-login password (local only, not exported)
+        Account / character (auto-login, local only)
+        <input
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text)",
+          }}
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+          autoComplete="off"
+          placeholder="sent once after connect"
+        />
+      </label>
+      <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
+        Password (local only, not exported)
         <input
           type="password"
           className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
@@ -196,7 +246,20 @@ export function ProfileEditor({
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="off"
+          placeholder="sent on Telnet ECHO mask (not text trigger)"
         />
+      </label>
+      <label
+        className="flex items-start gap-2 text-[10px] leading-snug"
+        style={{ color: "var(--text-faint)" }}
+      >
+        <input
+          type="checkbox"
+          checked={autoLogin}
+          onChange={(e) => setAutoLogin(e.target.checked)}
+        />
+        Enable auto-login: send account after connect; send password when server
+        enables password-mode (WILL ECHO). No fragile “Password:” text trigger.
       </label>
       <label
         className="flex items-start gap-2 text-[10px] leading-snug"
@@ -207,8 +270,8 @@ export function ProfileEditor({
           checked={storePlain}
           onChange={(e) => setStorePlain(e.target.checked)}
         />
-        I opt in to store this password in **plaintext localStorage** on this
-        device (not exported; proxy/MUD operators can still see it on the wire).
+        I opt in to store password in **plaintext localStorage** on this device
+        (not exported; proxy/MUD operators can still see it on the wire).
       </label>
       {err && (
         <p className="text-[11px]" style={{ color: "var(--danger)" }}>

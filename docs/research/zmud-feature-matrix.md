@@ -168,7 +168,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 | ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | C01 | 多主機 profile | ✅ | **高** | done | P0 | profiles 套件 |
-| C02 | 自動登入字串 | ✅ | 高 | todo | P1 | 安全：勿存明文預設開 |
+| C02 | 自動登入字串 | ✅ | 高 | done | P1 | account+password+autoLogin；ECHO mask 送密；見 input-ux |
 | C03 | 重連 | ✅ | **高** | done | P0 | MudSocket backoff |
 | C04 | 多 session 分頁 | ✅ | 高 | done | P0 | tabs + close modal |
 | C05 | 分屏同時看兩角 | ✅ | 中 | todo | P2 | backlog split |
