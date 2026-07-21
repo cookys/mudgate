@@ -1,0 +1,4 @@
+ENGINE: Codex  
+VERDICT_mccp2-stream: APPROVE  
+MUST_FIX: None. `pushWithBoundary` is absent; `pushUntilMccpStart` is used consistently.  
+NITS: None.

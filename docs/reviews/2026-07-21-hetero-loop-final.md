@@ -45,3 +45,12 @@
 ## Note
 
 Loop stops at **plan-text APPROVE*** across Grok+GLM+MiniMax and Codex remaining issues folded. **Code implementation** still needs its own loop review after land.  
+
+## R4–R5 (Codex MCCP)
+
+| Round | Codex | Note |
+|-------|-------|------|
+| R4 | BLOCK | leftover `pushWithBoundary` name (stale draft) |
+| R5 | **APPROVE** | plan uses only `pushUntilMccpStart` |
+
+**All four engines now non-BLOCK on plan text** (Grok/GLM/MiniMax APPROVE*; Codex APPROVE on mccp). Ready to implement `feat/mccp2-stream`.
