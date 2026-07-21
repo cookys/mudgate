@@ -1,0 +1,11 @@
+ENGINE: gemini-3.6-flash-high
+VERDICT: APPROVE
+MUST_FIX:
+NITS:
+- 在 §2.2.1 的 `tryCapture` 重試機制中，若 `persistSnapshot` 失敗，除了不上寫 `lastMapFrameId` 外，建議顯式重置/解鎖 `armed = false` 並 `setMapCaptureArmed(false)`，避免 IDB 偶發寫入失敗時 `armed` 狀態殘留。
+- 側欄城圖 Canvas 在 HiDPI / Retina 螢幕上渲染 1×/2× 縮放時，建議明確標註採用 `devicePixelRatio` 畫布倍率縮放，確保 CJK 雙寬字元與 Terminal 像素點陣對齊不模糊。
+C0_SHIP_OK: yes — C0 邊界劃分極度清晰，完全避開複雜的 GMCP 拓樸猜測與全圖 room-graph 坑；BurstDetector v0 之 P1~N2 測試案與 IndexedDB 驅逐/全 protected 防護機制完整可測。
+FALSE_SHIP_RISKS:
+- 跨 Tab 同 Profile 併發寫入 IDB 時，可能因 soft cap 導致短暫超過 MAX 30 幀（計劃已聲明可接受 soft cap，但須確保 UI 清除 profile 資料時能完整遍歷刪除）。
+- 高頻 map_d 刷屏情境下，Canvas 2D 頻繁重繪若未結合 `requestAnimationFrame` 防抖，可能造成側欄輕微幀率下降。
+ONE_LINE_SUMMARY: 架構定位準確（終端為地圖真相，側欄為記憶導航），C0 契約與單元測試代碼極度完整，具備高可執行度與即刻 Ship 條件。
