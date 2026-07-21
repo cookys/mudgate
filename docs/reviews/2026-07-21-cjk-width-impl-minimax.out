@@ -1,0 +1,32 @@
+All 16 tests pass and typecheck is clean. I've completed the full static analysis. Here's my verdict:
+
+---
+
+**VERDICT: APPROVE_WITH_NITS**
+
+**MUST_FIX: []** — all requirements satisfied.
+
+**NITS:**
+
+1. **`packages/terminal/src/buffer.ts:386`**: trailing blank line at EOF. Remove.
+2. **`docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md`**: trailing whitespace on line 3. Strip.
+
+---
+
+### MUST item-by-item confirmation
+
+| Requirement | Status | Location |
+|---|---|---|
+| `resolveWidthMode` — never "auto" | ✅ | `widthMode.ts:48-63`; explicit `=== "cjk" \|\| === "western"` guard |
+| `isWide` — CJK marks non-ASCII wide; western only EAW F/W | ✅ | `width.ts:27-36`; tested `─│┌╮` wide in cjk, narrow in western |
+| `ScreenBuffer.setWidthMode` clears | ✅ | `buffer.ts:46-55`; blank + cursor + attrs + scroll region reset |
+| Web profile→widthMode (App→TerminalHost) | ✅ | `App.tsx:124-131` via `useMemo(resolveWidthMode(...))`; `TerminalHost.tsx:69,73,157` |
+| RW MOTD golden test | ✅ | `buffer.test.ts:89-146`; fixture `rw-banner-4000.big5.txt` (28 lines); cursor.c === byte-cell width per line; `compared > 8` |
+| `SELF-HOSTED-PROXY.md` | ✅ | `docs/deploy/SELF-HOSTED-PROXY.md`; motivation + local dev + VPS + CJK integration |
+| UTF8 → western | ✅ | `resolveWidthMode` line 61; `ScreenBuffer` / `TerminalHost` defaults `"western"` |
+
+### On the prior automated BLOCK findings
+
+The codex BLOCK on CJK mode is **not valid** — the design doc explicitly specifies post-decode DBCS semantics ("every non-ASCII occupies 2 cells") as the desired behavior. Treating all non-ASCII as wide in CJK mode is correct by design, matching zMUD/BBS byte-cell art.
+
+The codex BLOCK on the MOTD test recomputing expectations from fixture is also **not valid**. Computing expected widths from the authoritative fixture (byte-cell model) and comparing against the buffer's per-line cursor position is the correct integration test methodology. A separate `rw-motd-cols.json` would be redundant data with no additional coverage.

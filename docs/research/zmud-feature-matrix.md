@@ -120,7 +120,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 | T11 | 捲動回看 scrollback | ✅ | 高 | partial | P1 | buffer 有 scrollback；UI 有限 |
 | T12 | 字體選擇 | ✅ | 高 | partial | P1 | catalog + TC chain baseline |
 | T13 | 字級／字距 | ✅ | 高 | partial | P2 | setTypography；試掘 UI residual |
-| T14 | 等寬 1:2 對齊 | 系統字 | **必須** | partial | P1 | measureAlignScore 有；試掘 residual |
+| T14 | 等寬 1:2 對齊 | 系統字 | **必須** | done* | P1 | *cell width cjk/western（charset-aware）；字型 glyph 仍 fonts-f2 |
 | T15 | 多輸出窗／分頁 | ✅ | 中 | partial | P2 | multi-tab session 有；非 split |
 | T16 | 狀態列／gauge | ✅ | 中 | todo | P2 | 無 GMCP 則靠 trigger |
 | T17 | 按鍵宏 toolbar | ✅ | 高 | partial | P2 | thumb pad n/s/e/w |

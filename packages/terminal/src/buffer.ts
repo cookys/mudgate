@@ -4,12 +4,15 @@ import {
   sgrDelta,
   tokenizeAnsi,
 } from "@assmud/vt";
+import { isWide, type WidthMode } from "./width.js";
 
 export type Cell = { ch: string; attrs: Attrs };
+export type { WidthMode };
 
 /**
  * Full VT screen buffer for map_d-class redraws (Phase 1b+).
  * Supports CUP, ED/EL, DECSTBM, save/restore cursor — not SGR-only.
+ * Cell width is charset-aware via widthMode (cjk | western).
  */
 export class ScreenBuffer {
   cols: number;
@@ -26,12 +29,29 @@ export class ScreenBuffer {
   /** session log (plain text lines) */
   sessionLog: string[] = [];
   maxSessionLog = 20_000;
+  /** Effective width mode — never "auto". Default western (safe for utf8). */
+  widthMode: WidthMode = "western";
 
-  constructor(cols = 80, rows = 24) {
+  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
     this.cols = cols;
     this.rows = rows;
+    this.widthMode = widthMode;
     this.scrollBottom = rows - 1;
     this.cells = this.blank();
+  }
+
+  /**
+   * Change width mode. Clears the screen so cells never mix two width semantics.
+   */
+  setWidthMode(mode: WidthMode): void {
+    if (this.widthMode === mode) return;
+    this.widthMode = mode;
+    this.cells = this.blank();
+    this.cursor = { r: 0, c: 0 };
+    this.savedCursor = null;
+    this.attrs = defaultAttrs();
+    this.scrollTop = 0;
+    this.scrollBottom = this.rows - 1;
   }
 
   private blankRow(): Cell[] {
@@ -192,12 +212,12 @@ export class ScreenBuffer {
       if (this.cursor.c >= this.cols) {
         this.lineFeed();
       }
-      // Fullwidth: occupy two cells when codepoint is wide (rough CJK)
-      const wide = isWide(ch);
+      // Fullwidth: two cells when isWide under current widthMode
+      const wide = isWide(ch, this.widthMode);
       this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
       this.cursor.c += 1;
       if (wide && this.cursor.c < this.cols) {
-        // placeholder second cell for dual-color: same ch marker empty continuation
+        // placeholder second cell for dual-color: empty continuation
         this.cells[this.cursor.r]![this.cursor.c] = {
           ch: "",
           attrs: { ...attrs },
@@ -362,19 +382,4 @@ export class ScreenBuffer {
   cellAt(r: number, c: number): Cell | undefined {
     return this.cells[r]?.[c];
   }
-}
-
-function isWide(ch: string): boolean {
-  const cp = ch.codePointAt(0) ?? 0;
-  // rough CJK + fullwidth ranges
-  return (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
-    (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe10 && cp <= 0xfe6f) ||
-    (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6) ||
-    (cp >= 0x20000 && cp <= 0x2fffd)
-  );
 }

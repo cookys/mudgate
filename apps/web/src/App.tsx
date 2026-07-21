@@ -7,6 +7,7 @@ import {
   type MudProfile,
   exportProfilesJson,
   importProfilesJson,
+  resolveWidthMode,
 } from "@assmud/profiles";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
@@ -120,6 +121,14 @@ export function App() {
   const profile =
     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
     profiles[0]!;
+  const cellWidthMode = useMemo(
+    () =>
+      resolveWidthMode({
+        charset: profile?.charset,
+        widthMode: profile?.widthMode,
+      }),
+    [profile?.charset, profile?.widthMode],
+  );
 
   const anyConnected = tabs.some((t) => t.connected);
   const closeTarget = closeTargetId
@@ -490,6 +499,7 @@ export function App() {
                   onEchoMask={handleEchoMask}
                   terminalFontStack={fontStack}
                   fontSizePx={termFont.fontSizePx}
+                  widthMode={cellWidthMode}
                 />
               ) : (
                 <div

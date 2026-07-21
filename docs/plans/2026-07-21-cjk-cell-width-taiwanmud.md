@@ -1,6 +1,6 @@
 # Plan — CJK cell width + 台灣泥巴列表相容（含 IP 多開 survey）
 
-> **Status**: **APPROVED**（hetero R2 ≥2 families APPROVE*；可 `/ship` W1–W4+I1）  
+> **Status**: **SHIP**（W1–W4+I1；`feat/cjk-cell-width`）  
 > **Owner**: cookys  
 > **Why**: RW MOTD 錯位根因是 **Ambiguous/DBCS 字寬**；產品目標**朝向** [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）可用，需 **charset-aware** 修法，並釐清 **共用 proxy IP** 與 MUD 多開偵測。  
 > **North**: 盡可能相容最多中文 MUD；**不**用全域 `Ambiguous=2` 搞壞 UTF-8／英文服。  
@@ -62,7 +62,7 @@ function isWide(ch, mode: "cjk" | "western"):
   return false   // EAW=N 罕見 → 1，避免亂撐
 ```
 
-**v1 範圍誠實聲明**：EAW+A 是 zMUD 行為的 **良好近似**，**不**宣稱 100% 重現所有 Big5 byte-cell 邊角。v1.1 可加 DBCS-source bit。  
+**v1 範圍誠實聲明**：實作為 **pragmatic** F/W + 常見 Ambiguous 區段（框線／方塊／幾何／常見 banner 符號），**不是**完整 Unicode TR11 表。以 RW MOTD golden + western 框線回歸鎖行為。v1.1 可選完整 EAW 表或 DBCS-source bit。  
 **非目標 charset**（euc-kr / shift-jis）：v1 不進 auto→cjk；需要時用 **手動 widthMode=cjk**。
 
 ### 1.3 不在 v1 做

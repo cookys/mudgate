@@ -1,0 +1,106 @@
+{
+  "source": "tests/fixtures/streams/rw-banner-4000.big5.txt",
+  "mode": "cjk",
+  "rows": [
+    {
+      "line": 3,
+      "cols": 11
+    },
+    {
+      "line": 4,
+      "cols": 70
+    },
+    {
+      "line": 5,
+      "cols": 71
+    },
+    {
+      "line": 6,
+      "cols": 71
+    },
+    {
+      "line": 7,
+      "cols": 71
+    },
+    {
+      "line": 8,
+      "cols": 78
+    },
+    {
+      "line": 9,
+      "cols": 78
+    },
+    {
+      "line": 10,
+      "cols": 78
+    },
+    {
+      "line": 11,
+      "cols": 78
+    },
+    {
+      "line": 12,
+      "cols": 78
+    },
+    {
+      "line": 13,
+      "cols": 78
+    },
+    {
+      "line": 14,
+      "cols": 78
+    },
+    {
+      "line": 15,
+      "cols": 78
+    },
+    {
+      "line": 16,
+      "cols": 78
+    },
+    {
+      "line": 17,
+      "cols": 79
+    },
+    {
+      "line": 18,
+      "cols": 79
+    },
+    {
+      "line": 19,
+      "cols": 79
+    },
+    {
+      "line": 20,
+      "cols": 79
+    },
+    {
+      "line": 21,
+      "cols": 79
+    },
+    {
+      "line": 23,
+      "cols": 71
+    },
+    {
+      "line": 24,
+      "cols": 60
+    },
+    {
+      "line": 25,
+      "cols": 45
+    },
+    {
+      "line": 26,
+      "cols": 62
+    },
+    {
+      "line": 27,
+      "cols": 69
+    },
+    {
+      "line": 28,
+      "cols": 14
+    }
+  ]
+}
