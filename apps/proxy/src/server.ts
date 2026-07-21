@@ -7,8 +7,10 @@ import {
   assertDestinationAllowed,
   safeEqual,
 } from "./policy.js";
-import { AbuseLimiter, clientIpFromRequest, defaultLimits } from "./limits.js";
+import { AbuseLimiter, defaultLimits, normalizeIp } from "./limits.js";
+import { resolveEffectiveClientAddr } from "./clientAddr.js";
 import { bridgeWsToMud } from "./bridge.js";
+import { nowIso, tokenHmac, writeAudit } from "./audit.js";
 
 type HelloMsg = {
   type: "hello";
@@ -34,7 +36,13 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
         "content-type": "application/json",
         "x-content-type-options": "nosniff",
       });
-      res.end(JSON.stringify({ ok: true, mode: cfg.mode }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          mode: cfg.mode,
+          siteMode: cfg.siteMode,
+        }),
+      );
       return;
     }
     res.writeHead(404);
@@ -53,8 +61,9 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
         return;
       }
 
-      const ip = clientIpFromRequest(req);
-      if (!limits.tryUpgrade(ip)) {
+      const transportPeer = normalizeIp(req.socket.remoteAddress);
+      // Coarse upgrade limit by transport peer (before header trust)
+      if (!limits.tryUpgrade(transportPeer)) {
         socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
         socket.destroy();
         return;
@@ -67,11 +76,36 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
         return;
       }
 
+      const addr = resolveEffectiveClientAddr(req, cfg);
+      if (!addr.ok) {
+        // Trusted hop configured but client IP header missing/invalid → fail-closed
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      if (addr.headerMismatchWarn) {
+        writeAudit({
+          event: "warn",
+          time: nowIso(),
+          message: "cf_and_x_real_ip_mismatch",
+          transportPeer: addr.transportPeer,
+          effectiveClientAddr: addr.effectiveClientAddr,
+        });
+      }
+
+      const effectiveIp = addr.effectiveClientAddr;
+
       // Optional pre-auth via Bearer / cookie / (dev-only) query — still re-checked on hello
-      const preAuth = checkAuth(url, cfg, req.headers.cookie, req.headers.authorization);
+      const preAuth = checkAuth(
+        url,
+        cfg,
+        req.headers.cookie,
+        req.headers.authorization,
+      );
 
       wss.handleUpgrade(req, socket, head, (ws) => {
-        const connId = `${ip}:${++connSeq}`;
+        const connId = `${effectiveIp}:${++connSeq}`;
         const timer = setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.close(1008, "hello timeout");
@@ -86,10 +120,33 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
           limits.tryInboundBytes(connId, n, inBudget);
         const checkOut = (n: number) =>
           limits.tryOutboundBytes(connId, n, outBudget);
-        ws.on("close", () => {
+
+        writeAudit({
+          event: "ws_open",
+          time: nowIso(),
+          transportPeer: addr.transportPeer,
+          effectiveClientAddr: effectiveIp,
+          tokenHmac: tokenHmac(
+            preAuth && cfg.authToken ? cfg.authToken : null,
+            cfg.authToken,
+          ),
+          siteMode: cfg.siteMode,
+          headerSource: addr.headerSource,
+        });
+
+        ws.on("close", (code, reasonBuf) => {
           release?.();
           release = null;
           limits.releaseConnBytes(connId);
+          writeAudit({
+            event: "close",
+            time: nowIso(),
+            transportPeer: addr.transportPeer,
+            effectiveClientAddr: effectiveIp,
+            code,
+            reason: reasonBuf?.toString("utf8")?.slice(0, 64) || undefined,
+            siteMode: cfg.siteMode,
+          });
         });
 
         const onClientMessage = async (data: WebSocket.RawData) => {
@@ -100,13 +157,11 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
                 : Buffer.isBuffer(data)
                   ? data.length
                   : (data as ArrayBuffer).byteLength;
-            // Hello-phase inbound counts toward the same rolling budget as
-            // post-bridge traffic (bridge continues via checkInboundBytes).
             if (!checkIn(nbytes)) {
               ws.close(1008, "inbound byte limit");
               return;
             }
-            if (bridged) return; // bridge owns post-hello messages
+            if (bridged) return;
 
             if (!limits.tryHello(connId)) {
               ws.close(1008, "hello rate");
@@ -128,17 +183,29 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
               authed = true;
             }
             if (!authed) {
+              writeAudit({
+                event: "hello",
+                time: nowIso(),
+                transportPeer: addr.transportPeer,
+                effectiveClientAddr: effectiveIp,
+                host: String(msg.host ?? ""),
+                port: Number(msg.port ?? 0),
+                ok: false,
+                reason: "unauthorized",
+                siteMode: cfg.siteMode,
+              });
               ws.close(1008, "unauthorized");
               return;
             }
 
+            // Auth done: concurrency keyed by effectiveClientAddr (not fake per-player)
             const tokenKey =
               cfg.authToken && msg.token && safeEqual(msg.token, cfg.authToken)
                 ? "tok"
                 : preAuth
                   ? "pre"
                   : "anon";
-            release = limits.tryAcquire(ip, tokenKey);
+            release = limits.tryAcquire(effectiveIp, tokenKey);
             if (!release) {
               ws.close(1008, "concurrency limit");
               return;
@@ -148,10 +215,32 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
             const mudPort = clamp(Number(msg.port ?? 4000), 1, 65535, 4000);
             const dest = await assertDestinationAllowed(mudHost, mudPort, cfg);
             if (!dest.ok) {
+              writeAudit({
+                event: "hello",
+                time: nowIso(),
+                transportPeer: addr.transportPeer,
+                effectiveClientAddr: effectiveIp,
+                host: mudHost,
+                port: mudPort,
+                ok: false,
+                reason: dest.reason,
+                siteMode: cfg.siteMode,
+              });
               ws.send(JSON.stringify({ type: "error", message: dest.reason }));
               ws.close(1008, "destination denied");
               return;
             }
+
+            writeAudit({
+              event: "hello",
+              time: nowIso(),
+              transportPeer: addr.transportPeer,
+              effectiveClientAddr: effectiveIp,
+              host: mudHost,
+              port: mudPort,
+              ok: true,
+              siteMode: cfg.siteMode,
+            });
 
             const cols = clamp(Number(msg.cols ?? 80), 1, 511, 80);
             const rows = clamp(Number(msg.rows ?? 24), 1, 511, 24);

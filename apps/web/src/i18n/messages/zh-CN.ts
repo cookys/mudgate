@@ -7,6 +7,10 @@ export const zhCN = {
   "connect.token": "验证令牌",
   "connect.token.hint": "（远端正式环境用；局域网开发可留空）",
   "connect.token.placeholder": "选填",
+  "connect.site.notice":
+    "你经本站 Web 网关连线。浏览器到网关为加密传输（WSS）。游戏协议多为传统 telnet；站方服务器本来就能处理登录（与桌面客户端连站相同信任模型）。",
+  "connect.site.forbid_e2e":
+    "禁止宣称「端到端，站方也看不到密码」。WSS 只加密到网关。",
   "connect.accent": "强调色",
   "connect.cta": "连接到 {name} →",
   "connect.export": "导出配置",

@@ -7,6 +7,10 @@ export const en = {
   "connect.token": "Auth token",
   "connect.token.hint": "(remote-prod; leave empty on LAN dev)",
   "connect.token.placeholder": "optional",
+  "connect.site.notice":
+    "You connect via this site's web gateway. Browser↔gateway is encrypted (WSS). Game traffic is often classic telnet; the site operator already handles logins (same trust model as a desktop client to the site).",
+  "connect.site.forbid_e2e":
+    "Do not claim end-to-end privacy from the site operator. WSS only encrypts to the gateway.",
   "connect.accent": "Accent",
   "connect.cta": "Connect to {name} →",
   "connect.export": "export profiles",

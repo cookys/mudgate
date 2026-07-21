@@ -8,6 +8,8 @@ export type MessageKey =
   | "connect.token"
   | "connect.token.hint"
   | "connect.token.placeholder"
+  | "connect.site.notice"
+  | "connect.site.forbid_e2e"
   | "connect.accent"
   | "connect.cta"
   | "connect.export"

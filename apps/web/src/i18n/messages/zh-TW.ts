@@ -7,6 +7,10 @@ export const zhTW = {
   "connect.token": "驗證權杖",
   "connect.token.hint": "（遠端正式環境用；區網開發可留空）",
   "connect.token.placeholder": "選填",
+  "connect.site.notice":
+    "你經本站 Web 閘道連線。瀏覽器到閘道為加密傳輸（WSS）。遊戲協定多為傳統 telnet；站方伺服器本來就能處理登入（與桌面客端連站相同信任模型）。",
+  "connect.site.forbid_e2e":
+    "禁止宣稱「端到端，站方也看不到密碼」。WSS 只加密到閘道。",
   "connect.accent": "強調色",
   "connect.cta": "連線到 {name} →",
   "connect.export": "匯出設定檔",

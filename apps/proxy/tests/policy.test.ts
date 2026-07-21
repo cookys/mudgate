@@ -12,8 +12,11 @@ describe("policy", () => {
   const dev = defaultConfig("localhost-dev");
   const prod = {
     ...defaultConfig("remote-prod"),
+    siteMode: false,
     authToken: "secret",
     originAllowlist: ["https://mud.example.com"],
+    trustedHops: [] as string[],
+    clientIpHeader: null as string | null,
   };
 
   it("blocks private IPs", () => {

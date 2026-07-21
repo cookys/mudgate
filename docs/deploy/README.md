@@ -4,8 +4,11 @@
 
 | Mode | Env | Notes |
 |------|-----|--------|
-| Dev | `ASSMUD_PROXY_MODE=localhost-dev` | bind 127.0.0.1:7788; Origin loose for local Vite |
-| Prod | `ASSMUD_PROXY_MODE=remote-prod` | require `ASSMUD_AUTH_TOKEN`, `ASSMUD_ORIGIN_ALLOWLIST` |
+| 玩家本機 / LAN (T0) | `ASSMUD_PROXY_MODE=localhost-dev` | bind 127.0.0.1:7788; Origin loose for local Vite |
+| 玩家 VPS 自架 (T1a) | `ASSMUD_PROXY_MODE=remote-prod` | require token + origin；allowlist 自訂 |
+| **站方 site mode (T1-site)** | `remote-prod` + **`ASSMUD_SITE_MODE=1`** | **必須**非空 `ASSMUD_ALLOWLIST`；見 [SITE-OPERATOR.md](./SITE-OPERATOR.md) |
+| 官方 (T2) | 營運配置 | 多開仍痛；站方模式是替代敘事 |
+| Prod 通用 | `ASSMUD_PROXY_MODE=remote-prod` | require `ASSMUD_AUTH_TOKEN`, `ASSMUD_ORIGIN_ALLOWLIST` |
 
 ## Example (Caddy + Node proxy)
 

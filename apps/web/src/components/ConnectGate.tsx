@@ -145,25 +145,40 @@ export function ConnectGate({
           </fieldset>
 
           {trustMode === "selfhost" && (
-            <p className="text-[11px] space-x-2" style={{ color: "var(--text-faint)" }}>
-              <a
-                className="underline"
-                href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => {
-                  e.preventDefault();
-                  window.open(
-                    "https://github.com/search?q=assmud+ORACLE-ALWAYS-FREE",
-                    "_blank",
-                  );
+            <div className="space-y-2">
+              <p
+                className="text-xs rounded border p-2 leading-relaxed"
+                style={{
+                  borderColor: "var(--border)",
+                  color: "var(--text-dim)",
+                  background: "var(--bg-elevated)",
                 }}
               >
-                {t("trust.selfhost.cta")}
-              </a>
-              <span>·</span>
-              <span>{t("trust.home.cf")}</span>
-            </p>
+                {t("connect.site.notice")}
+                <span className="block mt-1" style={{ color: "var(--text-faint)" }}>
+                  {t("connect.site.forbid_e2e")}
+                </span>
+              </p>
+              <p className="text-[11px] space-x-2" style={{ color: "var(--text-faint)" }}>
+                <a
+                  className="underline"
+                  href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.open(
+                      "https://github.com/search?q=assmud+ORACLE-ALWAYS-FREE",
+                      "_blank",
+                    );
+                  }}
+                >
+                  {t("trust.selfhost.cta")}
+                </a>
+                <span>·</span>
+                <span>{t("trust.home.cf")}</span>
+              </p>
+            </div>
           )}
 
           {trustMode === "official" && (

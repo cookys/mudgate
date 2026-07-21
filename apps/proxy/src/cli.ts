@@ -21,7 +21,8 @@ if (prodErr) {
 
 const server = createProxyServer(cfg);
 server.listen(cfg.bindPort, cfg.bindHost, () => {
+  const site = cfg.siteMode ? " siteMode=1" : "";
   console.log(
-    `assmud-proxy mode=${cfg.mode} listening ws://${cfg.bindHost}:${cfg.bindPort}/ws`,
+    `assmud-proxy mode=${cfg.mode}${site} listening ws://${cfg.bindHost}:${cfg.bindPort}/ws`,
   );
 });

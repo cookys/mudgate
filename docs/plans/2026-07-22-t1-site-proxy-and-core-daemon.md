@@ -1,6 +1,6 @@
 # Plan — **site mode** / **player mode** · 出口 IP · daemon 方向
 
-> **Status**: **APPROVED · plan-hetero ALL_CLEAR R2** + **naming lock site/player mode**  
+> **Status**: **APPROVED · S0–S1 SHIP** (2026-07-22) · plan-hetero ALL_CLEAR R2 + naming lock site/player mode
 > **Owner**: cookys  
 > **Date**: 2026-07-22  
 > **Extends**: [`2026-07-21-selfhost-proxy-trust.md`](./2026-07-21-selfhost-proxy-trust.md)  
@@ -424,9 +424,8 @@ SITE MODE (目標形態 = 今日強化)
 
 | 狀態 | 條件 |
 |------|------|
-| draft | now |
-| approved | plan-hetero ALL_CLEAR |
-| S0–S1 impl | after approved |
-| S2–S3 | 可平行文件／spike |
+| draft | done |
+| approved | plan-hetero ALL_CLEAR R2 |
+| S0–S1 impl / SHIP | **done** 2026-07-22 — SITE_MODE fail-fast、effectiveClientAddr、audit、docs |
+| S2–S3 | 可平行文件／spike（PROXY experimental / player daemon ADR） |
 
-**Hetero 請審：** T1-site 契約、IP 選項 honesty、S 分期、D1/R2 架構裁決是否可接受、false-ship 風險。

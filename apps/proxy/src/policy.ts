@@ -3,6 +3,11 @@ import { lookup } from "node:dns/promises";
 
 export type ProxyConfig = {
   mode: "remote-prod" | "localhost-dev";
+  /**
+   * T1-site overlay (ASSMUD_SITE_MODE=1). Only legal with remote-prod.
+   * Forces hello dest ∈ allowlist; empty allowlist fails startup.
+   */
+  siteMode: boolean;
   bindHost: string;
   bindPort: number;
   /** Required in remote-prod */
@@ -11,7 +16,29 @@ export type ProxyConfig = {
   /** If true (dev), allow any non-private host:port when not on allowlist */
   relaxAllowlist: boolean;
   originAllowlist: string[];
+  /**
+   * Trusted reverse-proxy hops (CIDR or exact IP). Peer must match to honor
+   * CF-Connecting-IP / X-Real-IP. Empty = never trust headers (default).
+   * "unix" is reserved for future UDS peers.
+   */
+  trustedHops: string[];
+  /** Optional lock to a single client-IP header name (lowercase). */
+  clientIpHeader: string | null;
 };
+
+/** Parse ASSMUD_SITE_MODE=1|true|yes */
+export function envTruthy(raw: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes((raw ?? "").trim().toLowerCase());
+}
+
+/** Parse ASSMUD_TRUSTED_HOP=127.0.0.1/32,10.0.0.0/8 or unix */
+export function parseTrustedHops(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 /** Default RW host ports (player + wiz). Extra destinations: ASSMUD_ALLOWLIST. */
 export const RW_DEFAULT_PORTS = [4000, 4001, 5000, 6000] as const;
@@ -67,6 +94,7 @@ function mergeAllowlist(
 }
 
 export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
+  const siteMode = envTruthy(process.env.ASSMUD_SITE_MODE);
   const envExtra = parseAllowlistEnv(process.env.ASSMUD_ALLOWLIST);
   const rwBase = [
     {
@@ -74,10 +102,13 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       ports: [...RW_DEFAULT_PORTS],
     },
   ];
+  const trustedHops = parseTrustedHops(process.env.ASSMUD_TRUSTED_HOP);
+  const clientIpHeader = process.env.ASSMUD_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
 
   if (mode === "localhost-dev") {
     return {
       mode,
+      siteMode,
       bindHost: "127.0.0.1",
       bindPort: 7788,
       authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
@@ -91,25 +122,48 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       // Dev: any public host:port still ok when not listed (custom MUD probe)
       relaxAllowlist: true,
       originAllowlist: ["http://127.0.0.1:5173", "http://localhost:5173"],
+      trustedHops,
+      clientIpHeader,
     };
   }
+
+  // Site mode: allowlist is ONLY ASSMUD_ALLOWLIST (本站 mud), no RW defaults.
+  const allowlist = siteMode ? envExtra : mergeAllowlist(rwBase, envExtra);
+
   return {
     mode,
+    siteMode,
     // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
     bindHost: process.env.ASSMUD_BIND_HOST ?? "127.0.0.1",
     bindPort: Number(process.env.PORT ?? 7788),
     authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
-    allowlist: mergeAllowlist(rwBase, envExtra),
+    allowlist,
     relaxAllowlist: false,
     originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+    trustedHops,
+    clientIpHeader,
   };
 }
 
-/** Fail-closed gate for remote-prod before listen. */
+/**
+ * Fail-closed gates before listen.
+ * - remote-prod: token + origin
+ * - site mode: only with remote-prod; non-empty allowlist
+ */
 export function assertProdConfig(cfg: ProxyConfig): string | null {
+  if (cfg.siteMode) {
+    if (cfg.mode !== "remote-prod") {
+      return "ASSMUD_SITE_MODE=1 requires ASSMUD_PROXY_MODE=remote-prod (got " +
+        cfg.mode +
+        ")";
+    }
+    if (!cfg.allowlist.length) {
+      return "ASSMUD_SITE_MODE=1 requires non-empty ASSMUD_ALLOWLIST (host:port,...)";
+    }
+  }
   if (cfg.mode !== "remote-prod") return null;
   if (!cfg.authToken) return "ASSMUD_AUTH_TOKEN required for remote-prod";
   if (!cfg.originAllowlist.length)
@@ -256,8 +310,13 @@ export async function assertDestinationAllowed(
     return { ok: false, reason: "blocked metadata ip" };
   }
 
+  // Site / local: allowlisted loopback mud is intentional (gateway co-located).
+  const loopbackHost =
+    host === "127.0.0.1" || host === "localhost" || host === "::1";
   const loopbackAllow =
-    onList && (host === "127.0.0.1" || host === "localhost") && cfg.mode === "localhost-dev";
+    onList &&
+    loopbackHost &&
+    (cfg.mode === "localhost-dev" || cfg.siteMode);
 
   if (isPrivateOrBlockedIp(address) && !loopbackAllow) {
     return { ok: false, reason: "private or blocked ip" };

@@ -50,23 +50,14 @@ export function normalizeIp(raw: string | undefined): string {
 }
 
 /**
- * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+ * Transport peer IP for coarse upgrade limits.
+ * Header-based client IP uses resolveEffectiveClientAddr (trusted hop only).
+ * X-Forwarded-For is intentionally not trusted here (T1-site §3.3.1).
  */
 export function clientIpFromRequest(req: {
   socket: { remoteAddress?: string };
   headers: { [k: string]: string | string[] | undefined };
 }): string {
-  const trust = ["1", "true", "yes"].includes(
-    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
-  );
-  if (trust) {
-    const xff = req.headers["x-forwarded-for"];
-    const raw = Array.isArray(xff) ? xff[0] : xff;
-    if (raw) {
-      const first = raw.split(",")[0]?.trim();
-      if (first) return normalizeIp(first);
-    }
-  }
   return normalizeIp(req.socket.remoteAddress);
 }
 

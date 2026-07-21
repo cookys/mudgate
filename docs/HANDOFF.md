@@ -1,79 +1,73 @@
 ## 目標
 
-assmud：中文優先 web MUD 客端。**Companion C0 已 SHIP**；下一棒預設 **site mode S0–S1**（T1-site plan）。
+assmud：中文優先 web MUD 客端。**Companion C0** 與 **site mode S0–S1** 已 SHIP。下一棒可選 S2 PROXY experimental 或 player mode ADR。
 
 ## 現況
 
 | 項 | 值 |
 |----|-----|
 | Branch | `develop` |
-| HEAD | develop tip（`git log -1`；含 companion C0 + SHIP docs） |
+| HEAD | `git log -1`（含 site mode S0–S1） |
 | Working tree | hetero `docs/reviews/*.err` **勿 commit** |
-| Vite `:5173` / Proxy `:7788` | ship 後可長駐；`localhost-dev` + Vite |
-| Companion C0 | **SHIP** — unit / build / pre-smoke PASS |
+| Vite / Proxy | 可長駐 `localhost-dev`；site mode 需 `remote-prod`+`SITE_MODE=1` |
+| Companion C0 | **SHIP** |
+| Site mode S0–S1 | **SHIP** — SITE_MODE fail-fast、effectiveClientAddr、audit、SITE-OPERATOR |
 
 ### DONE
 
-1. Nav Shell P1（附近/足跡/dead-reckon）— SHIP  
-2. map_d Companion plan hetero ALL_CLEAR R4 — APPROVED  
-3. T1-site plan hetero ALL_CLEAR + site/player 命名鎖定  
-4. **Companion C0 SHIP**  
-   - `ScreenBuffer.snapshotCells()` + cup-abs/buf-mut  
-   - `@assmud/nav-memory` BurstDetector v0 + Memory/IDB  
-   - `MapCompanion` 城圖 tab（freeze / pin / clear / 誠實徽章）  
-   - fixtures P1/P2/P3/N1/N2/N3；`scripts/pre-smoke-check.sh` PASS  
+1. Nav Shell P1 — SHIP  
+2. map_d Companion C0 — SHIP  
+3. T1-site plan hetero ALL_CLEAR + naming site/player  
+4. **Site mode S0–S1**  
+   - `ASSMUD_SITE_MODE=1` 僅配 `remote-prod`；空 allowlist exit≠0  
+   - hello dest ∈ allowlist；site 允許 allowlisted loopback mud  
+   - `effectiveClientAddr`：trusted hop + CF/X-Real-IP（**無 XFF**）；缺 header 403  
+   - audit JSON 行（token HMAC 截斷、無 payload）  
+   - docs: `SITE-OPERATOR.md`、threat model、deploy README、i18n site 文案  
 
 ### IN-FLIGHT / 未做
 
-- Site mode **S0–S1** 實作（`docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md`）  
-- Player mode daemon + Session Protocol（中期）  
-- Companion **C1+**（journey / stitch / fingerprint / expedition）  
+- Site **S2** PROXY protocol v1 experimental（預設關）  
+- **Player mode** daemon + Session Protocol ADR  
+- Companion **C1+**  
 
 ## 已決事項（不重議）
 
-- Client automap **不是** 第二張 map_d；副駕／記憶／旅程；禁止 OCR、禁止 RW 全城 Mudlet graph 當主路徑  
-- Companion C0：snapshot + freeze + pins + BurstDetector v0 + IDB；無「官方幀」文案  
-- **site mode** = multi-WSS → telnet（站方 gateway）；**player mode** = VPS/本機 daemon → 任意 telnet；web 只顯示  
-- Site 出口 IP：mud 常見 127.0.0.1；限流用 **effectiveClientAddr**；PROXY v1 可選 experimental  
-- S1 site auth = shared token + per-IP；**不**假 per-player identity  
-- 架構節奏：**W0 now（Node site gateway）→ D1 player daemon + thin web → Rust 僅達門檻**  
-- agy：`agy --model X --print-timeout 5m0s -p "$PROMPT"`（flags 在前）  
-- Ship gate：pre-smoke PASS 後 user smoke **optional**（非 blocking）  
+- site vs player 產品二分  
+- S1 auth = shared token + per effective-IP；不假 per-player  
+- 限流 key = effectiveClientAddr；CDN edge 勿當唯一 ban  
+- Companion 不是第二張 map_d  
+- agy flags 在前  
 
 ## 下一步
 
-1. **Site mode S0–S1** — `docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md`  
-   - `ASSMUD_SITE_MODE` + allowlist fail-fast + audit  
-2. Player / Rust：**只讀 plan**，不要開重寫除非 owner 明確要  
-3. C1 companion：僅在 owner 要 journey/stitch 時再開  
+1. **S2**（可選）：`ASSMUD_PROXY_PROTOCOL=1` 寫 PROXY v1 首行  
+2. **Player mode** ADR / Session Protocol spike  
+3. 或 idle  
 
 ## 驗證方式
 
 | 線 | 驗證 |
 |----|------|
-| Companion C0 (SHIP) | `npm test`；`npm run build -w @assmud/web`；`bash scripts/pre-smoke-check.sh` RESULT=PASS |
-| Site S1 | `SITE_MODE=1` 空 allowlist exit≠0；非白名單 hello 拒；audit 無 payload |
+| Site S1 unit | `npm test` 含 `apps/proxy/tests/site-mode.test.ts` |
+| Site fail-fast | `SITE_MODE=1` 空 allowlist / +localhost-dev → exit≠0 |
+| Companion C0 | pre-smoke PASS（既有） |
 
 ## Read-order
 
-1. `/home/cookys/projects/assmud/docs/HANDOFF.md` — 本檔  
-2. `/home/cookys/projects/assmud/docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md` — **下一棒 SSOT**  
-3. `/home/cookys/projects/assmud/docs/plans/2026-07-22-mapd-nav-companion.md` — C0 SHIP 契約（只讀）  
-4. `/home/cookys/projects/assmud/packages/nav-memory/src/` — companion store（已 SHIP）  
+1. `docs/HANDOFF.md`  
+2. `docs/deploy/SITE-OPERATOR.md`  
+3. `docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md`  
+4. `apps/proxy/src/{policy,clientAddr,audit,server}.ts`  
 
 ## 陷阱
 
-- **agy** 參數順序：flags 在前、`-p` 在後  
-- 長駐 background shell 會讓 TUI 以為 Subagents 還 Responding  
-- map_d 偵測必須 settleQuietMs + buf-mut，否則半幅  
-- site mode 勿把玩家 vault 丟上站方 gateway  
-- CDN 下 ban `effectiveClientAddr` 可能 ban edge  
-- hetero `docs/reviews/*.err` 是 harness 雜訊，**不要 commit**  
+- SITE_MODE ≠ PROXY_MODE 別名  
+- 勿 commit `docs/reviews/*.err`  
+- trusted hop 缺 header **fail-closed**（不是回退 peer）  
 
-## 接續指令（paste-ready）
+## 接續指令
 
 ```text
 read /home/cookys/projects/assmud/docs/HANDOFF.md 接續
 ```
-
-建議下一句：`做 site mode S0-S1`。
