@@ -201,11 +201,17 @@ Canvas ANSI 色可對齊 token（`#0a0b0e` 底 + 柔和 16 色，非 Windows 刺
 ### Phase U+i18n — Locale switch (see dedicated plan)
 
 > **Plan**: [`2026-07-21-i18n-locale.md`](./2026-07-21-i18n-locale.md)  
-> **Hetero R1**: [`docs/reviews/2026-07-21-i18n-hetero.md`](../reviews/2026-07-21-i18n-hetero.md)
+> **Hetero R1**: [`docs/reviews/2026-07-21-i18n-hetero.md`](../reviews/2026-07-21-i18n-hetero.md)  
+> **Board 2026-07-21**: zh-TW / zh-CN / en；站台預設優先；中文 tagline 包；topbar 要；StatusEvent 必做  
 
-- Shell-only en / zh-Hant；`StatusEvent` 結構化狀態；ConnectGate + drawer 切換  
-- **不**翻譯 MUD 世界輸出  
-- Merge gate = I1+I2+I3（禁止半套 status i18n）  
+### Phase U+fonts — Terminal typeface (RW map)
+
+> **Spec**: [`docs/design/terminal-fonts.md`](../design/terminal-fonts.md)
+
+- Dual-width mono 可切換（推薦 Sarasa Mono TC / Term）  
+- 字級、字寬 scale、行高、letter-spacing；ligature 預設關  
+- Canvas `measureText` 校正 cellW；1:2 警告  
+
 
 ---
 
