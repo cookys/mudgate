@@ -1,0 +1,10 @@
+VERDICT: SHIP-AS-IS
+
+FINDINGS:
+- apps/proxy/src/policy.ts:131 — minor: query-string token (?token=) is still accepted in remote-prod mode despite the comment saying "prefer header/cookie in prod"; tokens can land in access logs. Unavoidable for browser WebSocket API (no custom headers), and Bearer path exists for non-browser clients; document the log-hygiene expectation for prod deployments.
+- packages/protocol/src/telnet.ts:73 — minor: SB subnegotiation scan has no payload length cap; a compromised/malicious allowlisted MUD server could stream an unterminated IAC SB and grow the parser buffer unboundedly (memory DoS). Low exposure since destinations are allowlist-pinned; suggest a 4 KB SB cap in Phase 1b.
+- apps/proxy/src/server.ts:60-61 — minor: cols/rows query params are not range-validated (NaN or >65535 yields garbage NAWS bytes via naws()); protocol-correctness issue only, no privilege impact. Clamp to 1–511 / 1–511 or default on parse failure.
+- apps/proxy/src/policy.ts:44 — minor: IPv4-compatible IPv6 literals (e.g. "::10.0.0.1") bypass isPrivateOrBlockedIp; unreachable in prod (allowlist + family:4 lookup) and modern OSes map these to loopback; dev-only theoretical. Add a "::" dotted-quad tail check when convenient.
+- apps/web/src/App.tsx:14 — minor: token persisted in localStorage (XSS-readable). Rendering path is canvas + React auto-escaping so no current XSS vector; acceptable for Phase 1a, revisit with httpOnly cookie flow later.
+
+Confirmed fixes holding: TCP pinned to validated address (rebinding TOCTOU closed), exact-match Origin with URL-parse hostname check (prefix tricks blocked), private/CGNAT/link-local/ULA/metadata ranges denied, escapeIac doubles 0xFF on binary client frames (text path is UTF-8 so raw 0xFF impossible), Bearer + safeEqual constant-time compare, TTYPE reply gated on payload[0]===1 (SEND), control-frame JSON sanitized to printable/CJK before display.

@@ -29,10 +29,18 @@ export type TelnetEvent =
 /**
  * Incremental Telnet parser. Emits application data and negotiation events.
  */
+const MAX_BUF = 65_536;
+const MAX_SB = 4_096;
+
 export class TelnetParser {
   private buf = new Uint8Array(0);
 
   push(chunk: Uint8Array): TelnetEvent[] {
+    if (this.buf.length + chunk.length > MAX_BUF) {
+      // reset on abuse / runaway SB
+      this.buf = new Uint8Array(0);
+      return [];
+    }
     const merged = new Uint8Array(this.buf.length + chunk.length);
     merged.set(this.buf);
     merged.set(chunk, this.buf.length);
@@ -72,8 +80,16 @@ export class TelnetParser {
         let j = i + 2;
         while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
           j += 1;
+          if (j - i > MAX_SB) {
+            // drop runaway subnegotiation
+            this.buf = this.buf.slice(j);
+            i = 0;
+            data.length = 0;
+            break;
+          }
         }
         if (j + 1 >= this.buf.length) break;
+        if (!(this.buf[j] === IAC && this.buf[j + 1] === SE)) continue;
         if (data.length) {
           events.push({ type: "data", bytes: Uint8Array.from(data) });
           data.length = 0;

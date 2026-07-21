@@ -22,11 +22,11 @@ describe("policy", () => {
     expect(isPrivateOrBlockedIp("8.8.8.8")).toBe(false);
   });
 
-  it("denies unauth in prod", () => {
+  it("denies unauth in prod; query token not accepted in remote-prod", () => {
     const url = new URL("http://x/ws?host=mud.revivalworld.org&port=4000");
     expect(checkAuth(url, prod)).toBe(false);
-    const ok = new URL("http://x/ws?token=secret");
-    expect(checkAuth(ok, prod)).toBe(true);
+    const q = new URL("http://x/ws?token=secret");
+    expect(checkAuth(q, prod)).toBe(false);
     expect(checkAuth(url, prod, undefined, "Bearer secret")).toBe(true);
     expect(checkAuth(url, prod, undefined, "Bearer wrong")).toBe(false);
   });

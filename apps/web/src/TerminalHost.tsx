@@ -2,20 +2,33 @@ import { useEffect, useRef } from "react";
 import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
 
+export type HelloMsg = {
+  type: "hello";
+  token?: string;
+  host?: string;
+  port?: number;
+  cols?: number;
+  rows?: number;
+};
+
 type Props = {
   wsUrl: string | null;
+  hello: HelloMsg;
   onStatus?: (s: string) => void;
 };
 
 /**
  * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
+ * Auth/destination via first-frame hello (no secrets in URL).
  */
-export function TerminalHost({ wsUrl, onStatus }: Props) {
+export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bufRef = useRef(new ScreenBuffer(80, 28));
   const rendererRef = useRef(new Canvas2DRenderer());
   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
   const wsRef = useRef<WebSocket | null>(null);
+  const helloRef = useRef(hello);
+  helloRef.current = hello;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,25 +47,33 @@ export function TerminalHost({ wsUrl, onStatus }: Props) {
 
     const paint = () => rendererRef.current.draw(bufRef.current);
 
-    ws.onopen = () => onStatus?.("connected");
+    ws.onopen = () => {
+      onStatus?.("handshaking…");
+      ws.send(JSON.stringify(helloRef.current));
+    };
     ws.onclose = () => onStatus?.("disconnected");
     ws.onerror = () => onStatus?.("error");
     ws.onmessage = (ev) => {
-      // Proxy sends mud as binary; JSON control only as text starting with '{'
       if (typeof ev.data === "string") {
         const s = ev.data;
         if (s.startsWith("{")) {
           try {
-            const j = JSON.parse(s) as { type?: string; message?: string };
+            const j = JSON.parse(s) as {
+              type?: string;
+              message?: string;
+            };
             if (j.type === "error") {
-              const msg = (j.message ?? "error").replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "").slice(0, 200);
+              const msg = (j.message ?? "error")
+                .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+                .slice(0, 200);
               onStatus?.(msg || "error");
+            } else if (j.type === "ready") {
+              onStatus?.("connected");
             }
           } catch {
             onStatus?.("bad control frame");
           }
         }
-        // ignore non-JSON text from proxy (mud must be binary)
         return;
       }
       const bytes = new Uint8Array(ev.data as ArrayBuffer);
@@ -72,7 +93,10 @@ export function TerminalHost({ wsUrl, onStatus }: Props) {
 
   const sendLine = (line: string) => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(line);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      if (line.length > 4096) return;
+      ws.send(line);
+    }
   };
 
   return (

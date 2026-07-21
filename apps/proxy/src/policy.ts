@@ -47,7 +47,14 @@ export function isPrivateOrBlockedIp(ip: string): boolean {
   if (ip.startsWith("::ffff:")) {
     return isPrivateOrBlockedIp(ip.slice(7));
   }
-  if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") {
+  if (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "0.0.0.0" ||
+    ip === "::" ||
+    ip === "::0" ||
+    ip === "0:0:0:0:0:0:0:0"
+  ) {
     return true;
   }
   // IPv6 ULA / link-local
@@ -132,9 +139,11 @@ export function checkAuth(
     }
   }
 
-  // Query token still accepted for local smoke; prefer header/cookie in prod
-  const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
-  if (q && safeEqual(q, token)) return true;
+  // Query token: localhost-dev only (avoids access-log leakage in prod)
+  if (cfg.mode === "localhost-dev") {
+    const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
+    if (q && safeEqual(q, token)) return true;
+  }
   return false;
 }
 
