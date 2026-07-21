@@ -1,6 +1,6 @@
 # Plan — map_d Nav Companion（導航副駕）
 
-> **Status**: **APPROVED · C0 implemented** (unit+build green; manual map_d smoke pending) · plan-hetero ALL_CLEAR R4
+> **Status**: **SHIP C0** (2026-07-22) · unit+build+pre-smoke PASS · plan-hetero ALL_CLEAR R4
 
 
 
@@ -585,7 +585,6 @@ C2 expedition + diff alert
 | **draft** | now |
 | **approved** | **R4 ALL_CLEAR** (2026-07-22) |
 | **impl C0** | **done** (code + unit/e2e; 2026-07-22) |
-| **SHIP C0** | pre-smoke + manual map_d smoke |
+| **SHIP C0** | **done** (pre-smoke RESULT=PASS + dual `npm test` + web build + LAN entry probes; optional human map_d UX) |
 | **impl C1/C2** | after C0 SHIP or parallel if capacity |
 
-**Decision needed from owner**：確認 §10 開放問題 → 標 **approved** → 開 C0 實作。
