@@ -142,7 +142,7 @@ describe("C1 journey store", () => {
 });
 
 describe("C1 stitch prototype", () => {
-  it("places tiles by dir and produces multi-tile ascii", () => {
+  it("places tiles by dir and produces multi-tile ascii panorama (≥3 steps)", () => {
     let st = createStitchState();
     st = { ...st, enabled: true };
     const c1 = cellsWithText(4, 2, "AA");
@@ -170,9 +170,15 @@ describe("C1 stitch prototype", () => {
     });
     expect(st.tiles).toHaveLength(3);
     const ascii = stitchToAscii(st);
-    expect(ascii.length).toBeGreaterThan(0);
-    expect(ascii).toMatch(/A|B|C/);
+    // Visible composite: multiple glyph classes across panorama dump
+    expect(ascii).toContain("A");
+    expect(ascii).toContain("B");
+    expect(ascii).toContain("C");
+    // offsets mean more than a single 4-col tile width of content
+    expect(ascii.split("\n").length).toBeGreaterThanOrEqual(1);
+    expect(ascii.length).toBeGreaterThan(4);
     st = clearStitch(st);
     expect(st.tiles).toHaveLength(0);
+    expect(stitchToAscii(st)).toBe("");
   });
 });

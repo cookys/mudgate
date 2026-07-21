@@ -19,6 +19,7 @@ import {
   getNavStore,
   createStitchState,
   placeStitchTile,
+  stitchToAscii,
   type StitchDir,
   type StitchState,
 } from "@assmud/nav-memory";
@@ -26,10 +27,18 @@ import type { VtCaptureEvent } from "@assmud/terminal";
 import { ProfileManager } from "./components/ProfileManager";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
-import { RoomTracker, parseMoveCommand } from "@assmud/mapper";
+import {
+  RoomTracker,
+  parseMoveCommand,
+  verdictOnServerLine,
+  verdictOnSettle,
+} from "@assmud/mapper";
 import { MapNavPanel, type MapPanelMode } from "./components/MapNavPanel";
 import { MapCompanion } from "./components/MapCompanion";
-import { JourneyPanel } from "./components/JourneyPanel";
+import {
+  JourneyPanel,
+  type JourneyStepRequest,
+} from "./components/JourneyPanel";
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
@@ -186,6 +195,17 @@ export function App() {
   const [journeyReplay, setJourneyReplay] = useState<{
     journeyId: string;
     step: number;
+  } | null>(null);
+  const [journeyStepPending, setJourneyStepPending] = useState(false);
+  const [journeyStopReason, setJourneyStopReason] = useState<string | null>(
+    null,
+  );
+  const journeyGateRef = useRef<{
+    journeyId: string;
+    stepIndex: number;
+    total: number;
+    preTitle: string | null;
+    timer: ReturnType<typeof setTimeout> | null;
   } | null>(null);
   const [stitchState, setStitchState] = useState<StitchState>(() =>
     createStitchState(),
@@ -401,6 +421,37 @@ export function App() {
     setEchoMask(mask);
   }, []);
 
+  const clearJourneyGate = useCallback(() => {
+    const g = journeyGateRef.current;
+    if (g?.timer) clearTimeout(g.timer);
+    journeyGateRef.current = null;
+    setJourneyStepPending(false);
+  }, []);
+
+  const finishJourneyGate = useCallback(
+    (verdict: ReturnType<typeof verdictOnSettle>) => {
+      const g = journeyGateRef.current;
+      if (!g) return;
+      if (g.timer) clearTimeout(g.timer);
+      journeyGateRef.current = null;
+      setJourneyStepPending(false);
+      if (verdict.kind === "stop") {
+        setJourneyStopReason(verdict.reason);
+        setJourneyReplay(null);
+        setNavToast(
+          verdict.reason === "move_fail"
+            ? "journey:move_fail"
+            : "journey:title_stuck",
+        );
+        return;
+      }
+      const next = g.stepIndex + 1;
+      if (next >= g.total) setJourneyReplay(null);
+      else setJourneyReplay({ journeyId: g.journeyId, step: next });
+    },
+    [],
+  );
+
   const handleServerLine = useCallback(
     (line: string) => {
       engine.onServerLine(line);
@@ -412,9 +463,19 @@ export function App() {
           x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
         ),
       );
+      // C1.2: interrupt journey replay on move-fail text
+      if (journeyGateRef.current) {
+        const fail = verdictOnServerLine(line);
+        if (fail) finishJourneyGate(fail);
+      }
     },
-    [bumpMap],
+    [bumpMap, finishJourneyGate],
   );
+
+  // Clear gate if user stops replay manually
+  useEffect(() => {
+    if (!journeyReplay) clearJourneyGate();
+  }, [journeyReplay, clearJourneyGate]);
 
   const wsUrl = useMemo(() => {
     if (!tab?.connected) return null;
@@ -487,6 +548,30 @@ export function App() {
       setInjectPayload({ id: injectIdRef.current, line: cmd });
     },
     [noteJourneyStep],
+  );
+
+  const onJourneyRequestStep = useCallback(
+    (req: JourneyStepRequest) => {
+      if (journeyGateRef.current) return;
+      setJourneyStopReason(null);
+      const preTitle = roomTracker.nearby().title;
+      const timer = setTimeout(() => {
+        const postTitle = roomTracker.nearby().title;
+        const g = journeyGateRef.current;
+        if (!g) return;
+        finishJourneyGate(verdictOnSettle(g.preTitle, postTitle));
+      }, 900);
+      journeyGateRef.current = {
+        journeyId: req.journeyId,
+        stepIndex: req.stepIndex,
+        total: req.total,
+        preTitle,
+        timer,
+      };
+      setJourneyStepPending(true);
+      walkDir(req.cmd);
+    },
+    [finishJourneyGate, walkDir],
   );
 
   const downloadLog = () => {
@@ -1020,6 +1105,9 @@ export function App() {
                     }))
                   }
                   stitchTileCount={stitchState.tiles.length}
+                  stitchPanorama={
+                    stitchState.enabled ? stitchToAscii(stitchState, 48) : ""
+                  }
                   onStitchClear={() =>
                     setStitchState((s) => ({
                       ...s,
@@ -1068,8 +1156,16 @@ export function App() {
                   recordingId={journeyRecordingId}
                   onRecordingId={setJourneyRecordingId}
                   replay={journeyReplay}
-                  onReplay={setJourneyReplay}
-                  onSendStep={(cmd) => walkDir(cmd)}
+                  onReplay={(r) => {
+                    setJourneyReplay(r);
+                    if (!r) {
+                      clearJourneyGate();
+                      setJourneyStopReason(null);
+                    }
+                  }}
+                  onRequestStep={onJourneyRequestStep}
+                  stepPending={journeyStepPending}
+                  stopReason={journeyStopReason}
                   labels={{
                     title: t("map.journey.title"),
                     record: t("map.journey.record"),
@@ -1082,6 +1178,7 @@ export function App() {
                     import: t("map.journey.import"),
                     empty: t("map.journey.empty"),
                     experimental: t("map.journey.experimental"),
+                    stopped: t("map.journey.stopped"),
                   }}
                 />
               </div>
@@ -1102,7 +1199,11 @@ export function App() {
               ? t("map.companion.storageFull")
               : navToast === "frameDeleted"
                 ? t("map.companion.frameDeleted")
-                : navToast}
+                : navToast === "journey:move_fail"
+                  ? t("map.journey.stopMoveFail")
+                  : navToast === "journey:title_stuck"
+                    ? t("map.journey.stopTitleStuck")
+                    : navToast}
           </div>
         )}
 

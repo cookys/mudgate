@@ -75,6 +75,8 @@ type Props = {
   onStitchEnabled?: (v: boolean) => void;
   stitchTileCount?: number;
   onStitchClear?: () => void;
+  /** Experimental panorama text dump (stitchToAscii) — C1.6 visible composite */
+  stitchPanorama?: string;
 };
 
 type ViewMode = "live" | "frozen";
@@ -100,6 +102,7 @@ export function MapCompanion({
   onStitchEnabled,
   stitchTileCount = 0,
   onStitchClear,
+  stitchPanorama = "",
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -495,6 +498,34 @@ export function MapCompanion({
           {labels.reattach}
         </button>
       </div>
+
+      {stitchEnabled && (
+        <div
+          className="border-b px-2 py-1 max-h-28 overflow-auto"
+          style={{ borderColor: "var(--border)", background: "#0a0b0e" }}
+          data-testid="stitch-panorama"
+        >
+          <div
+            className="text-[9px] mb-0.5"
+            style={{ color: "var(--text-faint)" }}
+          >
+            {labels.stitchExp}
+            {stitchTileCount > 0 ? ` · ${stitchTileCount} tiles` : ""}
+          </div>
+          {stitchPanorama ? (
+            <pre
+              className="font-mono text-[10px] leading-tight whitespace-pre"
+              style={{ color: "var(--accent)" }}
+            >
+              {stitchPanorama}
+            </pre>
+          ) : (
+            <p className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+              …
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-1 px-2 py-1 border-b" style={{ borderColor: "var(--border)" }}>
         <input

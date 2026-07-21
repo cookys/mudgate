@@ -39,3 +39,10 @@ export {
   type LayoutNode,
   type LayoutEdge,
 } from "./graph.js";
+
+export {
+  verdictOnServerLine,
+  verdictOnSettle,
+  type JourneyReplayVerdict,
+  type JourneyReplayStopReason,
+} from "./journeyReplay.js";

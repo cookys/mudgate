@@ -135,5 +135,8 @@ export const zhCN = {
   "map.journey.import": "入",
   "map.journey.empty": "尚无旅程。录制后可逐步重播。",
   "map.journey.experimental": "一步一确认",
+  "map.journey.stopped": "已中断",
+  "map.journey.stopMoveFail": "旅程中断：移动失败",
+  "map.journey.stopTitleStuck": "旅程中断：房名未变",
   "modal.dismiss": "关闭",
 } as const satisfies Record<MessageKey, string>;

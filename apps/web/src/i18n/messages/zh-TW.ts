@@ -135,5 +135,8 @@ export const zhTW = {
   "map.journey.import": "入",
   "map.journey.empty": "尚無旅程。錄製後可逐步重播。",
   "map.journey.experimental": "一步一確認",
+  "map.journey.stopped": "已中斷",
+  "map.journey.stopMoveFail": "旅程中斷：移動失敗",
+  "map.journey.stopTitleStuck": "旅程中斷：房名未變",
   "modal.dismiss": "關閉",
 } as const satisfies Record<MessageKey, string>;

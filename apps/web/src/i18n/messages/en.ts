@@ -138,5 +138,8 @@ export const en = {
   "map.journey.import": "imp",
   "map.journey.empty": "No journeys yet. Record then step-replay.",
   "map.journey.experimental": "one-step confirm",
+  "map.journey.stopped": "stopped",
+  "map.journey.stopMoveFail": "journey stopped: move failed",
+  "map.journey.stopTitleStuck": "journey stopped: room title unchanged",
   "modal.dismiss": "Dismiss",
 } as const satisfies Record<MessageKey, string>;

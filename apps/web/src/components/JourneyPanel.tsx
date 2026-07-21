@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Journey, NavStore } from "@assmud/nav-memory";
 
+export type JourneyStepRequest = {
+  cmd: string;
+  journeyId: string;
+  stepIndex: number;
+  total: number;
+};
+
 type Props = {
   store: NavStore;
   profileKey: string;
@@ -8,7 +15,14 @@ type Props = {
   onRecordingId: (id: string | null) => void;
   replay: { journeyId: string; step: number } | null;
   onReplay: (r: { journeyId: string; step: number } | null) => void;
-  onSendStep: (cmd: string) => void;
+  /**
+   * Parent sends cmd and owns move-fail / title settle gate (C1.2).
+   * Must NOT advance step here — parent calls onReplay after settle.
+   */
+  onRequestStep: (req: JourneyStepRequest) => void;
+  /** true while waiting for mud settle after next */
+  stepPending?: boolean;
+  stopReason?: string | null;
   labels: {
     title: string;
     record: string;
@@ -21,6 +35,7 @@ type Props = {
     import: string;
     empty: string;
     experimental: string;
+    stopped?: string;
   };
 };
 
@@ -31,7 +46,9 @@ export function JourneyPanel({
   onRecordingId,
   replay,
   onReplay,
-  onSendStep,
+  onRequestStep,
+  stepPending = false,
+  stopReason = null,
   labels,
 }: Props) {
   const [list, setList] = useState<Journey[]>([]);
@@ -63,7 +80,7 @@ export function JourneyPanel({
   };
 
   const sendNext = async () => {
-    if (!replay) return;
+    if (!replay || stepPending) return;
     const j = await store.getJourney(replay.journeyId);
     if (!j) {
       onReplay(null);
@@ -74,10 +91,12 @@ export function JourneyPanel({
       onReplay(null);
       return;
     }
-    onSendStep(step.cmd);
-    const next = replay.step + 1;
-    if (next >= j.steps.length) onReplay(null);
-    else onReplay({ journeyId: replay.journeyId, step: next });
+    onRequestStep({
+      cmd: step.cmd,
+      journeyId: replay.journeyId,
+      stepIndex: replay.step,
+      total: j.steps.length,
+    });
   };
 
   const doExport = async (id: string) => {
@@ -128,17 +147,29 @@ export function JourneyPanel({
         </button>
       </div>
       {replay && (
-        <div className="flex gap-1 items-center">
+        <div className="flex gap-1 items-center flex-wrap">
           <span style={{ color: "var(--accent)" }}>
             step {replay.step + 1}
+            {stepPending ? " …" : ""}
           </span>
-          <button type="button" className="px-1 rounded border" style={{ borderColor: "var(--border)" }} onClick={() => void sendNext()}>
+          <button
+            type="button"
+            className="px-1 rounded border"
+            style={{ borderColor: "var(--border)" }}
+            disabled={stepPending}
+            onClick={() => void sendNext()}
+          >
             {labels.next}
           </button>
           <button type="button" className="px-1 rounded border" style={{ borderColor: "var(--border)" }} onClick={() => onReplay(null)}>
             {labels.stopPlay}
           </button>
         </div>
+      )}
+      {stopReason && (
+        <p style={{ color: "#e06c75" }} data-testid="journey-stop-reason">
+          {labels.stopped ?? "stopped"}: {stopReason}
+        </p>
       )}
       {list.length === 0 ? (
         <p style={{ color: "var(--text-faint)" }}>{labels.empty}</p>

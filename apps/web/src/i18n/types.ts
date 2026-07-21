@@ -127,6 +127,9 @@ export type MessageKey =
   | "map.journey.import"
   | "map.journey.empty"
   | "map.journey.experimental"
+  | "map.journey.stopped"
+  | "map.journey.stopMoveFail"
+  | "map.journey.stopTitleStuck"
   | "modal.dismiss";
 
 export type MessageVars = Record<string, string | number>;
