@@ -638,16 +638,18 @@ export function App() {
                   style={{
                     borderColor: active ? "var(--accent)" : "var(--border)",
                     color:
-                      active && drawerOpen
+                      active && profileMgrOpen
                         ? "var(--accent)"
                         : "var(--text-dim)",
                   }}
-                  aria-label={`${t("shell.settings")}: ${p?.name ?? tb.id}`}
-                  title={t("shell.settings")}
+                  aria-label={`${t("drawer.manageProfiles")}: ${p?.name ?? tb.id}`}
+                  title={t("drawer.manageProfiles")}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Session gear → this tab's profile manager (not global drawer)
                     setTabId(tb.id);
-                    setDrawerOpen(true);
+                    setActiveProfile(tb.profileId);
+                    setProfileMgrOpen(true);
                   }}
                 >
                   ⚙
