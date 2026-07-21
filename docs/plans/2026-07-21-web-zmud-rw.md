@@ -53,9 +53,11 @@ Players need a **modern web client** that:
 - **Wire to MudOS is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
 - Browser UI may use WebSocket/WebTransport only as a **byte-pipe carriage** into a component that holds the real TCP socket (proxy or native shell). Do not pretend the MUD protocol is JSON-RPC.
 - Default session charset for RW: **Big5** (GB switch is secondary). Do not assume UTF-8 on the wire.
-- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → cells → render. Never `bytes.toString('utf8')` on RW traffic.
+- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
 - Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
-- **雙色字 / DBCS mid-glyph attributes** are a first-class rendering requirement for Chinese MUD fidelity (see research note).
+- **Complete ANSI/VT control plane is mandatory** (not SGR-only). RWlib `map_d` / city&area `show_map` / `title_screen` emit absolute cursor addressing, save/restore cursor, erase display, and scroll-region freeze. See `docs/research/rw-ansi-and-map-controls.md`. Client must maintain a real screen buffer.
+- Minimum must-implement CSI/C0 for RW gate: `CSI s/u` (save/restore), `CSI H` / `CSI r;cH` (CUP), `CSI 2J` (ED), `CSI r` / `CSI t;br` (DECSTBM), full SGR (incl. bold/dim/reverse/underline/blink/fg/bg), BEL/BS/HT/LF/CR, Big5 DBCS with mid-stream SGR (雙色 / `ansi_part` map cells).
+- **雙色字 / DBCS mid-glyph attributes** and map tile SGR carry (`ansi_part`) are first-class; strip-non-color CSI is a **ship blocker**.
 - MUD server output is **untrusted**; terminal render path must not inject raw HTML from MXP/ANSI without a sanitizer.
 - No player passwords, session tokens, or captcha solutions committed to git.
 - Traditional Chinese UI first; English secondary.
@@ -68,7 +70,8 @@ Players need a **modern web client** that:
 |------|----------------|
 | `apps/web/` | SPA: terminal, settings, package manager UI |
 | `apps/proxy/` (or `packages/proxy/`) | WS server bridging to MudOS TCP |
-| `packages/terminal/` | Big5/DBCS cellizer, ANSI/SGR, dual-color, scrollback, render |
+| `packages/terminal/` | Screen buffer + VT control + Big5/DBCS cellizer + dual-color + scrollback + render |
+| `packages/vt/` (or inside terminal) | CSI/C0 state machine: CUP, ED/EL, DECSTBM, save/restore, SGR |
 | `packages/script-engine/` | triggers / aliases / variables / timers (match on decoded lines + raw optional) |
 | `packages/protocol/` | Telnet IAC, MCCP2, MSSP/MXP hooks, encoding, reconnect |
 | `packages/codec-big5/` (or inside protocol) | Big5↔Unicode + DBCS-safe split; WASM candidate later |
@@ -90,9 +93,10 @@ Players need a **modern web client** that:
 ### Phase 1 — Connect path + terminal MVP (Size: L)
 - Scaffold monorepo + CI smoke.
 - **TCP-owning** proxy (or Tauri TCP) with origin checks; reconnect; idle handling; Telnet IAC (TTYPE/NAWS minimum).
-- Terminal: **Big5 default**, ANSI SGR, scrollback; fixture from live banner (`tests/fixtures/streams/rw-banner-4000.bin`).
-- Manual: connect to RW, see「重生的世界」banner without mojibake, type at name prompt.
-- **Acceptance**: KR1 path demonstrated; Big5 banner golden test; proxy refuses open-relay; UTF-8 mis-decode test fails closed.
+- Terminal MVP: **Big5** + **screen buffer** + SGR + CUP + save/restore + ED + scroll region (the map_d minimum set).
+- Fixtures: live banner + **synthetic city map frame** from RWlib sequence template (`docs/research/rw-ansi-and-map-controls.md`).
+- Manual: connect to RW, see banner without mojibake; after login (human), `look` map must redraw in-place (not dump garbage scroll).
+- **Acceptance**: KR1; Big5 banner golden; **synthetic map frame golden** (cursor restore leaves prompt region intact); open-relay refused; “SGR-only client” regression test documents failure mode we refuse to ship.
 
 ### Phase 2 — Core automation engine (Size: L)
 - Aliases, triggers (regex + simple), variables, send queues.
@@ -102,12 +106,13 @@ Players need a **modern web client** that:
 
 ### Phase 3 — RW deep support pack (Size: L)
 - Login/captcha UX helpers (human-in-the-loop; no captcha bypass).
-- **雙色字** + mid-DBCS SGR fixtures; GB/BIG5 switch at login.
+- **雙色字** + mid-DBCS SGR + `ansi_part`-style cell paint fixtures; GB/BIG5 switch at login.
+- Live capture: city map + area map + title_screen freeze/unfreeze vs zMUD reference.
+- Expand VT coverage beyond minimum if live probe shows more (EL, relative cursor, DECDHL/DECDWL).
 - Optional MCCP2; careful MXP (off by default until sanitizer green).
 - Common RW triggers pack (HP/bar, combat, channel highlights) — user-validated.
-- Prompt detection, multi-line blocks.
 - Optional: link-out to RW online who / 2D map.
-- **Acceptance**: daily-play checklist signed off by user on live RW; dual-color fixture renders two attrs on one full-width glyph.
+- **Acceptance**: daily-play checklist (incl. **walk city map without scroll thrash**) signed off on live RW; dual-color + map control goldens green.
 
 ### Phase 4 — Power features parity slice (Size: L, optional split)
 - Buttons / keypad, multi-session tabs, basic mapper spike.
@@ -131,6 +136,8 @@ Players need a **modern web client** that:
 |------|-------------------------------------|------------|
 | Encoding mojibake | assume UTF-8 only | **probe done: BIG5**; golden banner fixture; fail tests on UTF-8 path |
 | Dual-color broken | Unicode-first terminal | byte/DBCS cellizer; mid-glyph attr tests |
+| Map redraw broken | SGR-only / line-mode terminal | full CSI CUP+save/restore+ED+scroll region; screen buffer; synthetic map golden |
+| Scroll thrash on move | treat map as append-only log | respect `\e[s`…`\e[u]` overlay model |
 | MCCP2 corruption | inflate wrong stream | negotiate only after WILL/DO; zlib tests |
 | MXP XSS | render MXP as HTML | default off; sanitizer; security review |
 | Proxy becomes open relay | no origin/auth checks | default bind localhost; origin allowlist |
@@ -172,3 +179,4 @@ Players need a **modern web client** that:
 
 - R0 2026-07-21 — author: onboard bootstrap (draft)
 - R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+- R2 2026-07-21 — RWlib/Undine audit: map_d/city/area/title_screen require full VT control plane; elevated to Global Constraint + Phase 1 gate

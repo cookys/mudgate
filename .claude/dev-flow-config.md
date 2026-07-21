@@ -25,8 +25,9 @@
 - Telnet options seen: TTYPE, NAWS, MCCP2, MXP, MSSP
 - Site: https://www.revivalworld.org
 - Existing web entry (legacy): http://java.revivalworld.org
-- Deep support: Big5/DBCS, 雙色字, ANSI, login/captcha, Chinese UI
+- Deep support: Big5/DBCS, 雙色字, **full ANSI/VT controls** (map_d CUP/save-restore/scroll-region), login/captcha, Chinese UI
 - Probe notes: `docs/research/rw-probe-2026-07-21.md`
+- Control surface: `docs/research/rw-ansi-and-map-controls.md` (RWlib source audit)
 
 ## Lint Notes
 - Lint is a no-op until toolchain is chosen.

@@ -6,7 +6,8 @@
 | Keyword | Invoke |
 |---------|--------|
 | telnet / websocket / proxy / reconnect / binary frame | autopilot:debug |
-| ANSI / color / encoding / Big5 / DBCS / 雙色字 / charset | autopilot:debug |
+| ANSI / VT / CSI / CUP / DECSTBM / SGR / encoding / Big5 / DBCS / 雙色字 / charset | autopilot:debug |
+| map_d / show_map / title_screen / screen buffer / scroll region | autopilot:debug |
 | telnet IAC / MCCP / MXP / MSSP / GMCP / option negotiate | autopilot:debug |
 | wasm / webassembly / codec hot path | autopilot:profiling |
 | trigger / alias / macro / script engine / matcher | autopilot:debug |

@@ -58,4 +58,5 @@
 - **RW is still BIG5 on the wire** (2026-07-21 probe). UTF-8-first clients will mojibake the entire banner.
 - “走 TCP” is correct for MudOS; browser still needs a TCP-owning hop (proxy/native). Do not reframe the product as non-TCP.
 - Dual-color (雙色字) needs DBCS-aware cellization; stock xterm.js alone is a risky default.
+- **map_d is not plain text**: RWlib `city_d_main.show_map` / `area_d_main.show_map` / `title_screen` use `\e[s` `\e[u` absolute `\e[r;cH` `\e[2J` scroll-region `\e[t;br`. Complete control support is a **ship gate**, not polish. Detail: `docs/research/rw-ansi-and-map-controls.md`.
 - `assmud` ⇒ WASM is a branding/perf escape hatch, not day-1 mandate.
