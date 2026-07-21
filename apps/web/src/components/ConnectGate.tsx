@@ -5,6 +5,7 @@ import { pickTagline, useLocale, useT } from "../i18n";
 import { LocaleSwitch } from "./LocaleSwitch";
 import type { TrustMode } from "../lib/trustMode";
 import { canConnect, readOfficialProxyUrl } from "../lib/trustMode";
+import { ProfileEditor } from "./ProfileEditor";
 
 type Props = {
   profiles: MudProfile[];
@@ -15,6 +16,7 @@ type Props = {
   customWs: string;
   customAck: boolean;
   onProfile: (id: string) => void;
+  onProfilesChange: (list: MudProfile[]) => void;
   onToken: (t: string) => void;
   onAccent: (a: AccentId) => void;
   onTrustMode: (m: TrustMode) => void;
@@ -34,6 +36,7 @@ export function ConnectGate({
   customWs,
   customAck,
   onProfile,
+  onProfilesChange,
   onToken,
   onAccent,
   onTrustMode,
@@ -240,6 +243,12 @@ export function ConnectGate({
               ))}
             </select>
           </label>
+          <ProfileEditor
+            profiles={profiles}
+            selectedId={profileId}
+            onChange={onProfilesChange}
+            onSelect={onProfile}
+          />
 
           <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
             {t("connect.token")}

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { isAlignScoreGood, TRIAL_FIXTURE } from "../src/termFonts/trial";
-import { resolveFontStack, DEFAULT_TERM_FONT } from "../src/termFonts/catalog";
+import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+import {
+  resolveFontStack,
+  resolveFontStackProbed,
+  DEFAULT_TERM_FONT,
+} from "../src/termFonts/catalog";
 
 describe("font trial", () => {
   it("marks scores near 2.0 as good dual-width", () => {
@@ -27,5 +31,19 @@ describe("font trial", () => {
       "zh-TW",
     );
     expect(s.startsWith("MyFont") || s.startsWith('"MyFont"')).toBe(true);
+  });
+
+  it("probeCjkGlyph is exported and returns structure", () => {
+    // node test env: no document → fail closed
+    const r = probeCjkGlyph("monospace");
+    expect(r).toHaveProperty("ok");
+    expect(r).toHaveProperty("width");
+    expect(typeof r.ok).toBe("boolean");
+  });
+
+  it("resolveFontStackProbed matches resolveFontStack in node", () => {
+    const a = resolveFontStack(DEFAULT_TERM_FONT, "zh-TW");
+    const b = resolveFontStackProbed(DEFAULT_TERM_FONT, "zh-TW");
+    expect(b).toBe(a);
   });
 });

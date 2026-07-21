@@ -40,7 +40,7 @@ import {
   STATIC_CATALOG,
   applyPreset,
   loadTermFont,
-  resolveFontStack,
+  resolveFontStackProbed,
   saveTermFont,
   type TermFontConfig,
 } from "./termFonts/catalog";
@@ -89,7 +89,7 @@ export function App() {
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
   const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
   const fontStack = useMemo(
-    () => resolveFontStack(termFont, locale),
+    () => resolveFontStackProbed(termFont, locale),
     [termFont, locale],
   );
   const [token, setToken] = useState(() => loadProxyToken());
@@ -334,6 +334,10 @@ export function App() {
             ts.map((x) => (x.id === tabId ? { ...x, profileId: id } : x)),
           );
         }}
+        onProfilesChange={(list) => {
+          setProfiles(list);
+          saveProfiles(list);
+        }}
         onToken={(tok) => {
           setToken(tok);
           saveProxyToken(tok);
@@ -550,6 +554,8 @@ export function App() {
                   onEchoMask={handleEchoMask}
                   terminalFontStack={fontStack}
                   fontSizePx={termFont.fontSizePx}
+                  cellWidthScale={termFont.cellWidthScale}
+                  lineHeightScale={termFont.lineHeightScale}
                   widthMode={cellWidthMode}
                 />
               ) : (
@@ -824,6 +830,24 @@ export function App() {
                         const next = {
                           ...termFont,
                           cellWidthScale: Number(e.target.value) / 100,
+                        };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                  </label>
+                  <label className="mt-1 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                    Line height ×{termFont.lineHeightScale.toFixed(2)}
+                    <input
+                      type="range"
+                      min={100}
+                      max={180}
+                      value={Math.round(termFont.lineHeightScale * 100)}
+                      className="w-full"
+                      onChange={(e) => {
+                        const next = {
+                          ...termFont,
+                          lineHeightScale: Number(e.target.value) / 100,
                         };
                         setTermFont(next);
                         saveTermFont(next);

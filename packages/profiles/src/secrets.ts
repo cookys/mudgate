@@ -7,8 +7,13 @@ export type ProfileSecrets = Record<
   { password?: string; notes?: string }
 >;
 
+/** Node / tests without DOM: in-memory store. */
+let memoryStore: ProfileSecrets = {};
+
 export function loadProfileSecrets(): ProfileSecrets {
-  if (typeof localStorage === "undefined") return {};
+  if (typeof localStorage === "undefined") {
+    return { ...memoryStore };
+  }
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return {};
@@ -20,7 +25,10 @@ export function loadProfileSecrets(): ProfileSecrets {
 }
 
 export function saveProfileSecrets(s: ProfileSecrets): void {
-  if (typeof localStorage === "undefined") return;
+  if (typeof localStorage === "undefined") {
+    memoryStore = { ...s };
+    return;
+  }
   localStorage.setItem(KEY, JSON.stringify(s));
 }
 

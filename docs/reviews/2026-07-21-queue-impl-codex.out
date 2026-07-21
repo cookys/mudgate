@@ -1,0 +1,1427 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8577-5fcf-7701-ad42-db7ff63864a1
+--------
+user
+Review assmud implemention ships on develop for ALL_CLEAR.
+Ships: ci-e2e-quality (tests/e2e multi-chunk MCCP), terminal-fonts-f2 (probeCjkGlyph+lineHeight), open-source-readiness (LICENSE secret-scan), proxy-abuse-limits (limits.ts), profile-library (CRUD ProfileEditor + secrets).
+Return for EACH ship:
+SHIP: <slug>
+VERDICT: APPROVE|APPROVE_WITH_NITS|BLOCK
+MUST_FIX: []
+NITS: []
+Then overall ALL_CLEAR: yes|no
+
+
+Key files exist:
+- tests/e2e/golden-streams.test.ts Q2b multi-chunk
+- apps/web/src/termFonts/trial.ts probeCjkGlyph + catalog resolveFontStackProbed
+- apps/web ProfileEditor + secrets
+- apps/proxy limits.ts
+- scripts/secret-scan.sh LICENSE
+
+codex
+I’m using the `autopilot:quality-pipeline` skill because this is a pre-merge, ship-by-ship readiness review. I’ll inspect the develop branch’s implementation and tests, run the relevant gates, and return exactly the requested verdict format.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc 'for f in .claude/quality-gate-config.md .claude/dispatch-config.md /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-policy.md /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/completeness-gate.md /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-integrity-gate.md /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md; do if [ -f "$f" ]; then echo "FILE $f"; sed -n '"'1,400p' \""'$f"; fi; done' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+FILE .claude/quality-gate-config.md
+# Quality Gate — Project Config (generated by autopilot:onboard; edit freely)
+
+## Test Command
+- not detected (repo is pre-scaffold; update after package manager / test runner lands)
+
+## Scan Command
+- Completeness scan (no stubs/TODO/mock): autopilot `scripts/completeness-scan.sh` over `apps/` `packages/` `src/` when present
+
+## Code Review
+- autopilot:reviewer
+
+## Security-critical surfaces
+Always full review (never fast-path) when a change touches:
+
+| Surface | Why |
+|---------|-----|
+| WebSocket / TCP proxy bridge | trust boundary between browser and MUD; injection / SSRF / open-relay risk |
+| Credential & session storage | player passwords / tokens must not leak to logs, localStorage XSS, or analytics |
+| Terminal HTML/ANSI render | MUD output is untrusted; XSS via escape sequences or raw HTML |
+| User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
+| CSP / CORS / origin checks | browser client security posture |
+| Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
+
+# Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
+FILE .claude/dispatch-config.md
+# Dispatch — Project Config (generated by autopilot:onboard; edit freely)
+
+# Superpowers is not installed. Edit this file to add superpowers preference chains.
+## Parallel Dispatch
+- native
+
+## Code Review
+- autopilot:reviewer
+
+## Debugging
+- autopilot:debug
+
+## Testing
+- autopilot:test-strategy
+
+## Profiling
+- autopilot:profiling
+
+## Team
+- autopilot:team
+FILE /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-policy.md
+
+# Test Failure Investigation (All Sizes, Mandatory)
+
+**Test failure = stop and investigate. Never skip, never assume pre-existing.**
+
+## Mandatory Flow
+
+```
+tests fail?
+├── 1. Stop implementation immediately
+├── 2. Investigate root cause
+│   ├── Test bug? → fix the test
+│   ├── Code bug (introduced this session)? → fix the code
+│   └── Pre-existing? → switch to develop and verify
+│       ├── develop also fails → confirmed pre-existing, still fix it
+│       └── develop passes → regression introduced this session, fix it
+├── 3. Re-run tests until all pass (known infra issues like DB connection excepted)
+└── 4. Report summary to user
+```
+
+### Step-by-Step with Examples
+
+**Step 1: Stop implementation.**
+Do not continue coding. The failing test takes priority over new features.
+
+**Step 2: Investigate root cause.**
+
+Example A — test bug:
+```
+FAIL: MahjongRulesTest.FlowerTileCount
+Expected: 8  Actual: 7
+→ Read test: assertion counts bonus flowers but not season flowers
+→ Fix: update expected count to include both types, or fix test setup
+```
+
+Example B — code bug (this session):
+```
+FAIL: BigTwoRulesTest.StraightFlush
+Expected: STRAIGHT_FLUSH  Actual: STRAIGHT
+→ git diff shows: modified isStraightFlush() to add a suit check
+→ The new suit check has an off-by-one: `suit > 3` should be `suit >= 3`
+→ Fix: correct the comparison
+```
+
+Example C — pre-existing verification:
+```
+FAIL: ReconnectTest.GameStateRestore
+→ Not obviously related to current changes
+→ scripts/verify-preexisting.sh '<your-test-command>' --base develop
+  → JSON: {"head":"fail","base":"fail","verdict":"PRE_EXISTING"}
+  → Still fix it: the state serializer was missing a field
+  → (verdict INTRODUCED ⇒ regression this session; NO_FAILURE ⇒ rerun)
+```
+
+The script stashes uncommitted work, checks out base, runs the test, restores. Replaces the manual `git stash && checkout develop` recipe — fewer ways to leave the work tree in a bad state.
+
+**Red-green validation (does a new test actually exercise the change?).** The opposite-direction sibling `scripts/verify-red-green.sh` proves a change's tests are not constant-green empty tests: it runs the change's tests at `head` (must be GREEN) and, in an isolated detached worktree, applies ONLY the change's test-file edits onto `base` (production code held at base) and reruns them (must be RED). Verdict `VALIDATED` only when head-green AND base-red; `NOT_RED_ON_BASE` means the test passes without the production change (it isn't testing anything); `NOT_GREEN_ON_HEAD` / `INCONCLUSIVE` fail closed.
+```bash
+scripts/verify-red-green.sh --range <base>..<head> --verify-cmd <script-path>
+# JSON: {"verdict":"VALIDATED","red_green_validated":true,"red_tests":[...], ...}
+# exit 0 VALIDATED · 1 NOT_RED/NOT_GREEN · 2 usage · 3 INCONCLUSIVE (fail-closed)
+```
+It reuses `git worktree add --detach` isolation (never mutates the live tree); every verdict is read from the real verify-cmd exit code, never self-report. It is the minimal precursor to a `verify_strength` review-density axis (see `docs/plans/2026-07-09-verify-strength-precursors.md`).
+
+**Step 3: Re-run until clean.**
+```bash
+<your-test-command>  # e.g., npm test, make test, dev.sh test
+# If specific test: docker exec -it $CONTAINER bash -c "cd /build && ctest -R 'FailingTest' --output-on-failure"
+```
+
+**Step 4: Report.**
+```
+Summary:
+- 2 failures found
+- ReconnectTest.GameStateRestore: pre-existing, missing field in serializer → fixed
+- BigTwoRulesTest.StraightFlush: regression from this session, off-by-one → fixed
+```
+
+## Tool Selection
+
+| Scenario | Approach |
+|----------|----------|
+| Single clear failure | Read the test file + implementation directly |
+| Multiple failures or unclear root cause | Dispatch `Explore` agent for deep investigation |
+| Possible cross-module impact | Dispatch `general-purpose` agent for full analysis |
+
+## Prohibited Behaviors
+
+Test failure prohibitions: skip pre-existing, skip even 1 failure, commit before fixing, assume unrelated.
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+
+# Pre-existing Error Cleanup (All Sizes, Mandatory)
+
+**After completing main task: if pre-existing compile errors/warnings exist, analyze and fix them.**
+
+## Scope
+
+| Type | Example | Action |
+|------|---------|--------|
+| Compile error (project code) | unused variable, type mismatch | Fix directly |
+| Compile error (auto-generated) | protobuf codegen unused param | Record root cause in codegen config, do not edit generated file |
+| Compile warning | implicit conversion, deprecation | Fix directly (if too many, open backlog) |
+| Lint / type-check error | TS noUnusedLocals, ESLint | Fix directly |
+
+## Flow
+
+```
+main task done → run build/type-check
+├── Has error/warning?
+│   ├── Introduced this session? → must fix
+│   └── Pre-existing?
+│       ├── Project hand-written code? → analyze + fix
+│       ├── Auto-generated code? → record root cause, don't edit generated file
+│       └── Third-party dependency? → record, don't fix
+└── All clean → pass
+```
+
+### Examples (compressed)
+
+```
+# Pre-existing project warning — fix directly
+src/games/big2/Big2Rules.cpp:142: implicit conversion loses precision
+  int count = cards.size();  // size_t → int (pre-existing per git blame)
+→ Fix: auto count = static_cast<int>(cards.size());
+
+# Auto-generated — record root cause, don't hand-edit
+proto/gen/game.pb.cc:1234: unused parameter 'arena'
+→ Root cause: protobuf codegen missing LITE_RUNTIME → record in backlog
+```
+
+## Prohibited Behaviors
+
+Pre-existing error prohibitions: leave untouched, dismiss as "just a warning", defer to "later."
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+## See Also
+
+| Skill | Boundary |
+|-------|----------|
+| the project test skill | Test commands, E2E setup, feature flags |
+| `quality-pipeline` (completeness-gate) | Anti-stub scan (TODO/FIXME/empty impl) |
+| `quality-pipeline` (code-review) | Code review after tests pass |
+FILE /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/completeness-gate.md
+
+# Completeness Gate (Anti-Stub Enforcement)
+
+**Pre-commit completeness scan. Runs after tests pass, before code review.**
+
+## What Gets Scanned
+
+| Category | Patterns Detected | Why Prohibited |
+|----------|-------------------|----------------|
+| **TODO/FIXME markers** | `TODO`, `FIXME`, `HACK`, `XXX`, `TEMP` | Unfinished work must not ship |
+| **Empty implementations** | `return {};`, `return 0;` as sole function body | Every function must have real logic |
+| **Skipped tests** | `DISABLED_`, `GTEST_SKIP()`, commented-out `TEST()` | No new skipped tests allowed |
+| **Hardcoded test data** | Test values in `src/` (not `test/`) | Test data must not leak into production |
+| **Incomplete proto** | `// TODO: add fields`, empty `message {}` body | Proto definitions must be complete |
+
+## Execution
+
+### Step 1: Automated Regex Scans
+
+```bash
+# autopilot ships scripts/completeness-scan.sh (default: scans staged diff)
+scripts/completeness-scan.sh                  # staged diff
+scripts/completeness-scan.sh --range A..B     # explicit commit range
+scripts/completeness-scan.sh --all            # whole tree (slow)
+
+# L0 attention-slip scanners
+scripts/secret-scan-diff.js --staged          # blocking secret scan
+scripts/error-path-scan.sh --staged           # advisory error-path scan
+
+# If your project has its own scan script with the same JSON contract, prefer it.
+```
+
+**What the scripts do:**
+1. `completeness-scan.sh`: Lists all staged files (`git diff --cached --name-only`), skipping binaries. Runs regex patterns for all 5 categories above. Uses `git blame --porcelain` to classify each finding as **new** (uncommitted) vs **pre-existing**. Outputs JSON. Exit code: `0` clean, `1` has new findings (gate fails), `2` usage error.
+2. `secret-scan-diff.js`: **BLOCKING** step. Range/staged secret scan. Outputs JSON findings. Exit `1` if findings (gate fails), `0` clean, `2` usage error.
+3. `error-path-scan.sh`: **ADVISORY** step. Deterministic scan for swallowed errors, broadened catches, and untested error paths. Output is attached to the review dispatch as advisory findings input. Exit `0` always when scan ran, `2` usage error.
+
+**Example output (clean):**
+```json
+{
+  "clean": true,
+  "scannedFiles": 12,
+  "findings": [],
+  "summary": { "total": 0, "new": 0, "preExisting": 0, "byType": {} }
+}
+```
+
+**Example output (findings):**
+```json
+{
+  "clean": false,
+  "scannedFiles": 8,
+  "findings": [
+    { "file": "src/games/big2/Big2WsAdapter.cpp", "line": 45, "type": "marker",
+      "text": "// TODO implement reconnect state", "isNew": true },
+    { "file": "src/lobby/LobbyManager.cpp", "line": 210, "type": "empty_impl",
+      "text": "return {};", "isNew": true },
+    { "file": "test/MahjongRulesTest.cpp", "line": 88, "type": "disabled_test",
+      "text": "TEST(MahjongRules, DISABLED_FlowerScore)", "isNew": false }
+  ],
+  "summary": { "total": 3, "new": 2, "preExisting": 1,
+    "byType": { "marker": 1, "empty_impl": 1, "disabled_test": 1 } }
+}
+```
+
+### Step 2: Semantic Judgment (AI)
+
+The script only does regex detection. These require AI judgment:
+
+- **Hardcoded test data in production code** — regex cannot distinguish test values from valid constants
+- **"Is this `return {}` a placeholder or a valid default?"** — context determines intent
+- **"Is this TODO a genuine incomplete item or a design note?"** — read surrounding code
+
+Evaluate each finding:
+```
+For each finding from Step 1:
+├── Read 5-10 lines of surrounding context
+├── Is it genuinely incomplete?
+│   ├── Yes → must fix before commit
+│   └── No (valid default, design note) → mark as false positive, move on
+```
+
+### Step 3: Fix or Dismiss
+
+```
+scan results
+├── All clean → pass, proceed to code review
+├── TODO/FIXME (new) → complete the implementation or remove the marker
+├── DISABLED_ test (new) → enable the test or delete it
+├── Empty impl (new) → implement real logic
+└── Pre-existing findings → not required to fix this session (but encouraged)
+```
+
+## Exceptions
+
+| Scenario | Allowed? |
+|----------|----------|
+| `TODO(Phase-N)` with explicit future phase reference | Yes — must be addressed in that phase |
+| Pre-existing TODO (not introduced this session) | Yes — no obligation this session |
+| Placeholder assertion in test (`EXPECT_TRUE(true)`) | **No** — test assertions must be meaningful |
+| `return {}` as valid empty-collection return | Yes — if semantically correct (e.g., "no results found") |
+
+## Example: Full Gate Pass (compressed)
+
+`scripts/completeness-scan.sh` → 1 finding `return {};` in `getPlayerCards()` (isNew=true) → implement card retrieval → re-run → `clean=true` → proceed to code review.
+
+## See Also
+
+| Skill | Boundary |
+|-------|----------|
+| `quality-pipeline` (code-review) | Runs after completeness gate passes |
+| `dev-flow` | Orchestrates: test → completeness gate → code review |
+| `quality-pipeline` | Unified quality pipeline entry point |
+FILE /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/test-integrity-gate.md
+# Test Integrity Gate (Anti-Gaming Enforcement)
+
+**L0 static, git-artifact-based test-integrity checks. Runs post-commit to block a developer/agent from gaming tests to go green** — by deleting assertions, skipping/soloing tests, escaping the test dir, or weakening the integrity surface. Reads git artifacts only; never trusts agent self-report. Sibling of `check-disjointness.sh` (files) — this one certifies *test integrity*.
+
+## What Gets Scanned
+
+| Category | Description | Violation Kind |
+|----------|-------------|----------------|
+| **Deleted test lines** | In a test-path file, the diff must contain no deleted (`-`) lines — weakening an existing assertion (`assertEqual→assertTrue`) necessarily produces one. | `deleted_line` |
+| **Skip/solo markers** | Added (`+`) lines in test files must not introduce skip / xfail / pending / todo or solo/only/focused markers (per-language set: `xit`/`.only`/`fit`/`fdescribe`/`@pytest.mark.skip`/`t.Skipf`/`#[ignore]`/…). | `skip_marker` / `solo_marker` |
+| **Rename escapes** | A test file renamed to a non-test path / non-matching name (removes coverage) is blocked. Pure rename that stays in a test path is OK. | `rename_escape` |
+| **Integrity-surface touch** | Edits to non-test integrity-surface files (conftest, fixtures, mocks, snapshots/goldens, runner config, setupTests/matchers, `package.json` scripts, CI workflows) are flagged — **independently of whether the path is also a test path**. In `block` mode a surface touch is itself a violation unless waived. | `surface_touch` |
+| **Protected-path touch** | The candidate diff touching `.qc/**`, the gate script, the config, or `.gitattributes` is a **non-waivable** structural violation. | `protected_path_touch` |
+| **Config / git failure** | Malformed (present-but-unparseable) config fails closed to `block`; an invalid range/ref or git failure exits 2. Both **non-waivable**. | `malformed_config` / `git_error` |
+
+## Execution
+
+```bash
+scripts/check-test-integrity.sh validate --range <base>..<head> [--repo <dir>] [--base <ref>] [--allow-env-config]
+```
+
+1. **Config from the TRUSTED base ref** (`git show <base>:.claude/test-integrity-config.md`), NOT the candidate head — so a candidate cannot weaken the gate (`mode: off`, bogus `test_paths`) in the same diff. Falls back to `project-config-template/test-integrity-config.md` then built-in defaults. `$TEST_INTEGRITY_CONFIG_OVERRIDE` is ignored unless `--allow-env-config`.
+2. Reads `git diff -M --name-status -z` (authoritative paths, whitespace/rename safe) + hunks.
+3. Runs the L0 checks above.
+4. Exit: `0` clean (or warn/off) · `1` block-violation · `2` usage/internal error (non-overridable).
+
+## L1 — Executed-Set Invariance (v2.25.7, additive)
+
+L0 reads diff text only, so it misses gaming that is additions-only or happens outside test files. **L1 RUNS the test collector on base vs head and fails (`executed_set_shrink`) if the set of tests that *actually execute* shrinks** — catching `test.only`/`fit`, module `pytestmark=skip`, `collect_ignore`, runner-config exclusions (`testPathIgnorePatterns`), go build-tag drops, and fixture changes that skip tests. Per-runner: **pytest / jest / vitest / go**.
+
+- **RUN-not-collect**: `--collect-only`/`--listTests`/`-list` still list *skipped* tests, so L1 uses execution/report status (pytest junit, jest/vitest `--json`, go `-json`), never collection listing.
+- **Best-effort**: runs only when a runner is detected on both sides (`l1:"unavailable"` otherwise — L0 + reviewer backstop). Two-sided `git worktree` collection, env-scrubbed, pgroup-killed timeout, always-cleanup.
+- **Fail-closed** on a broken head runner (`collection_failed` — go multi-package build-fail, JS empty/crashed report, timeout), never a silent pass (a candidate could break the runner to dodge L1).
+- **No fuzzy rename matching** — a renamed test id is a drop (documented false-positive requiring a depth-0 override); this is the main false-positive cost, justifying the `warn` default.
+- Flags: `--no-l1`, `--l1-timeout`, `--l1-runner`, `--l1-verdict-file`, `--assert-worker-dead <pgid>`. JSON adds `l1` + `l1_runners[]` (backward-compatible with L0).
+
+Full per-runner contract (detection markers, normalized test-ids, status→executed mapping, failure-classification table, override design): [`docs/projects/_archive/2026-06-26-test-integrity-l1/design-spec.md`](../../../docs/projects/_archive/2026-06-26-test-integrity-l1/design-spec.md).
+
+## Mode Semantics
+- **`block`** — fails (exit 1) on any L0 violation/surface touch, or an L1 `executed_set_shrink`/`collection_failed`, unless waived. **Default for `/l5` hetero-impl dispatch (opt-in per project).**
+- **`warn`** — reports but does not block (exit 0). **Global default** (shadow→calibrate→gate). Used when no config is present.
+- **`off`** — gate disabled.
+
+## Override verdicts (escape hatch — see limitation)
+A verdict at the **committed** path `.qc/<head_sha>.verdict.json` (read via `git show`, NOT the filesystem — untracked forgery is rejected) may waive **specific** violations it enumerates:
+```json
+{ "tree": "<head^{tree} sha>", "waives": [ {"file": "tests/x_test.py", "kind": "deleted_line"} ] }
+```
+A violation is waived only if `tree == git rev-parse <head>^{tree}` AND its `{file,kind}` is listed. **Never waivable:** `protected_path_touch`, `malformed_config`, `git_error`.
+
+> **Known limitation (L0 stub + L1 deferral):** the L0 committed-path override is a **fail-safe stub** (a committed verdict changes the commit SHA its filename must match — a fixed-point that makes a legit override unconstructable; it fails *closed*). L1 (v2.25.7) builds real out-of-commit verdict verification (changeset-digest + dropped-digest bound), **but HONORING it in `block` mode is DEFERRED** — in the same-user linked-worktree `/l5` dispatch model a worker can forge the override channel, and `--assert-worker-dead <pgid>` can't stop a `setsid`-escaped descendant. So a block-mode `executed_set_shrink` is a hard fail with **no honored override** until `dispatch-hetero.sh` gains descendant-containment (own-session + tree-sweep reap on all exit paths). Refusing a forgeable waiver is fail-safe; in `block` dispatched flows the depth-0 orchestrator controls the merge regardless. See design-spec §8.3.
+
+## See Also
+
+| Skill / script | Boundary |
+|-------|----------|
+| `check-disjointness.sh` | Sibling gate — certifies *files* (allowlist/denylist), not test behavior. |
+| `quality-pipeline` (completeness-gate) | Anti-stub scan; this gate is about *not weakening existing tests*. |
+| `quality-pipeline` (code-review) | Runs after the gates pass; catches semantic "green-but-meaningless" weakening that no deterministic gate can. |
+FILE /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+**Re-review scope:** After each fix round, re-review the **entire diff**, not just the fix. Fixes can introduce new issues.
+
+**Re-review checkpoint (dispatcher-only)**: Before round 1, `scripts/diff-since-last-round.sh mark` snapshots HEAD; between rounds `scripts/diff-since-last-round.sh stat` → JSON `{changed_files, insertions, deletions, doc_only}`. If `doc_only=true` and `changed_files` trivially small, dispatcher MAY short-circuit. Decision + data stay **in the dispatcher only** — never pass delta to the reviewer (leaks round-cycle meta-signal per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md)). Loop closed → `scripts/diff-since-last-round.sh clear`.
+
+**Re-review dispatch is blind** — round 2+ re-dispatch of `autopilot:reviewer` (or chain pick) MUST strip prior-round findings. Pre-flight: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); `scripts/check-redispatch-prompt.sh <prompt-file>` — exit 1 ⇒ strip and re-check. Prior finding stays in dispatcher memory; fixer is NOT blind (gets full finding). Skipping the linter self-bypasses the gate. Holds at any nesting depth — neither reviewer nor fixer dispatches the next round's review ([`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § Nested dispatch).
+
+## Suggestion / Minor Processing
+
+**Suggestion/Minor ≠ "ignore."** Analyze each before merge:
+
+```
+For each Suggestion/Minor finding:
+    ↓
+Dispatch Explore agent to analyze impact and effort
+    ↓
+Classify into one of four outcomes:
+├── S-size fix (< 5 min) → fix now, treat as Major
+├── False positive / by-design → close with written rationale
+├── Independent task needing more analysis → create next task with context
+└── Has clear trigger condition → add to docs/BACKLOG.md with trigger
+```
+
+### Example Processing Table
+
+| # | Issue | Severity | Analysis | Size | Disposition |
+|---|-------|----------|----------|------|-------------|
+| 1 | Null deref in error path | Critical | Crash when DB returns empty | S | Fix now + re-review |
+| 2 | Missing mutex on shared map | Major | Race condition under load | S | Fix now + re-review |
+| 3 | Could use string_view instead of string copy | Suggestion | 2% fewer allocations in hot path | S | Fix now (upgrade to Major) |
+| 4 | Function name `doIt()` unclear | Minor | Rename to `processMatchResult()` | S | Fix now (upgrade to Major) |
+| 5 | Consider caching DB query result | Suggestion | Would help at 10K+ users, not current scale | M | Backlog (trigger: when optimizing for 10K+) |
+| 6 | "Magic number 42" | Minor | Actually `MAX_TILES` constant, used consistently | - | Close (by-design) |
+
+### Backlog Entry Format
+
+Every backlog entry **must** include a trigger:
+
+```markdown
+- [ ] [Suggestion] Cache rank table query results
+  - Trigger: when optimizing for 10K+ concurrent users
+  - Context: quality-pipeline (code-review) found repeated DB queries in the target module
+```
+
+No trigger → rejected.
+
+## Review Timing
+
+| Size | When | Baseline |
+|------|------|----------|
+| S | Before commit | Task intent |
+| M | Before finishing branch | Original objective |
+| L (Phase) | After each phase | Phase plan |
+| L (Final) | Before finishing branch | Full project plan |
+
+## Prohibited Excuses
+
+All sizes require review. Major fixed now. Fix requires re-review. No severity without analysis. No backlog without trigger.
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+## Shadow QC panel (task-tree engine)
+
+Condition: `docs/projects/<proj>/tree/` exists AND target is a verdict-bearing node (non-null `verdict`). Auto opt-in when tree present (KR5: zero change for non-opted-in users).
+
+| What runs | How | Authority |
+|-----------|-----|-----------|
+| Authoritative reviewer | Existing flow (this doc) | Authoritative — findings drive fixes |
+| `scripts/qc-panel.js` | In parallel with authoritative reviewer | Shadow only — no fix action; informs calibration |
+
+**Amendment 4 liveness (binding)**: every panel run MUST (a) write verdict artifact JSON under `docs/projects/<proj>/tree/panel/` AND (b) emit a calibration sample via `scripts/calibration.sh add-sample`. Either fails → `qc-panel.js` non-zero; silently-dead shadow fails the gate.
+
+**Baseline separation (M2 binding)**:
+
+- Internal `calibration.sh add-sample` uses `--baseline self-report` (panel vs node-report self-verdict). **Liveness-only** — not in graduation math.
+- After both authoritative reviewer and panel verdicts exist, dispatcher adds a **second**, **graduation-bearing** sample with `--baseline reviewer`:
+
+```sh
+scripts/calibration.sh add-sample \
+  --panel-verdict <panel_verdict> \
+  --authoritative-verdict <authoritative_reviewer_verdict> \
+  --baseline reviewer \
+  [--class <severity_class>] \
+  [--tokens <panel_token_estimate>]
+```
+
+`scripts/calibration.sh report` uses agreement, false-pass-on-critical, sample_count, graduation **only over `baseline==reviewer`** (missing field = reviewer for backward compat). `self_report_sample_count` printed separately.
+
+Report feeds Board P5→active (Amendment 6). No authority shift before graduation criteria met.
+
+### Finding-survival (refute pass) — SHADOW / non-gating until calibrated
+
+Q1–Q3 interrogate the **implementer**; nothing checks the panel's own `MISSED:` before a fix round. Project memories (`verify-reviewer-claims`, `delegate-selftest-false-green`): findings are claims, not orders. `qc-panel.js` 4th shape = **refute pass**: for each candidate miss, the **other** cross-family judge (not the raiser) tries to refute — wrong / already satisfied / out of scope. **Uncertainty AGAINST the finding** (`default-refuted-if-uncertain`): miss **survives only by explicitly defeating refutation**.
+
+🔴 **SHADOW only — non-gating until graduated.** Authoritative verdict **unchanged**: non-empty `MISSED:` still fails. Refute rides **alongside** as `refute_shadow:{refuted_misses[],survived_misses[]}` in panel JSON + calibration `--source` (`refute=refuted:N,survived:M,gating_misses:K`) — does **not** alter `verdict`. Suppressing a true critical via refute is worse than the bug; **calibration only**. Authoritative **only after** `scripts/calibration.sh` (`run-known-bad`) shows no false-suppress of criticals — same `GRAD_*` bar as the panel (min samples, min agreement, `false_pass_on_critical == 0`).
+
+## See Also
+
+| Skill | Boundary |
+|-------|----------|
+| `quality-pipeline` (completeness-gate) | Must pass before code review starts |
+| `quality-pipeline` (test-policy) | Must pass before completeness gate |
+| `quality-pipeline` | Unified entry point that orchestrates all three |
+
+codex
+The gate treats this as high-risk because the ships touch proxy abuse controls and credential storage. I’m establishing the exact develop range and test commands first; then I’ll separately verify each ship’s behavior, security boundaries, and test coverage.
+exec
+/usr/bin/zsh -lc "git status --short --branch && git branch --show-current && git log --oneline --decorate -20 && find docs/projects -maxdepth 3 -type d -name tree -print 2>/dev/null || true && sed -n '1,240p' package.json && rg --files | sed -n '1,240p'" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+## develop
+ M apps/web/src/App.tsx
+ M apps/web/src/TerminalHost.tsx
+ M apps/web/src/components/ConnectGate.tsx
+ M apps/web/src/components/FontTrialPanel.tsx
+ M apps/web/src/termFonts/catalog.ts
+ M apps/web/tests/fontTrial.test.ts
+ M packages/profiles/src/secrets.ts
+ M tests/e2e/golden-streams.test.ts
+?? apps/web/src/components/ProfileEditor.tsx
+?? apps/web/tests/profileEditor.test.ts
+?? docs/reviews/2026-07-21-queue-impl-codex.out
+?? docs/reviews/2026-07-21-queue-impl-minimax.out
+develop
+5dde9fa (HEAD -> develop) docs: INDEX mark full ship queue complete
+3c74210 merge: feat/profile-library + research-spikes docs
+6674797 (feat/profile-library-real) feat(profiles): strict validate, RW 6000 seed, secrets store + research spikes docs
+57c3d2c merge: feat/proxy-abuse-limits (landed on profile-library branch)
+17ecdf9 (feat/profile-library) feat(proxy): abuse limits — concurrent WS + upgrade/hello rates
+d354c05 (feat/proxy-abuse-limits) merge: feat/open-source-readiness
+4e95366 (feat/open-source-readiness) feat(oss): MIT LICENSE, secret-scan CI, HTTPS-WSS + GitHub docs
+b81ad3f merge: feat/terminal-fonts-f2
+e31c1c6 (feat/terminal-fonts-f2) feat(fonts): F2 trial A/B panel + size sliders + alignScore
+c7e48d9 merge: feat/ci-e2e-quality — e2e goldens + CI
+e2d9375 (feat/ci-e2e-quality) feat(ci): e2e golden streams + blocking GHA
+4596983 merge: feat/selfhost-proxy-trust — self-host + trust UI
+74d3b18 (feat/selfhost-proxy-trust) feat(selfhost): proxy trust UI + loopback deploy pin chain
+bf7fe46 docs(skill): hetero fold→re-review until ALL_CLEAR (ship pin)
+6275cca docs: record hetero loop rule + R3 all-clear note
+d44f857 docs(plan): selfhost-proxy-trust R3 ALL_CLEAR (3× APPROVE)
+9924b07 docs(plan): selfhost-proxy-trust R2 APPROVED (Codex+MiniMax)
+8b466a5 docs(plan): selfhost proxy trust + CF Tunnel; fold Codex MUST_FIX
+4abdb0f merge: feat/cjk-cell-width — CJK cell width + IP docs
+5e9fe2d (feat/cjk-cell-width) feat(terminal): charset-aware CJK cell width for Big5 MOTD
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test && npm run test:e2e",
+    "secret-scan": "bash scripts/secret-scan.sh",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  },
+  "license": "MIT"
+}
+tsconfig.base.json
+README.md
+package-lock.json
+scripts/deploy/install-proxy.sh
+scripts/deploy/oracle-cloud-init.yaml
+scripts/secret-scan.sh
+tests/e2e/golden-streams.test.ts
+packages/rw-pack/src/index.ts
+tests/e2e/mock-mud-server.ts
+packages/rw-pack/package.json
+tools/docs-viewer/serve.py
+tools/docs-viewer/index.html
+packages/protocol/src/telnet.ts
+packages/protocol/src/mccp.ts
+packages/protocol/src/index.ts
+tests/fixtures/streams/rw-banner-4000.big5.txt
+tests/fixtures/streams/rw-banner-4000.bin
+tests/fixtures/streams/synthetic-city-map.ansi.txt
+SECURITY.md
+tsconfig.json
+CONTRIBUTING.md
+packages/protocol/tests/telnet.test.ts
+packages/protocol/tsconfig.json
+packages/protocol/package.json
+deploy/Caddyfile.proxy.example
+deploy/RELEASE-CHECKLIST.md
+deploy/docker-compose.proxy.yml
+package.json
+LICENSE
+vitest.config.ts
+packages/profiles/src/secrets.ts
+packages/profiles/src/index.ts
+packages/profiles/src/widthMode.ts
+packages/codec-big5/src/index.ts
+packages/codec-big5/tests/decode.test.ts
+packages/codec-big5/tsconfig.json
+packages/codec-big5/package.json
+packages/profiles/tests/validate.test.ts
+packages/profiles/tests/export-sanitize.test.ts
+packages/profiles/tests/widthMode.test.ts
+packages/profiles/package.json
+docs/plans/2026-07-21-backlog-candidates.md
+packages/mapper/src/index.ts
+docs/plans/2026-07-21-mccp2-checklist.md
+docs/plans/2026-07-21-proxy-abuse-limits.md
+docs/plans/2026-07-21-roadmap-priority.md
+docs/plans/2026-07-21-rw-connect-protocols.md
+docs/plans/2026-07-21-ui-shell-ship.md
+docs/plans/2026-07-21-research-spikes.md
+docs/plans/2026-07-21-ci-e2e-quality.md
+docs/plans/README.md
+docs/plans/2026-07-21-selfhost-proxy-trust.md
+docs/plans/2026-07-21-echo-password-mask.md
+docs/plans/2026-07-21-open-source-readiness.md
+docs/plans/2026-07-21-mccp2-stream.md
+docs/plans/2026-07-21-ui-redesign.md
+docs/plans/2026-07-21-web-zmud-rw.md
+docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md
+docs/plans/2026-07-21-terminal-fonts-f2.md
+docs/plans/2026-07-21-i18n-locale.md
+docs/plans/2026-07-21-profile-library.md
+docs/BACKLOG.md
+docs/OPEN-SOURCE.md
+packages/terminal/src/width.ts
+packages/terminal/src/canvas2d.ts
+packages/terminal/src/index.ts
+packages/terminal/src/buffer.ts
+docs/architecture.md
+packages/mapper/tests/map.test.ts
+packages/mapper/package.json
+packages/terminal/tests/buffer.test.ts
+packages/script-engine/src/index.ts
+packages/terminal/tests/fixtures/rw-motd-cols.json
+packages/terminal/tests/map-vt.test.ts
+packages/terminal/tsconfig.json
+packages/terminal/package.json
+packages/script-engine/tests/engine.test.ts
+packages/script-engine/tsconfig.json
+packages/script-engine/package.json
+docs/research/zmud-mud-package-format.md
+docs/research/zmud-feature-matrix.md
+docs/research/rw-login-captcha-notes.md
+docs/research/client-matrix-mudlet-beip-web.md
+docs/research/THIRD-PARTY-SOURCES.md
+docs/research/rw-ansi-and-map-controls.md
+docs/research/rw-probe-2026-07-21.md
+docs/knowledge/hetero-definition.md
+packages/vt/src/sanitize.ts
+packages/vt/src/sgr.ts
+packages/vt/src/index.ts
+docs/deploy/SELF-HOSTED-PROXY.md
+docs/deploy/HOME-CLOUDFLARE-TUNNEL.md
+docs/deploy/HTTPS-WSS.md
+docs/deploy/README.md
+docs/deploy/GITHUB.md
+docs/deploy/ORACLE-ALWAYS-FREE.md
+docs/deploy/docker-compose.example.yml
+packages/vt/tests/sgr-sanitize.test.ts
+packages/vt/tsconfig.json
+packages/vt/package.json
+docs/reviews/2026-07-21-i18n-hetero.md
+docs/reviews/2026-07-21-cjk-width-codex.out
+docs/reviews/2026-07-21-hetero-r4-codex-mccp.err
+docs/reviews/2026-07-21-hetero-loop-final.md
+docs/reviews/2026-07-21-full-land-qc.md
+docs/reviews/2026-07-21-hetero-r3-minimax.out
+docs/reviews/final-ship-pack.md
+docs/reviews/round1-qwen.out
+docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r3.out
+docs/reviews/round2-glm.json.raw
+docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out
+docs/reviews/2026-07-21-cjk-width-minimax-r2.out
+docs/reviews/2026-07-21-hetero-r3-codex.out
+docs/reviews/2026-07-21-hetero-r4-codex-mccp.out
+docs/reviews/round2-verify.prompt.txt
+docs/reviews/phase-1a-diff.patch
+docs/reviews/2026-07-21-mccp2-impl-codex.err
+docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r2.out
+docs/reviews/2026-07-21-hetero-multi-llm.md
+docs/reviews/2026-07-21-hetero-claude.err
+docs/reviews/fix-double-expand.md
+docs/reviews/2026-07-21-w05-echo-hetero.md
+docs/reviews/full-minimax.json.raw
+docs/reviews/2026-07-21-mccp2-impl-codex.out
+docs/reviews/2026-07-21-cjk-width-glm.out
+docs/reviews/2026-07-21-mccp2-impl-minimax.err
+docs/reviews/round1-minimax.json.raw
+docs/reviews/2026-07-21-plan-review-r2-brief.md
+docs/reviews/2026-07-21-cjk-width-impl-minimax.out
+docs/reviews/2026-07-21-selfhost-proxy-trust-glm.out
+docs/reviews/final-minimax.json.raw
+docs/reviews/2026-07-21-cjk-width-minimax.out
+docs/reviews/final-ship-brief.md
+docs/reviews/2026-07-21-hetero-codex.err
+docs/reviews/2026-07-21-w05-echo-codex.out
+.env.example
+docs/projects/2026-07-21-cjk-cell-width/README.md
+docs/reviews/round1-glm.json.raw
+docs/reviews/2026-07-21-hetero-grok.err
+docs/reviews/2026-07-21-hetero-codex.out
+docs/reviews/2026-07-21-phase1a-code-review.md
+docs/projects/2026-07-21-proxy-abuse-limits/README.md
+apps/proxy/tsconfig.json
+apps/proxy/package.json
+docs/design/ui-spec.md
+docs/design/terminal-fonts.md
+docs/reviews/2026-07-21-plan-review-round1.md
+docs/reviews/2026-07-21-hetero-minimax.err
+docs/reviews/phase1a-ship-brief-r4.md
+docs/reviews/2026-07-21-selfhost-impl-codex.out
+docs/reviews/2026-07-21-cjk-width-impl-codex.out
+docs/reviews/2026-07-21-cjk-width-codex-r2.out
+docs/reviews/2026-07-21-w05-echo-minimax.out
+docs/reviews/2026-07-21-mccp2-impl-minimax.out
+docs/reviews/2026-07-21-hetero-grok.out
+docs/reviews/phase1a-r4-qwen.out
+docs/reviews/phase1a-r3-qwen.out
+docs/reviews/2026-07-21-cjk-width-hetero.md
+docs/reviews/2026-07-21-hetero-r3-minimax.err
+docs/reviews/2026-07-21-ship-qc-all-plans.md
+docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r2.out
+docs/reviews/2026-07-21-hetero-r3-pack.txt
+docs/reviews/phase1a-r4-glm.json.raw
+docs/reviews/2026-07-21-queue-impl-minimax.out
+docs/reviews/2026-07-21-hetero-pack.txt
+docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out
+docs/projects/2026-07-21-research-spikes/README.md
+docs/reviews/phase1a-qwen.prompt.txt
+docs/reviews/phase1a-qwen.out
+docs/reviews/2026-07-21-selfhost-impl-minimax.out
+docs/reviews/phase1a-postfix-pack-r4.md
+docs/reviews/2026-07-21-queue-impl-codex.out
+docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out
+docs/reviews/2026-07-21-hetero-r3-glm.out
+docs/reviews/final-glm.json.raw
+docs/reviews/2026-07-21-plan-review-round2.md
+docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md
+docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r3.out
+docs/reviews/2026-07-21-selfhost-proxy-trust-minimax.out
+docs/reviews/2026-07-21-phase1a-loop-convergence.md
+docs/reviews/2026-07-21-plan-review-brief.md
+docs/reviews/2026-07-21-w05-echo-brief.txt
+docs/reviews/round1-qwen.md
+docs/reviews/full-land-pack.md
+docs/reviews/2026-07-21-cjk-width-glm-r2.out
+docs/reviews/phase1a-r4-minimax.json.raw
+docs/reviews/round2-qwen.out
+docs/reviews/2026-07-21-hetero-claude.out
+apps/proxy/src/limits.ts
+apps/proxy/src/bridge.ts
+docs/reviews/2026-07-21-hetero-glm.out
+docs/reviews/phase1a-r3-glm.json.raw
+docs/reviews/full-land-brief.md
+docs/reviews/2026-07-21-hetero-r5-codex-mccp.err
+docs/reviews/2026-07-21-i18n-fonts-loop.md
+apps/proxy/src/cli.ts
+docs/reviews/full-glm.json.raw
+docs/reviews/2026-07-21-hetero-brief.md
+docs/reviews/final-qwen.out
+docs/reviews/round1-qwen.prompt.txt
+docs/reviews/2026-07-21-w05-echo-impl-codex.out
+docs/reviews/phase1a-minimax.json.raw
+apps/proxy/src/server.ts
+docs/reviews/2026-07-21-hetero-r3-glm.err
+apps/web/tsconfig.json
+apps/web/package.json
+apps/web/vite.config.ts
+apps/proxy/src/policy.ts
+docs/reviews/2026-07-21-selfhost-proxy-trust-codex.out
+docs/reviews/phase1a-ship-brief.md
+docs/reviews/2026-07-21-cjk-width-brief.txt
+docs/reviews/full-r2-minimax.json.raw
+docs/reviews/2026-07-21-hetero-r5-codex-mccp.out
+apps/web/index.html
+apps/web/src/vite-env.d.ts
+apps/web/src/App.tsx
+docs/security/hosted-proxy-threat-model.md
+docs/projects/2026-07-21-profile-library/README.md
+docs/projects/INDEX.md
+apps/web/src/index.css
+docs/reviews/2026-07-21-w05-echo-impl-minimax.out
+docs/reviews/round2-minimax.json.raw
+docs/reviews/full-qwen.out
+docs/reviews/2026-07-21-selfhost-impl-minimax-r2.out
+docs/reviews/2026-07-21-roadmap-plans-hetero.md
+docs/reviews/2026-07-21-hetero-r3-codex.err
+docs/reviews/full-r2-qwen.out
+docs/reviews/phase1a-r3-minimax.json.raw
+docs/reviews/phase1a-postfix-pack.md
+docs/reviews/phase-1a-review-brief.md
+docs/reviews/full-r2-glm.json.raw
+docs/reviews/2026-07-21-hetero-minimax.out
+docs/reviews/2026-07-21-plan-pack-r6.md
+docs/reviews/phase1a-glm.json.raw
+docs/reviews/2026-07-21-hetero-glm.err
+apps/web/src/main.tsx
+apps/web/src/TerminalHost.tsx
+docs/projects/2026-07-21-open-source-readiness/README.md
+apps/web/tests/trustMode.test.ts
+apps/web/tests/i18n.test.ts
+
+2026-07-21T16:17:28.036236Z ERROR codex_core::tools::router: error=Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork.
+exec
+/usr/bin/zsh -lc 'for f in docs/plans/2026-07-21-ci-e2e-quality.md docs/plans/2026-07-21-terminal-fonts-f2.md docs/plans/2026-07-21-open-source-readiness.md docs/plans/2026-07-21-proxy-abuse-limits.md docs/plans/2026-07-21-profile-library.md; do echo "FILE $f"; sed -n '"'1,320p' \""'$f"; done' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+FILE docs/plans/2026-07-21-ci-e2e-quality.md
+# Plan — CI e2e + golden terminal streams
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **2** on roadmap  
+> **Backlog**: #12  
+> **Project**: `docs/projects/2026-07-21-ci-e2e-quality/`  
+
+## Goal
+
+Mock TCP fixtures + golden streams (**including MCCP2**) + **mandatory** `npm run test:e2e` for qc-gate.
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| Q1 | Mock telnet server 播 fixture | L | 127.0.0.1 可連 |
+| Q2 | Goldens: (a) uncompressed IAC→**protocol data events** (b) **MCCP2 WILL→DO→SB SE→zlib multi/same-chunk→decompressed Big5/VT events** | L | 兩套綠；非 pixel snapshot |
+| Q3 | `npm run test:e2e` + GHA **blocking**；qc-gate 必跑 local e2e | S | **禁止** skip |
+
+## Non-goals
+
+- Live RW in CI  
+- Full browser pixel e2e (unless separately scoped)  
+
+## Review log
+
+- R0 CEO · R2 multi-LLM fold (Grok/Codex/GLM/MiniMax)  
+FILE docs/plans/2026-07-21-terminal-fonts-f2.md
+# Plan — Terminal fonts F2+ (trial UX)
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **3** on roadmap  
+> **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  
+> **Branch**: `feat/terminal-fonts-f2`  
+
+## Goal
+
+在 baseline（catalog + TC chain + drawer preset）上完成 **試掘 UX**：全列、A/B、alignScore、系統字探測、自訂 primary、on-demand webfont 策略。
+
+## Already done (baseline)
+
+- `termFonts/catalog.ts` STATIC_CATALOG, TC/SC chain, resolveFontStack  
+- Drawer preset + useDefaultTcChain  
+- `Canvas2DRenderer.setTypography` / measureAlignScore  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| F2a | Trial panel UI（modal/sheet）+ fixture sample | L | 開試掘不重連 MUD |
+| F2b | A/B pin + alignScore display per face | S | 分數 ≈2.0 標綠 |
+| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+| F2d | Custom primary input + extras stack editor | S | 自填 family 進 stack |
+| F3 | Optional self-host Sarasa Term TC subset doc/path | S | 無字時提示安裝/載入 |
+| F4 | Size/width/line sliders wired to setTypography | S | 持久化 localStorage |
+
+## Non-goals
+
+- Bundle 全家族 CJK fonts in git  
+- Force overwrite user preset on locale switch  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| CDN 大 | on-demand only |
+| measure 不準 | 對照 fixture 人工 checklist |
+
+## Review log
+
+- R0 authored CEO  
+FILE docs/plans/2026-07-21-open-source-readiness.md
+# Plan — Open-source readiness
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **4** on roadmap  
+> **Backlog**: #13, #14, #8  
+> **Project**: `docs/projects/2026-07-21-open-source-readiness/`  
+
+## Goal
+
+MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| O0 | Root MIT `LICENSE` ↔ package metadata | S | consistent |
+| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+| O2 | `docs/deploy/HTTPS-WSS.md` Origin/token/TLS/**MCCP caps** align `policy.ts` | S | matches code |
+| O3 | `docs/deploy/GITHUB.md` branch protection | S | checklist |
+
+## Non-goals
+
+- GitHub org API automation without token  
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+FILE docs/plans/2026-07-21-proxy-abuse-limits.md
+# Plan — Proxy abuse limits (hosted-ready)
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **5** on roadmap  
+> **Backlog**: #11  
+> **Project**: `docs/projects/2026-07-21-proxy-abuse-limits/`  
+
+## Goal
+
+WS/auth 層精確限流。Origin allowlist 屬既有 `policy.ts`。MCCP inflate caps 屬 mccp2-stream。
+
+## Defaults
+
+| Limit | hosted | localhost-dev |
+|-------|--------|---------------|
+| Concurrent WS / IP | 8 | 64 |
+| Concurrent WS / token | 4 | 32 |
+| Upgrades / IP / min | 30 | 120 |
+| Hellos / conn / min | 20 | 60 |
+| Inbound bytes / conn / min | 2 MiB | 16 MiB |
+| Outbound bytes / conn / min | 16 MiB | 64 MiB |
+| Hello timeout | 10s | 30s |
+
+IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| A1 | Enforce table at upgrade + hello | unit tests |
+| A2 | Env + threat model section | md |
+| A3 | Optional metadata metrics | off default |
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+FILE docs/plans/2026-07-21-profile-library.md
+# Plan — Connection profile library
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **6** on roadmap  
+> **Backlog**: #1  
+> **Project**: `docs/projects/2026-07-21-profile-library/`  
+
+## Goal
+
+Schema + UI + RW seeds + safe optional auto-login.
+
+## Security
+
+- Secrets in `assmud.profileSecrets` separate from exportable profiles  
+- Export **omits** secrets by default  
+- Never log secrets; opt-in + plaintext warning  
+- Custom host still subject to proxy allowlist  
+
+## Schema
+
+- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+- port 1–65535  
+- seed RW 4000/5000/6000  
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| P1 | Strict import validation | reject bad JSON |
+| P2 | CRUD UI | offline edit |
+| P3 | Seeds + docs | 3 RW ports |
+| P4 | Secrets store + export exclude | no leak via export |
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+

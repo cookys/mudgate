@@ -23,6 +23,8 @@ type Props = {
   /** Full CSS font-family stack (primary + TC fallbacks) */
   terminalFontStack?: string;
   fontSizePx?: number;
+  cellWidthScale?: number;
+  lineHeightScale?: number;
   /** Effective cell width mode (resolved from profile charset). */
   widthMode?: WidthMode;
 };
@@ -66,6 +68,8 @@ export function TerminalHost({
   onServerLine,
   terminalFontStack,
   fontSizePx = 15,
+  cellWidthScale = 1,
+  lineHeightScale = 1.2,
   widthMode = "western",
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -137,20 +141,24 @@ export function TerminalHost({
       rendererRef.current.setTypography({
         fontFamily: terminalFontStack,
         fontSizePx,
+        cellWidthScale,
+        lineHeightScale,
       });
     }
     redraw();
     return () => rendererRef.current.dispose();
-  }, [redraw, terminalFontStack, fontSizePx]);
+  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
 
   useEffect(() => {
     if (!terminalFontStack) return;
     rendererRef.current.setTypography({
       fontFamily: terminalFontStack,
       fontSizePx,
+      cellWidthScale,
+      lineHeightScale,
     });
     redraw();
-  }, [terminalFontStack, fontSizePx, redraw]);
+  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
 
   // Charset / width mode change: clear buffer so cells never mix modes
   useEffect(() => {

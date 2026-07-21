@@ -1,5 +1,7 @@
 /** Terminal font catalog — dual-width / TC-aware (see docs/design/terminal-fonts.md) */
 
+import { probeCjkGlyph } from "./trial.js";
+
 export type FontSource = "bundled" | "system" | "webfont" | "custom";
 
 export type CatalogEntry = {
@@ -171,25 +173,39 @@ export function saveTermFont(cfg: TermFontConfig): void {
   }
 }
 
-/** Resolve CSS font-family stack: primary → extras → TC chain → monospace */
+/**
+ * Resolve CSS font-family stack: primary → extras → TC chain → monospace.
+ * When `probe` is true (browser), if primary fails CJK glyph probe and
+ * chain was disabled, force TC chain so missing CJK still falls back.
+ */
 export function resolveFontStack(
   cfg: TermFontConfig,
   localeHint: "zh-TW" | "zh-CN" | "en" = "zh-TW",
+  opts?: { probe?: boolean },
 ): string {
-  const chain =
+  let chain: string[] =
     cfg.useDefaultTcChain === false
       ? []
       : localeHint === "zh-CN"
         ? [...SC_FALLBACK_CHAIN]
         : [...TC_FALLBACK_CHAIN];
-  const parts = [cfg.primary, ...cfg.extras, ...chain, "ui-monospace", "monospace"]
+
+  const primary = cfg.primary;
+  if (opts?.probe && typeof document !== "undefined" && primary) {
+    const p = probeCjkGlyph(primary.includes(" ") ? `"${primary}"` : primary);
+    if (!p.ok && chain.length === 0) {
+      chain = [
+        ...(localeHint === "zh-CN" ? SC_FALLBACK_CHAIN : TC_FALLBACK_CHAIN),
+      ];
+    }
+  }
+
+  const parts = [primary, ...cfg.extras, ...chain, "ui-monospace", "monospace"]
     .map((s) => s.trim())
     .filter(Boolean);
-  // quote multi-word families
   const quoted = parts.map((f) =>
     f.includes(" ") && !f.startsWith('"') ? `"${f}"` : f,
   );
-  // dedupe preserve order
   const seen = new Set<string>();
   const out: string[] = [];
   for (const f of quoted) {
@@ -199,6 +215,14 @@ export function resolveFontStack(
     out.push(f);
   }
   return out.join(", ");
+}
+
+/** Probe-driven stack used by UI (browser only). */
+export function resolveFontStackProbed(
+  cfg: TermFontConfig,
+  localeHint: "zh-TW" | "zh-CN" | "en" = "zh-TW",
+): string {
+  return resolveFontStack(cfg, localeHint, { probe: true });
 }
 
 export function applyPreset(id: string): TermFontConfig {

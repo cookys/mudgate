@@ -3,10 +3,10 @@ import { Canvas2DRenderer } from "@assmud/terminal";
 import {
   STATIC_CATALOG,
   applyPreset,
-  resolveFontStack,
+  resolveFontStackProbed,
   type TermFontConfig,
 } from "../termFonts/catalog";
-import { isAlignScoreGood, TRIAL_FIXTURE } from "../termFonts/trial";
+import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
 
 type Props = {
   open: boolean;
@@ -44,24 +44,33 @@ export function FontTrialPanel({
       if (!canvas) return 0;
       const r = new Canvas2DRenderer();
       r.mount(canvas);
+      const stack = resolveFontStackProbed(cfg, locale);
       r.setTypography({
-        fontFamily: resolveFontStack(cfg, locale),
+        fontFamily: stack,
         fontSizePx: cfg.fontSizePx,
         cellWidthScale: cfg.cellWidthScale,
         lineHeightScale: cfg.lineHeightScale,
       });
       const score = r.measureAlignScore();
+      const probe = probeCjkGlyph(
+        cfg.primary.includes(" ") ? `"${cfg.primary}"` : cfg.primary,
+      );
       // draw fixture sample line
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.fillStyle = "#0a0b0e";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#e8eaed";
-        ctx.font = `500 ${cfg.fontSizePx}px ${resolveFontStack(cfg, locale)}`;
+        ctx.font = `500 ${cfg.fontSizePx}px ${stack}`;
         ctx.textBaseline = "top";
         TRIAL_FIXTURE.split("\n").forEach((line, i) => {
           ctx.fillText(line, 4, 4 + i * (cfg.fontSizePx + 4));
         });
+        if (!probe.ok) {
+          ctx.fillStyle = "#f59e0b";
+          ctx.font = `500 10px monospace`;
+          ctx.fillText("CJK glyph probe: miss → TC chain", 4, 78);
+        }
       }
       r.dispose();
       return score;
