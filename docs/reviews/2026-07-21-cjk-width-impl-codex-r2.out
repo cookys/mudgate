@@ -1,0 +1,1584 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8455-4948-7950-b0d8-78d9167aaefe
+--------
+user
+Re-review CJK width IMPL after fold: width.ts now EAW F/W + Ambiguous ranges in cjk (not all non-ASCII); committed packages/terminal/tests/fixtures/rw-motd-cols.json golden. VERDICT/MUST_FIX only.
+codex
+I’m using the quality-pipeline review workflow for this re-review, scoped to the folded CJK-width implementation and its committed golden. I’ll return only `VERDICT` and `MUST_FIX`.
+exec
+/usr/bin/zsh -lc 'cat /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc 'cat .claude/quality-gate-config.md 2>/dev/null || true
+cat .claude/dispatch-config.md 2>/dev/null || true
+cat /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md
+git status --short
+git log -5 --oneline --decorate' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Quality Gate — Project Config (generated by autopilot:onboard; edit freely)
+
+## Test Command
+- not detected (repo is pre-scaffold; update after package manager / test runner lands)
+
+## Scan Command
+- Completeness scan (no stubs/TODO/mock): autopilot `scripts/completeness-scan.sh` over `apps/` `packages/` `src/` when present
+
+## Code Review
+- autopilot:reviewer
+
+## Security-critical surfaces
+Always full review (never fast-path) when a change touches:
+
+| Surface | Why |
+|---------|-----|
+| WebSocket / TCP proxy bridge | trust boundary between browser and MUD; injection / SSRF / open-relay risk |
+| Credential & session storage | player passwords / tokens must not leak to logs, localStorage XSS, or analytics |
+| Terminal HTML/ANSI render | MUD output is untrusted; XSS via escape sequences or raw HTML |
+| User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
+| CSP / CORS / origin checks | browser client security posture |
+| Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
+
+# Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
+# Dispatch — Project Config (generated by autopilot:onboard; edit freely)
+
+# Superpowers is not installed. Edit this file to add superpowers preference chains.
+## Parallel Dispatch
+- native
+
+## Code Review
+- autopilot:reviewer
+
+## Debugging
+- autopilot:debug
+
+## Testing
+- autopilot:test-strategy
+
+## Profiling
+- autopilot:profiling
+
+## Team
+- autopilot:team
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+**Re-review scope:** After each fix round, re-review the **entire diff**, not just the fix. Fixes can introduce new issues.
+
+**Re-review checkpoint (dispatcher-only)**: Before round 1, `scripts/diff-since-last-round.sh mark` snapshots HEAD; between rounds `scripts/diff-since-last-round.sh stat` → JSON `{changed_files, insertions, deletions, doc_only}`. If `doc_only=true` and `changed_files` trivially small, dispatcher MAY short-circuit. Decision + data stay **in the dispatcher only** — never pass delta to the reviewer (leaks round-cycle meta-signal per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md)). Loop closed → `scripts/diff-since-last-round.sh clear`.
+
+**Re-review dispatch is blind** — round 2+ re-dispatch of `autopilot:reviewer` (or chain pick) MUST strip prior-round findings. Pre-flight: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); `scripts/check-redispatch-prompt.sh <prompt-file>` — exit 1 ⇒ strip and re-check. Prior finding stays in dispatcher memory; fixer is NOT blind (gets full finding). Skipping the linter self-bypasses the gate. Holds at any nesting depth — neither reviewer nor fixer dispatches the next round's review ([`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § Nested dispatch).
+
+## Suggestion / Minor Processing
+
+**Suggestion/Minor ≠ "ignore."** Analyze each before merge:
+
+```
+For each Suggestion/Minor finding:
+    ↓
+Dispatch Explore agent to analyze impact and effort
+    ↓
+Classify into one of four outcomes:
+├── S-size fix (< 5 min) → fix now, treat as Major
+├── False positive / by-design → close with written rationale
+├── Independent task needing more analysis → create next task with context
+└── Has clear trigger condition → add to docs/BACKLOG.md with trigger
+```
+
+### Example Processing Table
+
+| # | Issue | Severity | Analysis | Size | Disposition |
+|---|-------|----------|----------|------|-------------|
+| 1 | Null deref in error path | Critical | Crash when DB returns empty | S | Fix now + re-review |
+| 2 | Missing mutex on shared map | Major | Race condition under load | S | Fix now + re-review |
+| 3 | Could use string_view instead of string copy | Suggestion | 2% fewer allocations in hot path | S | Fix now (upgrade to Major) |
+| 4 | Function name `doIt()` unclear | Minor | Rename to `processMatchResult()` | S | Fix now (upgrade to Major) |
+| 5 | Consider caching DB query result | Suggestion | Would help at 10K+ users, not current scale | M | Backlog (trigger: when optimizing for 10K+) |
+| 6 | "Magic number 42" | Minor | Actually `MAX_TILES` constant, used consistently | - | Close (by-design) |
+
+### Backlog Entry Format
+
+Every backlog entry **must** include a trigger:
+
+```markdown
+- [ ] [Suggestion] Cache rank table query results
+  - Trigger: when optimizing for 10K+ concurrent users
+  - Context: quality-pipeline (code-review) found repeated DB queries in the target module
+```
+
+No trigger → rejected.
+
+## Review Timing
+
+| Size | When | Baseline |
+|------|------|----------|
+| S | Before commit | Task intent |
+| M | Before finishing branch | Original objective |
+| L (Phase) | After each phase | Phase plan |
+| L (Final) | Before finishing branch | Full project plan |
+
+## Prohibited Excuses
+
+All sizes require review. Major fixed now. Fix requires re-review. No severity without analysis. No backlog without trigger.
+> Full list: [_base/prohibited-behaviors.md](../_base/prohibited-behaviors.md)
+
+## Shadow QC panel (task-tree engine)
+
+Condition: `docs/projects/<proj>/tree/` exists AND target is a verdict-bearing node (non-null `verdict`). Auto opt-in when tree present (KR5: zero change for non-opted-in users).
+
+| What runs | How | Authority |
+|-----------|-----|-----------|
+| Authoritative reviewer | Existing flow (this doc) | Authoritative — findings drive fixes |
+| `scripts/qc-panel.js` | In parallel with authoritative reviewer | Shadow only — no fix action; informs calibration |
+
+**Amendment 4 liveness (binding)**: every panel run MUST (a) write verdict artifact JSON under `docs/projects/<proj>/tree/panel/` AND (b) emit a calibration sample via `scripts/calibration.sh add-sample`. Either fails → `qc-panel.js` non-zero; silently-dead shadow fails the gate.
+
+**Baseline separation (M2 binding)**:
+
+- Internal `calibration.sh add-sample` uses `--baseline self-report` (panel vs node-report self-verdict). **Liveness-only** — not in graduation math.
+- After both authoritative reviewer and panel verdicts exist, dispatcher adds a **second**, **graduation-bearing** sample with `--baseline reviewer`:
+
+```sh
+scripts/calibration.sh add-sample \
+  --panel-verdict <panel_verdict> \
+  --authoritative-verdict <authoritative_reviewer_verdict> \
+  --baseline reviewer \
+  [--class <severity_class>] \
+  [--tokens <panel_token_estimate>]
+```
+
+`scripts/calibration.sh report` uses agreement, false-pass-on-critical, sample_count, graduation **only over `baseline==reviewer`** (missing field = reviewer for backward compat). `self_report_sample_count` printed separately.
+
+Report feeds Board P5→active (Amendment 6). No authority shift before graduation criteria met.
+
+### Finding-survival (refute pass) — SHADOW / non-gating until calibrated
+
+Q1–Q3 interrogate the **implementer**; nothing checks the panel's own `MISSED:` before a fix round. Project memories (`verify-reviewer-claims`, `delegate-selftest-false-green`): findings are claims, not orders. `qc-panel.js` 4th shape = **refute pass**: for each candidate miss, the **other** cross-family judge (not the raiser) tries to refute — wrong / already satisfied / out of scope. **Uncertainty AGAINST the finding** (`default-refuted-if-uncertain`): miss **survives only by explicitly defeating refutation**.
+
+🔴 **SHADOW only — non-gating until graduated.** Authoritative verdict **unchanged**: non-empty `MISSED:` still fails. Refute rides **alongside** as `refute_shadow:{refuted_misses[],survived_misses[]}` in panel JSON + calibration `--source` (`refute=refuted:N,survived:M,gating_misses:K`) — does **not** alter `verdict`. Suppressing a true critical via refute is worse than the bug; **calibration only**. Authoritative **only after** `scripts/calibration.sh` (`run-known-bad`) shows no false-suppress of criticals — same `GRAD_*` bar as the panel (min samples, min agreement, `false_pass_on_critical == 0`).
+
+## See Also
+
+| Skill | Boundary |
+|-------|----------|
+| `quality-pipeline` (completeness-gate) | Must pass before code review starts |
+| `quality-pipeline` (test-policy) | Must pass before completeness gate |
+| `quality-pipeline` | Unified entry point that orchestrates all three |
+ M apps/web/src/App.tsx
+ M apps/web/src/TerminalHost.tsx
+ M docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md
+ M docs/projects/INDEX.md
+ M docs/research/zmud-feature-matrix.md
+ M packages/profiles/src/index.ts
+ M packages/terminal/src/buffer.ts
+ M packages/terminal/src/index.ts
+ M packages/terminal/tests/buffer.test.ts
+?? docs/deploy/SELF-HOSTED-PROXY.md
+?? docs/projects/2026-07-21-cjk-cell-width/
+?? docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out
+?? docs/reviews/2026-07-21-cjk-width-impl-codex.out
+?? docs/reviews/2026-07-21-cjk-width-impl-minimax.out
+?? packages/profiles/src/widthMode.ts
+?? packages/profiles/tests/
+?? packages/terminal/src/width.ts
+?? packages/terminal/tests/fixtures/
+0cc13de (HEAD -> feat/cjk-cell-width, develop) docs(plan): CJK cell width + taiwanmud list + IP multi-login survey
+dcd66a7 merge: feat/echo-password-mask — W05 ECHO password mask
+23d898c (feat/echo-password-mask) feat(w05): Telnet ECHO transient password mask
+7e0130c docs: mark mccp2-stream project SHIP on INDEX
+c003b93 merge: feat/mccp2-stream — MCCP2 DO + stream inflate
+
+exec
+/usr/bin/zsh -lc 'git diff -- packages/terminal/src/width.ts packages/terminal/src/buffer.ts packages/terminal/src/index.ts packages/terminal/tests/buffer.test.ts packages/terminal/tests/fixtures/rw-motd-cols.json packages/profiles/src/widthMode.ts packages/profiles/src/index.ts packages/profiles/tests apps/web/src/App.tsx apps/web/src/TerminalHost.tsx
+git diff --no-index /dev/null packages/terminal/src/width.ts || true
+git diff --no-index /dev/null packages/terminal/tests/fixtures/rw-motd-cols.json || true
+find packages/profiles/tests packages/terminal/tests/fixtures -maxdepth 2 -type f -print' in /home/cookys/projects/assmud
+ succeeded in 0ms:
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index a9c7191..f9d5361 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -7,6 +7,7 @@ import {
+   type MudProfile,
+   exportProfilesJson,
+   importProfilesJson,
++  resolveWidthMode,
+ } from "@assmud/profiles";
+ import { ScriptEngine } from "@assmud/script-engine";
+ import { RW_STARTER_PACK } from "@assmud/rw-pack";
+@@ -120,6 +121,14 @@ export function App() {
+   const profile =
+     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
+     profiles[0]!;
++  const cellWidthMode = useMemo(
++    () =>
++      resolveWidthMode({
++        charset: profile?.charset,
++        widthMode: profile?.widthMode,
++      }),
++    [profile?.charset, profile?.widthMode],
++  );
+ 
+   const anyConnected = tabs.some((t) => t.connected);
+   const closeTarget = closeTargetId
+@@ -490,6 +499,7 @@ export function App() {
+                   onEchoMask={handleEchoMask}
+                   terminalFontStack={fontStack}
+                   fontSizePx={termFont.fontSizePx}
++                  widthMode={cellWidthMode}
+                 />
+               ) : (
+                 <div
+diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+index b2bba7a..f3f3287 100644
+--- a/apps/web/src/TerminalHost.tsx
++++ b/apps/web/src/TerminalHost.tsx
+@@ -3,6 +3,7 @@ import {
+   ScreenBuffer,
+   Canvas2DRenderer,
+   type SelectionRange,
++  type WidthMode,
+ } from "@assmud/terminal";
+ import { Big5StreamDecoder } from "@assmud/codec-big5";
+ import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+@@ -22,6 +23,8 @@ type Props = {
+   /** Full CSS font-family stack (primary + TC fallbacks) */
+   terminalFontStack?: string;
+   fontSizePx?: number;
++  /** Effective cell width mode (resolved from profile charset). */
++  widthMode?: WidthMode;
+ };
+ 
+ type CopyMenuMode = "selection" | "screen";
+@@ -63,12 +66,15 @@ export function TerminalHost({
+   onServerLine,
+   terminalFontStack,
+   fontSizePx = 15,
++  widthMode = "western",
+ }: Props) {
+   const canvasRef = useRef<HTMLCanvasElement>(null);
+   const wrapRef = useRef<HTMLDivElement>(null);
+-  const bufRef = useRef(new ScreenBuffer(80, 28));
++  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+   const rendererRef = useRef(new Canvas2DRenderer());
+   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
++  const widthModeRef = useRef(widthMode);
++  widthModeRef.current = widthMode;
+   const lineAcc = useRef("");
+   const socketRef = useRef<MudSocket | null>(null);
+   const selecting = useRef(false);
+@@ -146,9 +152,20 @@ export function TerminalHost({
+     redraw();
+   }, [terminalFontStack, fontSizePx, redraw]);
+ 
++  // Charset / width mode change: clear buffer so cells never mix modes
++  useEffect(() => {
++    bufRef.current.setWidthMode(widthMode);
++    redraw();
++  }, [widthMode, redraw]);
++
+   useEffect(() => {
+     if (!wsUrl) return;
+ 
++    // Fresh session buffer with correct width mode
++    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
++    decoderRef.current.reset();
++    lineAcc.current = "";
++
+     const sock = new MudSocket(wsUrl, () => helloRef.current);
+     socketRef.current = sock;
+ 
+diff --git a/packages/profiles/src/index.ts b/packages/profiles/src/index.ts
+index 1531370..cb77b13 100644
+--- a/packages/profiles/src/index.ts
++++ b/packages/profiles/src/index.ts
+@@ -1,11 +1,20 @@
+ /** Connection profiles (Phase 4) — no secrets required; token optional. */
+ 
++export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
++export {
++  normalizeCharset,
++  resolveWidthMode,
++} from "./widthMode.js";
++import type { WidthMode } from "./widthMode.js";
++
+ export type MudProfile = {
+   id: string;
+   name: string;
+   host: string;
+   port: number;
+   charset: "big5hkscs" | "big5" | "utf8" | "gbk";
++  /** Optional cell-width override; omit to derive from charset. */
++  widthMode?: WidthMode;
+   tlsToMud?: boolean;
+   notes?: string;
+ };
+diff --git a/packages/terminal/src/buffer.ts b/packages/terminal/src/buffer.ts
+index 7c56a2b..0c788a7 100644
+--- a/packages/terminal/src/buffer.ts
++++ b/packages/terminal/src/buffer.ts
+@@ -4,12 +4,15 @@ import {
+   sgrDelta,
+   tokenizeAnsi,
+ } from "@assmud/vt";
++import { isWide, type WidthMode } from "./width.js";
+ 
+ export type Cell = { ch: string; attrs: Attrs };
++export type { WidthMode };
+ 
+ /**
+  * Full VT screen buffer for map_d-class redraws (Phase 1b+).
+  * Supports CUP, ED/EL, DECSTBM, save/restore cursor — not SGR-only.
++ * Cell width is charset-aware via widthMode (cjk | western).
+  */
+ export class ScreenBuffer {
+   cols: number;
+@@ -26,14 +29,31 @@ export class ScreenBuffer {
+   /** session log (plain text lines) */
+   sessionLog: string[] = [];
+   maxSessionLog = 20_000;
++  /** Effective width mode — never "auto". Default western (safe for utf8). */
++  widthMode: WidthMode = "western";
+ 
+-  constructor(cols = 80, rows = 24) {
++  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+     this.cols = cols;
+     this.rows = rows;
++    this.widthMode = widthMode;
+     this.scrollBottom = rows - 1;
+     this.cells = this.blank();
+   }
+ 
++  /**
++   * Change width mode. Clears the screen so cells never mix two width semantics.
++   */
++  setWidthMode(mode: WidthMode): void {
++    if (this.widthMode === mode) return;
++    this.widthMode = mode;
++    this.cells = this.blank();
++    this.cursor = { r: 0, c: 0 };
++    this.savedCursor = null;
++    this.attrs = defaultAttrs();
++    this.scrollTop = 0;
++    this.scrollBottom = this.rows - 1;
++  }
++
+   private blankRow(): Cell[] {
+     return Array.from({ length: this.cols }, () => ({
+       ch: " ",
+@@ -192,12 +212,12 @@ export class ScreenBuffer {
+       if (this.cursor.c >= this.cols) {
+         this.lineFeed();
+       }
+-      // Fullwidth: occupy two cells when codepoint is wide (rough CJK)
+-      const wide = isWide(ch);
++      // Fullwidth: two cells when isWide under current widthMode
++      const wide = isWide(ch, this.widthMode);
+       this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
+       this.cursor.c += 1;
+       if (wide && this.cursor.c < this.cols) {
+-        // placeholder second cell for dual-color: same ch marker empty continuation
++        // placeholder second cell for dual-color: empty continuation
+         this.cells[this.cursor.r]![this.cursor.c] = {
+           ch: "",
+           attrs: { ...attrs },
+@@ -363,18 +383,3 @@ export class ScreenBuffer {
+     return this.cells[r]?.[c];
+   }
+ }
+-
+-function isWide(ch: string): boolean {
+-  const cp = ch.codePointAt(0) ?? 0;
+-  // rough CJK + fullwidth ranges
+-  return (
+-    (cp >= 0x1100 && cp <= 0x115f) ||
+-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
+-    (cp >= 0xac00 && cp <= 0xd7a3) ||
+-    (cp >= 0xf900 && cp <= 0xfaff) ||
+-    (cp >= 0xfe10 && cp <= 0xfe6f) ||
+-    (cp >= 0xff00 && cp <= 0xff60) ||
+-    (cp >= 0xffe0 && cp <= 0xffe6) ||
+-    (cp >= 0x20000 && cp <= 0x2fffd)
+-  );
+-}
+diff --git a/packages/terminal/src/index.ts b/packages/terminal/src/index.ts
+index 22cda49..6764ee1 100644
+--- a/packages/terminal/src/index.ts
++++ b/packages/terminal/src/index.ts
+@@ -1,2 +1,3 @@
+ export * from "./buffer.js";
+ export * from "./canvas2d.js";
++export * from "./width.js";
+diff --git a/packages/terminal/tests/buffer.test.ts b/packages/terminal/tests/buffer.test.ts
+index 16652d4..534b81c 100644
+--- a/packages/terminal/tests/buffer.test.ts
++++ b/packages/terminal/tests/buffer.test.ts
+@@ -1,6 +1,32 @@
+ import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { dirname, join } from "node:path";
++import { fileURLToPath } from "node:url";
+ import { ScreenBuffer } from "../src/buffer.js";
++import { isWide } from "../src/width.js";
+ import { visibleText } from "@assmud/vt";
++import { Big5StreamDecoder } from "@assmud/codec-big5";
++
++const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
++
++describe("isWide modes", () => {
++  it("box-drawing Ambiguous: wide only in cjk", () => {
++    for (const ch of ["─", "│", "┌", "╮"]) {
++      expect(isWide(ch, "cjk")).toBe(true);
++      expect(isWide(ch, "western")).toBe(false);
++    }
++  });
++
++  it("ASCII never wide", () => {
++    expect(isWide("A", "cjk")).toBe(false);
++    expect(isWide("A", "western")).toBe(false);
++  });
++
++  it("CJK ideograph wide in both", () => {
++    expect(isWide("中", "cjk")).toBe(true);
++    expect(isWide("中", "western")).toBe(true);
++  });
++});
+ 
+ describe("ScreenBuffer", () => {
+   it("writes SGR colored text", () => {
+@@ -12,13 +38,37 @@ describe("ScreenBuffer", () => {
+   });
+ 
+   it("exports plain without color codes", () => {
+-    const b = new ScreenBuffer(40, 5);
++    // western still treats 中 as wide (F/W range)
++    const b = new ScreenBuffer(40, 5, "western");
+     b.writeDecoded("\x1b[1;32m中\x1b[0mAB");
+     const plain = b.snapshotText();
+     expect(plain.startsWith("中AB")).toBe(true);
+     expect(plain.includes("\x1b")).toBe(false);
+   });
+ 
++  it("setWidthMode clears buffer", () => {
++    const b = new ScreenBuffer(20, 3, "western");
++    b.writeDecoded("Hi");
++    expect(b.cells[0]![0]!.ch).toBe("H");
++    b.setWidthMode("cjk");
++    expect(b.cells[0]![0]!.ch).toBe(" ");
++    expect(b.cursor).toEqual({ r: 0, c: 0 });
++  });
++
++  it("cjk mode advances two cells for box drawing", () => {
++    const b = new ScreenBuffer(10, 2, "cjk");
++    b.writeDecoded("──");
++    expect(b.cursor.c).toBe(4);
++    expect(b.cells[0]![0]!.ch).toBe("─");
++    expect(b.cells[0]![1]!.ch).toBe("");
++  });
++
++  it("western mode advances one cell for box drawing", () => {
++    const b = new ScreenBuffer(10, 2, "western");
++    b.writeDecoded("──");
++    expect(b.cursor.c).toBe(2);
++  });
++
+   it("exports ANSI with SGR and round-trips visible text", () => {
+     const b = new ScreenBuffer(40, 5);
+     b.writeDecoded("\x1b[1;31mHi\x1b[0m!");
+@@ -35,4 +85,47 @@ describe("ScreenBuffer", () => {
+     expect(plain.split("\n")[0]).toContain("C");
+     expect(plain.includes("\n")).toBe(true);
+   });
++
++  it("RW MOTD: committed golden cols under cjk mode", () => {
++    const goldenPath = join(
++      dirname(fileURLToPath(import.meta.url)),
++      "fixtures/rw-motd-cols.json",
++    );
++    const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as {
++      rows: { line: number; cols: number }[];
++    };
++    const big5Path = join(root, "tests/fixtures/streams/rw-banner-4000.big5.txt");
++    const rawFile = readFileSync(big5Path);
++    const lineBytesList: Uint8Array[] = [];
++    let start = 0;
++    for (let i = 0; i <= rawFile.length; i++) {
++      if (i === rawFile.length || rawFile[i] === 0x0a) {
++        let end = i;
++        if (end > start && rawFile[end - 1] === 0x0d) end -= 1;
++        const slice = rawFile.subarray(start, end);
++        const out: number[] = [];
++        for (let j = 0; j < slice.length; j++) {
++          if (slice[j] === 0x1b && slice[j + 1] === 0x5b) {
++            j += 2;
++            while (j < slice.length && !(slice[j]! >= 0x40 && slice[j]! <= 0x7e))
++              j += 1;
++            continue;
++          }
++          out.push(slice[j]!);
++        }
++        lineBytesList.push(Uint8Array.from(out));
++        start = i + 1;
++      }
++    }
++
++    expect(golden.rows.length).toBeGreaterThan(8);
++    for (const row of golden.rows) {
++      const lb = lineBytesList[row.line]!;
++      expect(lb).toBeDefined();
++      const text = new Big5StreamDecoder("big5hkscs").push(lb);
++      const buf = new ScreenBuffer(80, 3, "cjk");
++      buf.writeDecoded(text);
++      expect(buf.cursor.c).toBe(row.cols);
++    }
++  });
+ });
+diff --git a/packages/terminal/src/width.ts b/packages/terminal/src/width.ts
+new file mode 100644
+index 0000000..1345581
+--- /dev/null
++++ b/packages/terminal/src/width.ts
+@@ -0,0 +1,83 @@
++/**
++ * Cell width for dual-width terminals.
++ * mode is always effective ("cjk" | "western") — resolve via @assmud/profiles first.
++ *
++ * western: Unicode EAW Fullwidth/Wide only (Ambiguous = 1).
++ * cjk: F/W + Ambiguous (A) = 2; Neutral/Narrow remain 1 — Big5 art uses A box-drawing.
++ */
++
++export type WidthMode = "cjk" | "western";
++
++/** Combining marks — never advance as wide cells alone. */
++function isCombining(cp: number): boolean {
++  return (
++    (cp >= 0x0300 && cp <= 0x036f) ||
++    (cp >= 0x1ab0 && cp <= 0x1aff) ||
++    (cp >= 0x1dc0 && cp <= 0x1dff) ||
++    (cp >= 0x20d0 && cp <= 0x20ff) ||
++    (cp >= 0xfe20 && cp <= 0xfe2f)
++  );
++}
++
++/** Fullwidth / Wide (EAW F/W style, pragmatic ranges). */
++function isFullwidthOrWide(cp: number): boolean {
++  return (
++    (cp >= 0x1100 && cp <= 0x115f) ||
++    (cp >= 0x2e80 && cp <= 0xa4cf) ||
++    (cp >= 0xac00 && cp <= 0xd7a3) ||
++    (cp >= 0xf900 && cp <= 0xfaff) ||
++    (cp >= 0xfe10 && cp <= 0xfe6f) ||
++    (cp >= 0xff00 && cp <= 0xff60) ||
++    (cp >= 0xffe0 && cp <= 0xffe6) ||
++    (cp >= 0x20000 && cp <= 0x2fffd)
++  );
++}
++
++/**
++ * East Asian Ambiguous (A) — treat as wide only in cjk mode.
++ * Covers box drawing / block / geometric / common math symbols used in Big5 MOTD art.
++ * Not a full TR11 table; enough for TW MUD banners + safe default for rare N.
++ */
++function isAmbiguous(cp: number): boolean {
++  return (
++    // Latin-1 punctuation often A (¡ ¢ £ § ¨ © « ¬ ® ° ± …)
++    (cp >= 0x00a1 && cp <= 0x00ff && cp !== 0x00ad) ||
++    // General punctuation subset
++    (cp >= 0x2010 && cp <= 0x2027) ||
++    (cp >= 0x2030 && cp <= 0x205e) ||
++    // Box drawing
++    (cp >= 0x2500 && cp <= 0x257f) ||
++    // Block elements
++    (cp >= 0x2580 && cp <= 0x259f) ||
++    // Geometric shapes
++    (cp >= 0x25a0 && cp <= 0x25ff) ||
++    // Misc symbols (arrows, etc.)
++    (cp >= 0x2600 && cp <= 0x27bf) ||
++    // Misc math / technical that appear in banners (≡ ∩ ∠ …)
++    (cp >= 0x2190 && cp <= 0x21ff) ||
++    (cp >= 0x2200 && cp <= 0x22ff) ||
++    // Modifier / presentation that Big5 maps to (e.g. ˍ)
++    (cp >= 0x02c2 && cp <= 0x02df) ||
++    // Square symbols (㎜)
++    (cp >= 0x3300 && cp <= 0x33ff)
++  );
++}
++
++/**
++ * western: Ambiguous box-drawing stays 1 (UTF-8 Western MUD art).
++ * cjk: Ambiguous + F/W → 2 (BBS / zMUD / Big5 MOTD).
++ * EAW Neutral rare symbols → 1 in both modes.
++ */
++export function isWide(ch: string, mode: WidthMode = "western"): boolean {
++  const cp = ch.codePointAt(0) ?? 0;
++  if (cp < 0x20) return false;
++  if (cp < 0x80) return false;
++  if (isCombining(cp)) return false;
++  if (isFullwidthOrWide(cp)) return true;
++  if (mode === "cjk" && isAmbiguous(cp)) return true;
++  return false;
++}
++
++export function charDisplayWidth(ch: string, mode: WidthMode): number {
++  return isWide(ch, mode) ? 2 : 1;
++}
+diff --git a/packages/terminal/tests/fixtures/rw-motd-cols.json b/packages/terminal/tests/fixtures/rw-motd-cols.json
+new file mode 100644
+index 0000000..8077db6
+--- /dev/null
++++ b/packages/terminal/tests/fixtures/rw-motd-cols.json
+@@ -0,0 +1,106 @@
++{
++  "source": "tests/fixtures/streams/rw-banner-4000.big5.txt",
++  "mode": "cjk",
++  "rows": [
++    {
++      "line": 3,
++      "cols": 11
++    },
++    {
++      "line": 4,
++      "cols": 70
++    },
++    {
++      "line": 5,
++      "cols": 71
++    },
++    {
++      "line": 6,
++      "cols": 71
++    },
++    {
++      "line": 7,
++      "cols": 71
++    },
++    {
++      "line": 8,
++      "cols": 78
++    },
++    {
++      "line": 9,
++      "cols": 78
++    },
++    {
++      "line": 10,
++      "cols": 78
++    },
++    {
++      "line": 11,
++      "cols": 78
++    },
++    {
++      "line": 12,
++      "cols": 78
++    },
++    {
++      "line": 13,
++      "cols": 78
++    },
++    {
++      "line": 14,
++      "cols": 78
++    },
++    {
++      "line": 15,
++      "cols": 78
++    },
++    {
++      "line": 16,
++      "cols": 78
++    },
++    {
++      "line": 17,
++      "cols": 79
++    },
++    {
++      "line": 18,
++      "cols": 79
++    },
++    {
++      "line": 19,
++      "cols": 79
++    },
++    {
++      "line": 20,
++      "cols": 79
++    },
++    {
++      "line": 21,
++      "cols": 79
++    },
++    {
++      "line": 23,
++      "cols": 71
++    },
++    {
++      "line": 24,
++      "cols": 60
++    },
++    {
++      "line": 25,
++      "cols": 45
++    },
++    {
++      "line": 26,
++      "cols": 62
++    },
++    {
++      "line": 27,
++      "cols": 69
++    },
++    {
++      "line": 28,
++      "cols": 14
++    }
++  ]
++}
+packages/profiles/tests/widthMode.test.ts
+packages/terminal/tests/fixtures/rw-motd-cols.json
+
+exec
+/usr/bin/zsh -lc "sed -n '1,220p' package.json
+sed -n '1,180p' packages/terminal/package.json
+sed -n '1,220p' packages/profiles/src/widthMode.ts
+sed -n '1,180p' packages/profiles/tests/widthMode.test.ts
+rg -n \"charDisplayWidth|isWide\\(|widthMode|ScreenBuffer\\(\" packages apps --glob '"'!**/dist/**'"'
+pnpm --filter @assmud/terminal test -- --run packages/terminal/tests/buffer.test.ts" in /home/cookys/projects/assmud
+ exited 127 in 0ms:
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}
+{
+  "name": "@assmud/terminal",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@assmud/vt": "0.1.0"
+  }
+}
+/** Charset-aware terminal cell width mode (CJK dual-width vs western). */
+
+export type WidthMode = "cjk" | "western";
+
+export type NormalizedCharset =
+  | "big5"
+  | "big5hkscs"
+  | "gbk"
+  | "gb18030"
+  | "utf8"
+  | "unknown";
+
+/**
+ * Common aliases only (non-exhaustive). Unlisted → unknown → western.
+ * @see docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md §1.2
+ */
+const ALIAS: Record<string, NormalizedCharset> = {
+  big5: "big5",
+  "cn-big5": "big5",
+  big5hkscs: "big5hkscs",
+  "big5-hkscs": "big5hkscs",
+  cp950: "big5hkscs",
+  ms950: "big5hkscs",
+  gbk: "gbk",
+  gb2312: "gbk",
+  cp936: "gbk",
+  gb18030: "gb18030",
+  utf8: "utf8",
+  "utf-8": "utf8",
+};
+
+export function normalizeCharset(raw: string | undefined | null): NormalizedCharset {
+  if (raw == null || raw === "") return "unknown";
+  const key = String(raw).trim().toLowerCase();
+  return ALIAS[key] ?? "unknown";
+}
+
+export type WidthModeSource = {
+  charset?: string;
+  /** Explicit override; never "auto". */
+  widthMode?: WidthMode;
+};
+
+/**
+ * Resolve effective width mode before calling isWide(ch, mode).
+ * isWide must never receive "auto".
+ */
+export function resolveWidthMode(src: WidthModeSource): WidthMode {
+  if (src.widthMode === "cjk" || src.widthMode === "western") {
+    return src.widthMode;
+  }
+  const cs = normalizeCharset(src.charset);
+  if (
+    cs === "big5" ||
+    cs === "big5hkscs" ||
+    cs === "gbk" ||
+    cs === "gb18030"
+  ) {
+    return "cjk";
+  }
+  // utf8 | unknown — conservative western
+  return "western";
+}
+import { describe, it, expect } from "vitest";
+import {
+  normalizeCharset,
+  resolveWidthMode,
+} from "../src/widthMode.js";
+
+describe("normalizeCharset", () => {
+  it("maps common aliases", () => {
+    expect(normalizeCharset("big5hkscs")).toBe("big5hkscs");
+    expect(normalizeCharset("Big5-HKSCS")).toBe("big5hkscs");
+    expect(normalizeCharset("cp950")).toBe("big5hkscs");
+    expect(normalizeCharset("gbk")).toBe("gbk");
+    expect(normalizeCharset("gb2312")).toBe("gbk");
+    expect(normalizeCharset("utf-8")).toBe("utf8");
+  });
+
+  it("unknown for unlisted", () => {
+    expect(normalizeCharset("euc-kr")).toBe("unknown");
+    expect(normalizeCharset("")).toBe("unknown");
+    expect(normalizeCharset(undefined)).toBe("unknown");
+  });
+});
+
+describe("resolveWidthMode", () => {
+  it("big5* / gbk → cjk", () => {
+    expect(resolveWidthMode({ charset: "big5hkscs" })).toBe("cjk");
+    expect(resolveWidthMode({ charset: "big5" })).toBe("cjk");
+    expect(resolveWidthMode({ charset: "gbk" })).toBe("cjk");
+  });
+
+  it("utf8 / unknown → western", () => {
+    expect(resolveWidthMode({ charset: "utf8" })).toBe("western");
+    expect(resolveWidthMode({ charset: "mystery" })).toBe("western");
+    expect(resolveWidthMode({})).toBe("western");
+  });
+
+  it("explicit widthMode overrides charset", () => {
+    expect(resolveWidthMode({ charset: "utf8", widthMode: "cjk" })).toBe(
+      "cjk",
+    );
+    expect(
+      resolveWidthMode({ charset: "big5hkscs", widthMode: "western" }),
+    ).toBe("western");
+  });
+});
+apps/web/src/App.tsx:128:        widthMode: profile?.widthMode,
+apps/web/src/App.tsx:130:    [profile?.charset, profile?.widthMode],
+apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+packages/profiles/src/index.ts:3:export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+packages/profiles/src/index.ts:7:} from "./widthMode.js";
+packages/profiles/src/index.ts:8:import type { WidthMode } from "./widthMode.js";
+packages/profiles/src/index.ts:17:  widthMode?: WidthMode;
+packages/profiles/src/widthMode.ts:41:  widthMode?: WidthMode;
+packages/profiles/src/widthMode.ts:45: * Resolve effective width mode before calling isWide(ch, mode).
+packages/profiles/src/widthMode.ts:49:  if (src.widthMode === "cjk" || src.widthMode === "western") {
+packages/profiles/src/widthMode.ts:50:    return src.widthMode;
+packages/profiles/tests/widthMode.test.ts:5:} from "../src/widthMode.js";
+packages/profiles/tests/widthMode.test.ts:37:  it("explicit widthMode overrides charset", () => {
+packages/profiles/tests/widthMode.test.ts:38:    expect(resolveWidthMode({ charset: "utf8", widthMode: "cjk" })).toBe(
+packages/profiles/tests/widthMode.test.ts:42:      resolveWidthMode({ charset: "big5hkscs", widthMode: "western" }),
+packages/terminal/src/width.ts:71:export function isWide(ch: string, mode: WidthMode = "western"): boolean {
+packages/terminal/src/width.ts:81:export function charDisplayWidth(ch: string, mode: WidthMode): number {
+packages/terminal/src/width.ts:82:  return isWide(ch, mode) ? 2 : 1;
+packages/terminal/src/buffer.ts:15: * Cell width is charset-aware via widthMode (cjk | western).
+packages/terminal/src/buffer.ts:33:  widthMode: WidthMode = "western";
+packages/terminal/src/buffer.ts:35:  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+packages/terminal/src/buffer.ts:38:    this.widthMode = widthMode;
+packages/terminal/src/buffer.ts:47:    if (this.widthMode === mode) return;
+packages/terminal/src/buffer.ts:48:    this.widthMode = mode;
+packages/terminal/src/buffer.ts:215:      // Fullwidth: two cells when isWide under current widthMode
+packages/terminal/src/buffer.ts:216:      const wide = isWide(ch, this.widthMode);
+packages/terminal/tests/buffer.test.ts:15:      expect(isWide(ch, "cjk")).toBe(true);
+packages/terminal/tests/buffer.test.ts:16:      expect(isWide(ch, "western")).toBe(false);
+packages/terminal/tests/buffer.test.ts:21:    expect(isWide("A", "cjk")).toBe(false);
+packages/terminal/tests/buffer.test.ts:22:    expect(isWide("A", "western")).toBe(false);
+packages/terminal/tests/buffer.test.ts:26:    expect(isWide("中", "cjk")).toBe(true);
+packages/terminal/tests/buffer.test.ts:27:    expect(isWide("中", "western")).toBe(true);
+packages/terminal/tests/buffer.test.ts:33:    const b = new ScreenBuffer(40, 5);
+packages/terminal/tests/buffer.test.ts:42:    const b = new ScreenBuffer(40, 5, "western");
+packages/terminal/tests/buffer.test.ts:50:    const b = new ScreenBuffer(20, 3, "western");
+packages/terminal/tests/buffer.test.ts:59:    const b = new ScreenBuffer(10, 2, "cjk");
+packages/terminal/tests/buffer.test.ts:67:    const b = new ScreenBuffer(10, 2, "western");
+packages/terminal/tests/buffer.test.ts:73:    const b = new ScreenBuffer(40, 5);
+packages/terminal/tests/buffer.test.ts:81:    const b = new ScreenBuffer(10, 3);
+packages/terminal/tests/buffer.test.ts:126:      const buf = new ScreenBuffer(80, 3, "cjk");
+packages/terminal/tests/map-vt.test.ts:12:    const b = new ScreenBuffer(40, 12);
+packages/terminal/tests/map-vt.test.ts:21:    const b2 = new ScreenBuffer(40, 12);
+packages/terminal/tests/map-vt.test.ts:36:    const b = new ScreenBuffer(20, 10);
+packages/terminal/tests/map-vt.test.ts:50:    const b = new ScreenBuffer(10, 3);
+packages/terminal/tests/map-vt.test.ts:59:    const b = new ScreenBuffer(10, 2);
+packages/terminal/tests/map-vt.test.ts:72:    const b = new ScreenBuffer(50, 14);
+zsh:6: command not found: pnpm
+
+exec
+/usr/bin/zsh -lc "npm test -- --run packages/terminal/tests/buffer.test.ts packages/profiles/tests/widthMode.test.ts
+npm run typecheck
+python3 - <<'PY'
+import unicodedata as u
+samples=[0x00D7,0x00F7,0x2011,0x2028,0x203B,0x205F,0x2600,0x2614,0x26BD,0x2705,0x27BF,0x2329,0x1F300,0x30000]
+for cp in samples:
+ print(f'U+{cp:04X}',u.name(chr(cp),'?'),u.east_asian_width(chr(cp)))
+PY
+nl -ba packages/terminal/src/width.ts | sed -n '1,130p'
+nl -ba packages/terminal/tests/buffer.test.ts | sed -n '80,145p'" in /home/cookys/projects/assmud
+ succeeded in 2251ms:
+
+> assmud@0.1.0 test
+> vitest run --run packages/terminal/tests/buffer.test.ts packages/profiles/tests/widthMode.test.ts
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ packages/profiles/tests/widthMode.test.ts (5 tests) 3ms
+ ✓ packages/terminal/tests/buffer.test.ts (11 tests) 27ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  19:00:53
+   Duration  513ms (transform 114ms, setup 0ms, collect 157ms, tests 30ms, environment 0ms, prepare 182ms)
+
+
+> assmud@0.1.0 typecheck
+> tsc -b
+
+U+00D7 MULTIPLICATION SIGN A
+U+00F7 DIVISION SIGN A
+U+2011 NON-BREAKING HYPHEN N
+U+2028 LINE SEPARATOR N
+U+203B REFERENCE MARK A
+U+205F MEDIUM MATHEMATICAL SPACE N
+U+2600 BLACK SUN WITH RAYS N
+U+2614 UMBRELLA WITH RAIN DROPS W
+U+26BD SOCCER BALL W
+U+2705 WHITE HEAVY CHECK MARK W
+U+27BF DOUBLE CURLY LOOP W
+U+2329 LEFT-POINTING ANGLE BRACKET W
+U+1F300 CYCLONE W
+U+30000 CJK UNIFIED IDEOGRAPH-30000 W
+     1	/**
+     2	 * Cell width for dual-width terminals.
+     3	 * mode is always effective ("cjk" | "western") — resolve via @assmud/profiles first.
+     4	 *
+     5	 * western: Unicode EAW Fullwidth/Wide only (Ambiguous = 1).
+     6	 * cjk: F/W + Ambiguous (A) = 2; Neutral/Narrow remain 1 — Big5 art uses A box-drawing.
+     7	 */
+     8	
+     9	export type WidthMode = "cjk" | "western";
+    10	
+    11	/** Combining marks — never advance as wide cells alone. */
+    12	function isCombining(cp: number): boolean {
+    13	  return (
+    14	    (cp >= 0x0300 && cp <= 0x036f) ||
+    15	    (cp >= 0x1ab0 && cp <= 0x1aff) ||
+    16	    (cp >= 0x1dc0 && cp <= 0x1dff) ||
+    17	    (cp >= 0x20d0 && cp <= 0x20ff) ||
+    18	    (cp >= 0xfe20 && cp <= 0xfe2f)
+    19	  );
+    20	}
+    21	
+    22	/** Fullwidth / Wide (EAW F/W style, pragmatic ranges). */
+    23	function isFullwidthOrWide(cp: number): boolean {
+    24	  return (
+    25	    (cp >= 0x1100 && cp <= 0x115f) ||
+    26	    (cp >= 0x2e80 && cp <= 0xa4cf) ||
+    27	    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    28	    (cp >= 0xf900 && cp <= 0xfaff) ||
+    29	    (cp >= 0xfe10 && cp <= 0xfe6f) ||
+    30	    (cp >= 0xff00 && cp <= 0xff60) ||
+    31	    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    32	    (cp >= 0x20000 && cp <= 0x2fffd)
+    33	  );
+    34	}
+    35	
+    36	/**
+    37	 * East Asian Ambiguous (A) — treat as wide only in cjk mode.
+    38	 * Covers box drawing / block / geometric / common math symbols used in Big5 MOTD art.
+    39	 * Not a full TR11 table; enough for TW MUD banners + safe default for rare N.
+    40	 */
+    41	function isAmbiguous(cp: number): boolean {
+    42	  return (
+    43	    // Latin-1 punctuation often A (¡ ¢ £ § ¨ © « ¬ ® ° ± …)
+    44	    (cp >= 0x00a1 && cp <= 0x00ff && cp !== 0x00ad) ||
+    45	    // General punctuation subset
+    46	    (cp >= 0x2010 && cp <= 0x2027) ||
+    47	    (cp >= 0x2030 && cp <= 0x205e) ||
+    48	    // Box drawing
+    49	    (cp >= 0x2500 && cp <= 0x257f) ||
+    50	    // Block elements
+    51	    (cp >= 0x2580 && cp <= 0x259f) ||
+    52	    // Geometric shapes
+    53	    (cp >= 0x25a0 && cp <= 0x25ff) ||
+    54	    // Misc symbols (arrows, etc.)
+    55	    (cp >= 0x2600 && cp <= 0x27bf) ||
+    56	    // Misc math / technical that appear in banners (≡ ∩ ∠ …)
+    57	    (cp >= 0x2190 && cp <= 0x21ff) ||
+    58	    (cp >= 0x2200 && cp <= 0x22ff) ||
+    59	    // Modifier / presentation that Big5 maps to (e.g. ˍ)
+    60	    (cp >= 0x02c2 && cp <= 0x02df) ||
+    61	    // Square symbols (㎜)
+    62	    (cp >= 0x3300 && cp <= 0x33ff)
+    63	  );
+    64	}
+    65	
+    66	/**
+    67	 * western: Ambiguous box-drawing stays 1 (UTF-8 Western MUD art).
+    68	 * cjk: Ambiguous + F/W → 2 (BBS / zMUD / Big5 MOTD).
+    69	 * EAW Neutral rare symbols → 1 in both modes.
+    70	 */
+    71	export function isWide(ch: string, mode: WidthMode = "western"): boolean {
+    72	  const cp = ch.codePointAt(0) ?? 0;
+    73	  if (cp < 0x20) return false;
+    74	  if (cp < 0x80) return false;
+    75	  if (isCombining(cp)) return false;
+    76	  if (isFullwidthOrWide(cp)) return true;
+    77	  if (mode === "cjk" && isAmbiguous(cp)) return true;
+    78	  return false;
+    79	}
+    80	
+    81	export function charDisplayWidth(ch: string, mode: WidthMode): number {
+    82	  return isWide(ch, mode) ? 2 : 1;
+    83	}
+    80	  it("exports linear selection", () => {
+    81	    const b = new ScreenBuffer(10, 3);
+    82	    b.writeDecoded("ABCDEFGHIJ\r\n0123456789");
+    83	    const plain = b.exportSelectionPlain(0, 2, 1, 4);
+    84	    // CDEFGHIJ + newline + 01234
+    85	    expect(plain.split("\n")[0]).toContain("C");
+    86	    expect(plain.includes("\n")).toBe(true);
+    87	  });
+    88	
+    89	  it("RW MOTD: committed golden cols under cjk mode", () => {
+    90	    const goldenPath = join(
+    91	      dirname(fileURLToPath(import.meta.url)),
+    92	      "fixtures/rw-motd-cols.json",
+    93	    );
+    94	    const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as {
+    95	      rows: { line: number; cols: number }[];
+    96	    };
+    97	    const big5Path = join(root, "tests/fixtures/streams/rw-banner-4000.big5.txt");
+    98	    const rawFile = readFileSync(big5Path);
+    99	    const lineBytesList: Uint8Array[] = [];
+   100	    let start = 0;
+   101	    for (let i = 0; i <= rawFile.length; i++) {
+   102	      if (i === rawFile.length || rawFile[i] === 0x0a) {
+   103	        let end = i;
+   104	        if (end > start && rawFile[end - 1] === 0x0d) end -= 1;
+   105	        const slice = rawFile.subarray(start, end);
+   106	        const out: number[] = [];
+   107	        for (let j = 0; j < slice.length; j++) {
+   108	          if (slice[j] === 0x1b && slice[j + 1] === 0x5b) {
+   109	            j += 2;
+   110	            while (j < slice.length && !(slice[j]! >= 0x40 && slice[j]! <= 0x7e))
+   111	              j += 1;
+   112	            continue;
+   113	          }
+   114	          out.push(slice[j]!);
+   115	        }
+   116	        lineBytesList.push(Uint8Array.from(out));
+   117	        start = i + 1;
+   118	      }
+   119	    }
+   120	
+   121	    expect(golden.rows.length).toBeGreaterThan(8);
+   122	    for (const row of golden.rows) {
+   123	      const lb = lineBytesList[row.line]!;
+   124	      expect(lb).toBeDefined();
+   125	      const text = new Big5StreamDecoder("big5hkscs").push(lb);
+   126	      const buf = new ScreenBuffer(80, 3, "cjk");
+   127	      buf.writeDecoded(text);
+   128	      expect(buf.cursor.c).toBe(row.cols);
+   129	    }
+   130	  });
+   131	});
+
+codex
+VERDICT: FAIL
+
+MUST_FIX:
+- `packages/terminal/src/width.ts:23-63` does not implement the claimed EAW semantics. The approximate ranges omit valid Wide characters such as `U+2329`, `U+1F300`, and `U+30000`, while classifying Neutral characters such as `U+2011`, `U+2028`, `U+205F`, and `U+2600` as Ambiguous/wide in CJK mode. Replace these broad ranges with exact, version-pinned Unicode EAW `F/W/A` tables and add boundary tests for omitted `W` and incorrectly included `N` characters. Current tests and typecheck pass, but they do not detect this classification error.
+tokens used
+39,170
+VERDICT: FAIL
+
+MUST_FIX:
+- `packages/terminal/src/width.ts:23-63` does not implement the claimed EAW semantics. The approximate ranges omit valid Wide characters such as `U+2329`, `U+1F300`, and `U+30000`, while classifying Neutral characters such as `U+2011`, `U+2028`, `U+205F`, and `U+2600` as Ambiguous/wide in CJK mode. Replace these broad ranges with exact, version-pinned Unicode EAW `F/W/A` tables and add boundary tests for omitted `W` and incorrectly included `N` characters. Current tests and typecheck pass, but they do not detect this classification error.

@@ -1,11 +1,20 @@
 /** Connection profiles (Phase 4) — no secrets required; token optional. */
 
+export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+export {
+  normalizeCharset,
+  resolveWidthMode,
+} from "./widthMode.js";
+import type { WidthMode } from "./widthMode.js";
+
 export type MudProfile = {
   id: string;
   name: string;
   host: string;
   port: number;
   charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+  /** Optional cell-width override; omit to derive from charset. */
+  widthMode?: WidthMode;
   tlsToMud?: boolean;
   notes?: string;
 };

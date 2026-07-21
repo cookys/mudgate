@@ -1,0 +1,2002 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8451-213e-76c3-a825-f0d85020bc73
+--------
+user
+Review IMPLEMENTATION of CJK cell width on branch feat/cjk-cell-width.
+Must: resolveWidthMode; isWide cjk vs western; ScreenBuffer setWidthMode clears; web profile→widthMode; RW MOTD golden; SELF-HOSTED-PROXY.md; utf8 default western.
+Return:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+
+Read packages/profiles/src/widthMode.ts, packages/terminal/src/width.ts buffer.ts, apps/web TerminalHost App, tests.
+
+codex
+I’m using the audit skill because this is a branch implementation-versus-requirements parity review. I’ll inspect the specified files, branch diff, and focused tests, then return only the requested verdict schema.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+
+exec
+/usr/bin/zsh -lc "git status --short --branch && git branch --show-current && git diff --stat HEAD~1..HEAD 2>/dev/null || true && sed -n '1,240p' packages/profiles/src/widthMode.ts && sed -n '1,280p' packages/terminal/src/width.ts && sed -n '1,320p' packages/terminal/src/buffer.ts && rg -n \"widthMode|resolveWidthMode|isWide|MOTD|SELF-HOSTED|utf8\" apps packages test tests . --glob '"'!node_modules'"' --glob '"'!dist'"'" in /home/cookys/projects/assmud
+ exited 2 in 0ms:
+## feat/cjk-cell-width
+ M apps/web/src/App.tsx
+ M apps/web/src/TerminalHost.tsx
+ M docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md
+ M docs/projects/INDEX.md
+ M docs/research/zmud-feature-matrix.md
+ M packages/profiles/src/index.ts
+ M packages/terminal/src/buffer.ts
+ M packages/terminal/src/index.ts
+ M packages/terminal/tests/buffer.test.ts
+?? docs/deploy/SELF-HOSTED-PROXY.md
+?? docs/projects/2026-07-21-cjk-cell-width/
+?? docs/reviews/2026-07-21-cjk-width-impl-codex.out
+?? docs/reviews/2026-07-21-cjk-width-impl-minimax.out
+?? packages/profiles/src/widthMode.ts
+?? packages/profiles/tests/
+?? packages/terminal/src/width.ts
+feat/cjk-cell-width
+ docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md | 303 ++++++++++
+ docs/reviews/2026-07-21-cjk-width-brief.txt       |  14 +
+ docs/reviews/2026-07-21-cjk-width-codex-r2.out    | 704 ++++++++++++++++++++++
+ docs/reviews/2026-07-21-cjk-width-codex.out       | 387 ++++++++++++
+ docs/reviews/2026-07-21-cjk-width-glm-r2.out      |  16 +
+ docs/reviews/2026-07-21-cjk-width-glm.out         |  13 +
+ docs/reviews/2026-07-21-cjk-width-hetero.md       |  42 ++
+ docs/reviews/2026-07-21-cjk-width-minimax-r2.out  |  35 ++
+ docs/reviews/2026-07-21-cjk-width-minimax.out     |  29 +
+ 9 files changed, 1543 insertions(+)
+/** Charset-aware terminal cell width mode (CJK dual-width vs western). */
+
+export type WidthMode = "cjk" | "western";
+
+export type NormalizedCharset =
+  | "big5"
+  | "big5hkscs"
+  | "gbk"
+  | "gb18030"
+  | "utf8"
+  | "unknown";
+
+/**
+ * Common aliases only (non-exhaustive). Unlisted → unknown → western.
+ * @see docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md §1.2
+ */
+const ALIAS: Record<string, NormalizedCharset> = {
+  big5: "big5",
+  "cn-big5": "big5",
+  big5hkscs: "big5hkscs",
+  "big5-hkscs": "big5hkscs",
+  cp950: "big5hkscs",
+  ms950: "big5hkscs",
+  gbk: "gbk",
+  gb2312: "gbk",
+  cp936: "gbk",
+  gb18030: "gb18030",
+  utf8: "utf8",
+  "utf-8": "utf8",
+};
+
+export function normalizeCharset(raw: string | undefined | null): NormalizedCharset {
+  if (raw == null || raw === "") return "unknown";
+  const key = String(raw).trim().toLowerCase();
+  return ALIAS[key] ?? "unknown";
+}
+
+export type WidthModeSource = {
+  charset?: string;
+  /** Explicit override; never "auto". */
+  widthMode?: WidthMode;
+};
+
+/**
+ * Resolve effective width mode before calling isWide(ch, mode).
+ * isWide must never receive "auto".
+ */
+export function resolveWidthMode(src: WidthModeSource): WidthMode {
+  if (src.widthMode === "cjk" || src.widthMode === "western") {
+    return src.widthMode;
+  }
+  const cs = normalizeCharset(src.charset);
+  if (
+    cs === "big5" ||
+    cs === "big5hkscs" ||
+    cs === "gbk" ||
+    cs === "gb18030"
+  ) {
+    return "cjk";
+  }
+  // utf8 | unknown — conservative western
+  return "western";
+}
+/**
+ * Cell width for dual-width terminals.
+ * mode is always effective ("cjk" | "western") — resolve via @assmud/profiles first.
+ */
+
+export type WidthMode = "cjk" | "western";
+
+/** Fullwidth / Wide (Unicode EAW F/W style ranges, pragmatic). */
+function isFullwidthOrWide(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2e80 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe10 && cp <= 0xfe6f) ||
+    (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x20000 && cp <= 0x2fffd)
+  );
+}
+
+/**
+ * CJK legacy mode (Big5/GB after decode): non-ASCII occupies 2 cells.
+ * Matches BBS/zMUD byte-cell art (DBCS=2) better than partial EAW tables.
+ * Western mode: only explicit wide/fullwidth ranges (Ambiguous box-drawing = 1).
+ */
+export function isWide(ch: string, mode: WidthMode = "western"): boolean {
+  const cp = ch.codePointAt(0) ?? 0;
+  if (cp < 0x20) return false;
+  if (cp < 0x80) return false;
+  if (mode === "cjk") {
+    // Post-Big5/GB decode: every non-ASCII glyph is a full cell pair.
+    return true;
+  }
+  return isFullwidthOrWide(cp);
+}
+
+export function charDisplayWidth(ch: string, mode: WidthMode): number {
+  return isWide(ch, mode) ? 2 : 1;
+}
+import {
+  Attrs,
+  defaultAttrs,
+  sgrDelta,
+  tokenizeAnsi,
+} from "@assmud/vt";
+import { isWide, type WidthMode } from "./width.js";
+
+export type Cell = { ch: string; attrs: Attrs };
+export type { WidthMode };
+
+/**
+ * Full VT screen buffer for map_d-class redraws (Phase 1b+).
+ * Supports CUP, ED/EL, DECSTBM, save/restore cursor — not SGR-only.
+ * Cell width is charset-aware via widthMode (cjk | western).
+ */
+export class ScreenBuffer {
+  cols: number;
+  rows: number;
+  cells: Cell[][];
+  cursor = { r: 0, c: 0 };
+  savedCursor: { r: number; c: number; attrs: Attrs } | null = null;
+  attrs: Attrs = defaultAttrs();
+  /** 0-based inclusive scroll region */
+  scrollTop = 0;
+  scrollBottom: number;
+  scrollback: string[] = [];
+  maxScrollback = 5000;
+  /** session log (plain text lines) */
+  sessionLog: string[] = [];
+  maxSessionLog = 20_000;
+  /** Effective width mode — never "auto". Default western (safe for utf8). */
+  widthMode: WidthMode = "western";
+
+  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+    this.cols = cols;
+    this.rows = rows;
+    this.widthMode = widthMode;
+    this.scrollBottom = rows - 1;
+    this.cells = this.blank();
+  }
+
+  /**
+   * Change width mode. Clears the screen so cells never mix two width semantics.
+   */
+  setWidthMode(mode: WidthMode): void {
+    if (this.widthMode === mode) return;
+    this.widthMode = mode;
+    this.cells = this.blank();
+    this.cursor = { r: 0, c: 0 };
+    this.savedCursor = null;
+    this.attrs = defaultAttrs();
+    this.scrollTop = 0;
+    this.scrollBottom = this.rows - 1;
+  }
+
+  private blankRow(): Cell[] {
+    return Array.from({ length: this.cols }, () => ({
+      ch: " ",
+      attrs: defaultAttrs(),
+    }));
+  }
+
+  private blank(): Cell[][] {
+    return Array.from({ length: this.rows }, () => this.blankRow());
+  }
+
+  resize(cols: number, rows: number): void {
+    this.cols = cols;
+    this.rows = rows;
+    this.scrollTop = 0;
+    this.scrollBottom = rows - 1;
+    this.cells = this.blank();
+    this.cursor = { r: 0, c: 0 };
+    this.savedCursor = null;
+  }
+
+  writeDecoded(text: string): void {
+    const { tokens, attrs } = tokenizeAnsi(text, this.attrs);
+    this.attrs = attrs;
+    for (const t of tokens) {
+      if (t.kind === "text") this.writePlain(t.text, t.attrs);
+      else if (t.kind === "control" && t.code === 10) this.lineFeed();
+      else if (t.kind === "control" && t.code === 13) this.cursor.c = 0;
+      else if (t.kind === "control" && t.code === 8) {
+        if (this.cursor.c > 0) this.cursor.c -= 1;
+      } else if (t.kind === "control" && t.code === 7) {
+        /* BEL — ignore visually */
+      } else if (t.kind === "csi") {
+        this.applyCsi(t.params, t.final);
+      }
+    }
+  }
+
+  private applyCsi(params: number[], final: string): void {
+    const p = (i: number, d = 1) => {
+      const v = params[i];
+      return v === undefined || v === 0 ? d : v;
+    };
+    switch (final) {
+      case "H":
+      case "f": {
+        // CUP — 1-based row;col
+        const row = Math.min(this.rows, Math.max(1, p(0, 1))) - 1;
+        const col = Math.min(this.cols, Math.max(1, p(1, 1))) - 1;
+        this.cursor.r = row;
+        this.cursor.c = col;
+        break;
+      }
+      case "A": // CUU
+        this.cursor.r = Math.max(0, this.cursor.r - p(0, 1));
+        break;
+      case "B": // CUD
+        this.cursor.r = Math.min(this.rows - 1, this.cursor.r + p(0, 1));
+        break;
+      case "C": // CUF
+        this.cursor.c = Math.min(this.cols - 1, this.cursor.c + p(0, 1));
+        break;
+      case "D": // CUB
+        this.cursor.c = Math.max(0, this.cursor.c - p(0, 1));
+        break;
+      case "J": {
+        // ED
+        const mode = params[0] ?? 0;
+        if (mode === 0) this.eraseFromCursorToEnd();
+        else if (mode === 1) this.eraseFromStartToCursor();
+        else if (mode === 2 || mode === 3) this.eraseAll();
+        break;
+      }
+      case "K": {
+        // EL
+        const mode = params[0] ?? 0;
+        const r = this.cursor.r;
+        if (mode === 0) {
+          for (let c = this.cursor.c; c < this.cols; c++) {
+            this.cells[r]![c] = { ch: " ", attrs: defaultAttrs() };
+          }
+        } else if (mode === 1) {
+          for (let c = 0; c <= this.cursor.c; c++) {
+            this.cells[r]![c] = { ch: " ", attrs: defaultAttrs() };
+          }
+        } else if (mode === 2) {
+          this.cells[r] = this.blankRow();
+        }
+        break;
+      }
+      case "r": {
+        // DECSTBM — 1-based
+        const top = Math.min(this.rows, Math.max(1, p(0, 1))) - 1;
+        const bot = Math.min(this.rows, Math.max(1, params[1] ?? this.rows)) - 1;
+        this.scrollTop = Math.min(top, bot);
+        this.scrollBottom = Math.max(top, bot);
+        this.cursor = { r: this.scrollTop, c: 0 };
+        break;
+      }
+      case "s": // save cursor (DECSC-ish)
+        this.savedCursor = {
+          r: this.cursor.r,
+          c: this.cursor.c,
+          attrs: { ...this.attrs },
+        };
+        break;
+      case "u": // restore
+        if (this.savedCursor) {
+          this.cursor.r = this.savedCursor.r;
+          this.cursor.c = this.savedCursor.c;
+          this.attrs = { ...this.savedCursor.attrs };
+        }
+        break;
+      case "m":
+        // already applied in tokenizer for SGR on attrs; no extra work
+        break;
+      default:
+        break;
+    }
+  }
+
+  private eraseAll(): void {
+    this.cells = this.blank();
+  }
+
+  private eraseFromCursorToEnd(): void {
+    const { r, c } = this.cursor;
+    for (let col = c; col < this.cols; col++) {
+      this.cells[r]![col] = { ch: " ", attrs: defaultAttrs() };
+    }
+    for (let row = r + 1; row < this.rows; row++) {
+      this.cells[row] = this.blankRow();
+    }
+  }
+
+  private eraseFromStartToCursor(): void {
+    const { r, c } = this.cursor;
+    for (let row = 0; row < r; row++) {
+      this.cells[row] = this.blankRow();
+    }
+    for (let col = 0; col <= c; col++) {
+      this.cells[r]![col] = { ch: " ", attrs: defaultAttrs() };
+    }
+  }
+
+  private writePlain(text: string, attrs: Attrs): void {
+    for (const ch of text) {
+      if (ch === "\n") {
+        this.lineFeed();
+        continue;
+      }
+      if (ch === "\r") {
+        this.cursor.c = 0;
+        continue;
+      }
+      if (this.cursor.c >= this.cols) {
+        this.lineFeed();
+      }
+      // Fullwidth: two cells when isWide under current widthMode
+      const wide = isWide(ch, this.widthMode);
+      this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
+      this.cursor.c += 1;
+      if (wide && this.cursor.c < this.cols) {
+        // placeholder second cell for dual-color: empty continuation
+        this.cells[this.cursor.r]![this.cursor.c] = {
+          ch: "",
+          attrs: { ...attrs },
+        };
+        this.cursor.c += 1;
+      }
+    }
+  }
+
+  /**
+   * Dual-color support: set left and right half attrs of a fullwidth cell at (r,c).
+   * Used by synthetic fixtures and map paint paths.
+   */
+  setDualColorCell(
+    r: number,
+    c: number,
+    ch: string,
+    left: Attrs,
+    right: Attrs,
+  ): void {
+    if (r < 0 || r >= this.rows || c < 0 || c + 1 >= this.cols) return;
+    this.cells[r]![c] = { ch, attrs: { ...left } };
+    this.cells[r]![c + 1] = { ch: "", attrs: { ...right } };
+  }
+
+  private lineFeed(): void {
+    const line = this.cells[this.cursor.r]!.map((c) => c.ch).join("").replace(/\s+$/, "");
+    if (line.length) {
+      this.scrollback.push(line);
+      this.sessionLog.push(line);
+      if (this.scrollback.length > this.maxScrollback) this.scrollback.shift();
+      if (this.sessionLog.length > this.maxSessionLog) this.sessionLog.shift();
+    }
+
+    if (this.cursor.r < this.scrollBottom) {
+      this.cursor.r += 1;
+    } else {
+      // scroll within region
+      for (let r = this.scrollTop; r < this.scrollBottom; r++) {
+        this.cells[r] = this.cells[r + 1]!;
+      }
+      this.cells[this.scrollBottom] = this.blankRow();
+    }
+    this.cursor.c = 0;
+  }
+
+  /** Visible screen, plain text (no ANSI). Wide-char trail cells skipped. */
+  snapshotText(): string {
+    return this.exportRegionPlain(0, 0, this.rows - 1, this.cols - 1);
+  }
+
+  /** Visible screen with reconstructed SGR color codes. */
+  snapshotAnsi(): string {
+    return this.exportRegionAnsi(0, 0, this.rows - 1, this.cols - 1);
+  }
+
+  /** Scrollback + current screen, plain (session-friendly). */
+  snapshotScrollbackPlain(): string {
+    const screen = this.snapshotText();
+    if (!this.scrollback.length) return screen;
+    return [...this.scrollback, screen].join("\n");
+  }
+
+  /**
+   * Linear selection (terminal-style): from (r0,c0) through (r1,c1) in reading order.
+   * Emits plain text; wide-char trail cells skipped.
+   */
+  exportSelectionPlain(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    return this.walkSelection(r0, c0, r1, c1, false);
+  }
+
+  /** Same range with reconstructed SGR. */
+  exportSelectionAnsi(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    return this.walkSelection(r0, c0, r1, c1, true);
+  }
+
+  /** Full screen rectangle plain (all columns). */
+  exportRegionPlain(
+    r0: number,
+    c0: number,
+    r1: number,
+    c1: number,
+  ): string {
+    // treat as linear corners of a box: top-left → bottom-right
+    const ra = Math.max(0, Math.min(r0, r1));
+    const rb = Math.min(this.rows - 1, Math.max(r0, r1));
+    const ca = Math.max(0, Math.min(c0, c1));
+    const cb = Math.min(this.cols - 1, Math.max(c0, c1));
+    return this.walkSelection(ra, ca, rb, cb, false);
+  }
+rg: test: No such file or directory (os error 2)
+./docs/plans/2026-07-21-web-zmud-rw.md:91:- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
+./packages/profiles/src/index.ts:3:export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+./packages/profiles/src/index.ts:6:  resolveWidthMode,
+./packages/profiles/src/index.ts:7:} from "./widthMode.js";
+./packages/profiles/src/index.ts:8:import type { WidthMode } from "./widthMode.js";
+./packages/profiles/src/index.ts:15:  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+./packages/profiles/src/index.ts:17:  widthMode?: WidthMode;
+./packages/profiles/src/widthMode.ts:10:  | "utf8"
+./packages/profiles/src/widthMode.ts:28:  utf8: "utf8",
+./packages/profiles/src/widthMode.ts:29:  "utf-8": "utf8",
+./packages/profiles/src/widthMode.ts:41:  widthMode?: WidthMode;
+./packages/profiles/src/widthMode.ts:45: * Resolve effective width mode before calling isWide(ch, mode).
+./packages/profiles/src/widthMode.ts:46: * isWide must never receive "auto".
+./packages/profiles/src/widthMode.ts:48:export function resolveWidthMode(src: WidthModeSource): WidthMode {
+./packages/profiles/src/widthMode.ts:49:  if (src.widthMode === "cjk" || src.widthMode === "western") {
+./packages/profiles/src/widthMode.ts:50:    return src.widthMode;
+./packages/profiles/src/widthMode.ts:61:  // utf8 | unknown — conservative western
+./packages/profiles/tests/widthMode.test.ts:4:  resolveWidthMode,
+./packages/profiles/tests/widthMode.test.ts:5:} from "../src/widthMode.js";
+./packages/profiles/tests/widthMode.test.ts:14:    expect(normalizeCharset("utf-8")).toBe("utf8");
+./packages/profiles/tests/widthMode.test.ts:24:describe("resolveWidthMode", () => {
+./packages/profiles/tests/widthMode.test.ts:26:    expect(resolveWidthMode({ charset: "big5hkscs" })).toBe("cjk");
+./packages/profiles/tests/widthMode.test.ts:27:    expect(resolveWidthMode({ charset: "big5" })).toBe("cjk");
+./packages/profiles/tests/widthMode.test.ts:28:    expect(resolveWidthMode({ charset: "gbk" })).toBe("cjk");
+./packages/profiles/tests/widthMode.test.ts:31:  it("utf8 / unknown → western", () => {
+./packages/profiles/tests/widthMode.test.ts:32:    expect(resolveWidthMode({ charset: "utf8" })).toBe("western");
+./packages/profiles/tests/widthMode.test.ts:33:    expect(resolveWidthMode({ charset: "mystery" })).toBe("western");
+./packages/profiles/tests/widthMode.test.ts:34:    expect(resolveWidthMode({})).toBe("western");
+./packages/profiles/tests/widthMode.test.ts:37:  it("explicit widthMode overrides charset", () => {
+./packages/profiles/tests/widthMode.test.ts:38:    expect(resolveWidthMode({ charset: "utf8", widthMode: "cjk" })).toBe(
+./packages/profiles/tests/widthMode.test.ts:42:      resolveWidthMode({ charset: "big5hkscs", widthMode: "western" }),
+packages/profiles/src/index.ts:3:export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+packages/profiles/src/index.ts:6:  resolveWidthMode,
+packages/profiles/src/index.ts:7:} from "./widthMode.js";
+packages/profiles/src/index.ts:8:import type { WidthMode } from "./widthMode.js";
+packages/profiles/src/index.ts:15:  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+packages/profiles/src/index.ts:17:  widthMode?: WidthMode;
+packages/profiles/src/widthMode.ts:10:  | "utf8"
+packages/profiles/src/widthMode.ts:28:  utf8: "utf8",
+packages/profiles/src/widthMode.ts:29:  "utf-8": "utf8",
+packages/profiles/src/widthMode.ts:41:  widthMode?: WidthMode;
+packages/profiles/src/widthMode.ts:45: * Resolve effective width mode before calling isWide(ch, mode).
+packages/profiles/src/widthMode.ts:46: * isWide must never receive "auto".
+packages/profiles/src/widthMode.ts:48:export function resolveWidthMode(src: WidthModeSource): WidthMode {
+packages/profiles/src/widthMode.ts:49:  if (src.widthMode === "cjk" || src.widthMode === "western") {
+packages/profiles/src/widthMode.ts:50:    return src.widthMode;
+packages/profiles/src/widthMode.ts:61:  // utf8 | unknown — conservative western
+./packages/terminal/src/width.ts:27:export function isWide(ch: string, mode: WidthMode = "western"): boolean {
+./packages/terminal/src/width.ts:39:  return isWide(ch, mode) ? 2 : 1;
+packages/profiles/tests/widthMode.test.ts:4:  resolveWidthMode,
+packages/profiles/tests/widthMode.test.ts:5:} from "../src/widthMode.js";
+packages/profiles/tests/widthMode.test.ts:14:    expect(normalizeCharset("utf-8")).toBe("utf8");
+packages/profiles/tests/widthMode.test.ts:24:describe("resolveWidthMode", () => {
+packages/profiles/tests/widthMode.test.ts:26:    expect(resolveWidthMode({ charset: "big5hkscs" })).toBe("cjk");
+packages/profiles/tests/widthMode.test.ts:27:    expect(resolveWidthMode({ charset: "big5" })).toBe("cjk");
+packages/profiles/tests/widthMode.test.ts:28:    expect(resolveWidthMode({ charset: "gbk" })).toBe("cjk");
+packages/profiles/tests/widthMode.test.ts:31:  it("utf8 / unknown → western", () => {
+packages/profiles/tests/widthMode.test.ts:32:    expect(resolveWidthMode({ charset: "utf8" })).toBe("western");
+packages/profiles/tests/widthMode.test.ts:33:    expect(resolveWidthMode({ charset: "mystery" })).toBe("western");
+packages/profiles/tests/widthMode.test.ts:34:    expect(resolveWidthMode({})).toBe("western");
+packages/profiles/tests/widthMode.test.ts:37:  it("explicit widthMode overrides charset", () => {
+packages/profiles/tests/widthMode.test.ts:38:    expect(resolveWidthMode({ charset: "utf8", widthMode: "cjk" })).toBe(
+packages/profiles/tests/widthMode.test.ts:42:      resolveWidthMode({ charset: "big5hkscs", widthMode: "western" }),
+./packages/terminal/src/buffer.ts:7:import { isWide, type WidthMode } from "./width.js";
+./packages/terminal/src/buffer.ts:15: * Cell width is charset-aware via widthMode (cjk | western).
+./packages/terminal/src/buffer.ts:32:  /** Effective width mode — never "auto". Default western (safe for utf8). */
+./packages/terminal/src/buffer.ts:33:  widthMode: WidthMode = "western";
+./packages/terminal/src/buffer.ts:35:  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+./packages/terminal/src/buffer.ts:38:    this.widthMode = widthMode;
+./packages/terminal/src/buffer.ts:47:    if (this.widthMode === mode) return;
+./packages/terminal/src/buffer.ts:48:    this.widthMode = mode;
+./packages/terminal/src/buffer.ts:215:      // Fullwidth: two cells when isWide under current widthMode
+./packages/terminal/src/buffer.ts:216:      const wide = isWide(ch, this.widthMode);
+apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+packages/terminal/src/width.ts:27:export function isWide(ch: string, mode: WidthMode = "western"): boolean {
+packages/terminal/src/width.ts:39:  return isWide(ch, mode) ? 2 : 1;
+packages/terminal/src/buffer.ts:7:import { isWide, type WidthMode } from "./width.js";
+packages/terminal/src/buffer.ts:15: * Cell width is charset-aware via widthMode (cjk | western).
+packages/terminal/src/buffer.ts:32:  /** Effective width mode — never "auto". Default western (safe for utf8). */
+packages/terminal/src/buffer.ts:33:  widthMode: WidthMode = "western";
+packages/terminal/src/buffer.ts:35:  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+packages/terminal/src/buffer.ts:38:    this.widthMode = widthMode;
+packages/terminal/src/buffer.ts:47:    if (this.widthMode === mode) return;
+packages/terminal/src/buffer.ts:48:    this.widthMode = mode;
+packages/terminal/src/buffer.ts:215:      // Fullwidth: two cells when isWide under current widthMode
+packages/terminal/src/buffer.ts:216:      const wide = isWide(ch, this.widthMode);
+apps/proxy/src/server.ts:72:            const text = typeof data === "string" ? data : data.toString("utf8");
+apps/web/src/App.tsx:10:  resolveWidthMode,
+apps/web/src/App.tsx:126:      resolveWidthMode({
+apps/web/src/App.tsx:128:        widthMode: profile?.widthMode,
+apps/web/src/App.tsx:130:    [profile?.charset, profile?.widthMode],
+apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+apps/proxy/tests/mccp-bridge.test.ts:100:    const joined = Buffer.concat(binarySends(ws)).toString("utf8");
+apps/proxy/tests/mccp-bridge.test.ts:117:    expect(joined.toString("utf8")).toContain("HelloMap");
+apps/proxy/tests/mccp-bridge.test.ts:136:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain(
+apps/proxy/tests/mccp-bridge.test.ts:151:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain("SplitSE");
+./packages/terminal/tests/buffer.test.ts:6:import { isWide } from "../src/width.js";
+./packages/terminal/tests/buffer.test.ts:12:describe("isWide modes", () => {
+./packages/terminal/tests/buffer.test.ts:15:      expect(isWide(ch, "cjk")).toBe(true);
+./packages/terminal/tests/buffer.test.ts:16:      expect(isWide(ch, "western")).toBe(false);
+./packages/terminal/tests/buffer.test.ts:21:    expect(isWide("A", "cjk")).toBe(false);
+./packages/terminal/tests/buffer.test.ts:22:    expect(isWide("A", "western")).toBe(false);
+./packages/terminal/tests/buffer.test.ts:26:    expect(isWide("中", "cjk")).toBe(true);
+./packages/terminal/tests/buffer.test.ts:27:    expect(isWide("中", "western")).toBe(true);
+./packages/terminal/tests/buffer.test.ts:89:  it("RW MOTD: cjk mode per-line cursor matches Big5 byte-cell width", () => {
+./packages/terminal/tests/map-vt.test.ts:71:    const ansi = readFileSync(p, "utf8");
+./docs/reviews/2026-07-21-cjk-width-codex.out:20:1) Fix RW MOTD misalignment via charset-aware cell width (CJK vs western), NOT global Ambiguous=2.
+./docs/reviews/2026-07-21-cjk-width-codex.out:35:> **Why**: RW MOTD 錯位根因是 **Ambiguous/DBCS 字寬**；產品目標涵蓋 [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站），需 **charset-aware** 修法，並釐清 **共用 proxy IP** 與 MUD 多開偵測的關係。  
+./docs/reviews/2026-07-21-cjk-width-codex.out:38:> **SSOT 字寬語意**: 本 plan §1；MOTD 根因見 session survey 2026-07-21  
+./docs/reviews/2026-07-21-cjk-width-codex.out:46:| RW MOTD／框線 art 歪 | `ScreenBuffer.isWide` 把 Unicode **Ambiguous**（`─│┌` 等）當 **1 格**；Big5 art 按 **DBCS=2** 排 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:59:3. **`utf8`** 預設：**標準 terminal width**（Ambiguous=1），避免搞壞西方／現代 UTF-8 服。  
+./docs/reviews/2026-07-21-cjk-width-codex.out:60:4. 可選 profile override：`widthMode: "cjk" | "western" | "auto"`（auto = 由 charset 推）。  
+./docs/reviews/2026-07-21-cjk-width-codex.out:65:function isWide(ch, mode):
+./docs/reviews/2026-07-21-cjk-width-codex.out:76:  return isWide(ch, charset in {big5*, gbk} ? "cjk" : "western")
+./docs/reviews/2026-07-21-cjk-width-codex.out:86:| Prompt 猜「這是 MOTD」再特判 | 脆 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:87:| 改伺服器 MOTD | 非我方 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:93:| `packages/terminal` | `isWide(ch, mode)`；`ScreenBuffer` 建構或 `setWidthMode` |
+./docs/reviews/2026-07-21-cjk-width-codex.out:95:| `packages/profiles` | optional `widthMode`；default auto |
+./docs/reviews/2026-07-21-cjk-width-codex.out:109:[台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（抓取 2026-06-23 快照：**23 站**）皆可經 assmud **連線遊玩**（Big5 MOTD／地圖／登入），在 **proxy 政策與各站規則允許** 前提下。
+./docs/reviews/2026-07-21-cjk-width-codex.out:146:| **L1 RW 驗證** | RW MOTD golden + 登入後 map 不歪 | P0 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:159:3. **Fixture**: RW login MOTD Big5 經 buffer(80) 後，圖形列 display width **彼此差 ≤ 歷史 byte-width 設計**（或 golden snapshot 關鍵列對齊）。  
+./docs/reviews/2026-07-21-cjk-width-codex.out:160:4. Profile `charset=big5hkscs` → 預設 cjk mode；`utf8` → western。  
+./docs/reviews/2026-07-21-cjk-width-codex.out:162:6. **不**改變 utf8 預設行為（回歸測試鎖死）。
+./docs/reviews/2026-07-21-cjk-width-codex.out:212:| 字寬／MOTD | **本 plan** | — |
+./docs/reviews/2026-07-21-cjk-width-codex.out:229:| **W1** | `widthMode` + `isWide(ch, mode)` + ScreenBuffer API | S | — |
+./docs/reviews/2026-07-21-cjk-width-codex.out:231:| **W3** | Tests：cjk vs western + RW MOTD fixture（redacted） | S | W1 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:247:| CJK mode 誤用於 utf8 服 | charset 預設 + western 回歸測 |
+./docs/reviews/2026-07-21-cjk-width-codex.out:288:- 本倉：`buffer.ts` `isWide`；`profiles` charset；`docs/security/hosted-proxy-threat-model.md`  
+./docs/reviews/2026-07-21-cjk-width-codex.out:289:- Session：RW MOTD byte-width vs isWide mismatch survey  
+./docs/reviews/2026-07-21-cjk-width-codex.out:365:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/reviews/2026-07-21-cjk-width-codex.out:378:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/plans/2026-07-21-profile-library.md:22:- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+./docs/reviews/round1-qwen.out:46:- **Byte-first pipeline is correctly elevated to a hard constraint.** The Global Constraints + research doc make "never `bytes.toString('utf8')`" and "strip-non-color CSI is a ship blocker" unfalsifiable rules — this is exactly how you prevent the #1 RW fidelity failure.
+./docs/reviews/2026-07-21-cjk-width-hetero.md:19:1. `isWide` 不可收 `auto`；先 `resolveWidthMode`  
+./docs/reviews/2026-07-21-cjk-width-hetero.md:20:2. RW MOTD acceptance 改精確 golden  
+./docs/reviews/2026-07-21-cjk-width-hetero.md:28:- `resolveWidthMode` 固定放 `packages/profiles`  
+./docs/reviews/2026-07-21-cjk-width-minimax-r2.out:6:| 1 | resolveWidthMode 先於 isWide；isWide 只收 cjk\|western | `isWide(ch, mode: "cjk" \| "western")` + P2 | ✓ |
+./docs/reviews/2026-07-21-cjk-width-minimax-r2.out:7:| 2 | RW MOTD golden acceptance 精確（禁模糊「差≤歷史」） | §3 item 4：fixture path、逐列 golden JSON、**明文禁止**模糊條件 | ✓ |
+./docs/reviews/2026-07-21-cjk-width-minimax-r2.out:15:   是。session 綁定 + charset defaults（legacy→cjk, utf8→western）+ manual override，形成安全網。EAW+A 誠實聲明邊界。v1 範圍合理。
+./docs/reviews/2026-07-21-hetero-r3-codex.err:359:- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+./apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+./apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+./apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+./apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+./apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+./apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+./apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+./apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:346:- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+./apps/proxy/src/server.ts:72:            const text = typeof data === "string" ? data : data.toString("utf8");
+./docs/reviews/2026-07-21-plan-pack-r6.md:143:- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
+./docs/reviews/round2-verify.prompt.txt:109:- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
+./apps/proxy/tests/mccp-bridge.test.ts:100:    const joined = Buffer.concat(binarySends(ws)).toString("utf8");
+./apps/proxy/tests/mccp-bridge.test.ts:117:    expect(joined.toString("utf8")).toContain("HelloMap");
+./apps/proxy/tests/mccp-bridge.test.ts:136:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain(
+./apps/proxy/tests/mccp-bridge.test.ts:151:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain("SplitSE");
+./docs/reviews/phase-1a-diff.patch:151:+ * WS messages: binary or text frames are raw client→mud bytes (usually UTF-8 typed commands as latin1/utf8).
+./apps/web/src/App.tsx:10:  resolveWidthMode,
+./apps/web/src/App.tsx:126:      resolveWidthMode({
+./apps/web/src/App.tsx:128:        widthMode: profile?.widthMode,
+./apps/web/src/App.tsx:130:    [profile?.charset, profile?.widthMode],
+./apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-hetero-codex.err:1343:  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+./docs/reviews/2026-07-21-cjk-width-brief.txt:6:1) Fix RW MOTD misalignment via charset-aware cell width (CJK vs western), NOT global Ambiguous=2.
+./docs/reviews/2026-07-21-cjk-width-minimax.out:11:3. **§3 Acceptance #3**: 「RW login MOTD Big5 經 buffer(80) 後圖形列 display width 彼此差 ≤ 歷史 byte-width 設計」— 缺 golden snapshot 位置或命名約定。建議：明確 `fixtures/rw-motd-golden.ts` 或類似，讓 W3 test 可引用。
+./docs/reviews/fix-double-expand.md:267:            const text = typeof data === "string" ? data : data.toString("utf8");
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:16:Must: resolveWidthMode; isWide cjk vs western; ScreenBuffer setWidthMode clears; web profile→widthMode; RW MOTD golden; SELF-HOSTED-PROXY.md; utf8 default western.
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:22:Read packages/profiles/src/widthMode.ts, packages/terminal/src/width.ts buffer.ts, apps/web TerminalHost App, tests.
+./docs/reviews/round1-qwen.prompt.txt:194:- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
+./docs/reviews/phase1a-qwen.prompt.txt:183:+ * WS messages: binary or text frames are raw client→mud bytes (usually UTF-8 typed commands as latin1/utf8).
+./docs/reviews/phase1a-postfix-pack-r4.md:279:            const text = typeof data === "string" ? data : data.toString("utf8");
+./docs/reviews/2026-07-21-cjk-width-glm-r2.out:8:- §1.4 leaves `resolveWidthMode` home ambiguous ("profiles 或 terminal"); §3 unit-tests it as public, so pick `packages/profiles` (charset table already lives there) to avoid a cross-package import surprise at impl time.
+./docs/reviews/2026-07-21-cjk-width-glm-r2.out:13:1. **§1 dual mode sufficient?** Yes — EAW F/W in both modes, +A under cjk; utf8/unknown default western (conservative); euc-kr/shift-jis excluded from auto but manually overridable. Honest v1 scope (`v1.1 可加 DBCS-source bit`). Verified against current mode-less `isWide` (buffer.ts:367) which excludes U+2500 — root cause confirmed.
+./docs/reviews/round1-qwen.md:46:- **Byte-first pipeline is correctly elevated to a hard constraint.** The Global Constraints + research doc make "never `bytes.toString('utf8')`" and "strip-non-color CSI is a ship blocker" unfalsifiable rules — this is exactly how you prevent the #1 RW fidelity failure.
+./docs/reviews/full-land-pack.md:194:      const wide = isWide(ch);
+./docs/reviews/full-land-pack.md:257:function isWide(ch: string): boolean {
+./docs/reviews/full-land-pack.md:564:  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+./docs/reviews/full-land-pack.md:912:            const text = typeof data === "string" ? data : data.toString("utf8");
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:16:- resolveWidthMode before isWide(ch, cjk|western only)
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:17:- precise RW MOTD golden acceptance
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:32:> **Why**: RW MOTD 錯位根因是 **Ambiguous/DBCS 字寬**；產品目標**朝向** [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）可用，需 **charset-aware** 修法，並釐清 **共用 proxy IP** 與 MUD 多開偵測。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:44:| RW MOTD／框線 art 歪 | `ScreenBuffer.isWide` 把 Unicode **Ambiguous**（`─│┌` 等）當 **1 格**；Big5 art 按 **DBCS=2** 排 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:56:2. **Effective mode 先解析，再算 isWide**（`isWide` **永不**接收 `"auto"`）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:57:3. **CJK legacy charset** 預設 cjk mode；**`utf8` / 未知** 預設 western（保守，不誤傷）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:58:4. Profile 可 **人工 override** `widthMode: "cjk" | "western"`（無 auto 欄；auto 只存在於推導函式）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:65:  big5 | big5hkscs | gbk | gb18030 | utf8 | unknown
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:72:  utf-8, utf8 → utf8
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:74:function resolveWidthMode(profile):
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:75:  if profile.widthMode in {cjk, western}: return profile.widthMode
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:79:  return "western"   // utf8 | unknown | future encodings
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:81:// isWide ONLY sees effective mode:
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:82:function isWide(ch, mode: "cjk" | "western"):
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:93:**非目標 charset**（euc-kr / shift-jis）：v1 不進 auto→cjk；需要時用 **手動 widthMode=cjk**。
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:100:| Prompt 猜「這是 MOTD」再特判 | 脆 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:101:| 改伺服器 MOTD | 非我方 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:107:| `packages/terminal` | `resolveWidthMode` 可放 profiles 或 terminal；`isWide(ch, "cjk"\|"western")`；`ScreenBuffer` ctor / `setWidthMode` + **set 時 clear** |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:109:| `packages/profiles` | optional `widthMode?: "cjk"\|"western"`；charset 正規化表 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:163:| **L1 RW 驗證** | RW MOTD golden + 登入後 map 不歪 | P0 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:176:3. **Fixture**: RW login MOTD Big5 經 buffer(80) 後，圖形列 display width **彼此差 ≤ 歷史 byte-width 設計**（或 golden snapshot 關鍵列對齊）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:177:4. Profile `charset=big5hkscs` → 預設 cjk mode；`utf8` → western。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:179:6. **不**改變 utf8 預設行為（回歸測試鎖死）。
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:229:| 字寬／MOTD | **本 plan** | — |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:246:| **W1** | `widthMode` + `isWide(ch, mode)` + ScreenBuffer API | S | — |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:248:| **W3** | Tests：cjk vs western + RW MOTD fixture（redacted） | S | W1 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:264:| CJK mode 誤用於 utf8 服 | charset 預設 + western 回歸測 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:305:- 本倉：`buffer.ts` `isWide`；`profiles` charset；`docs/security/hosted-proxy-threat-model.md`  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:306:- Session：RW MOTD byte-width vs isWide mismatch survey  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:387:> **Why**: RW MOTD 錯位根因是 **Ambiguous/DBCS 字寬**；產品目標**朝向** [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）可用，需 **charset-aware** 修法，並釐清 **共用 proxy IP** 與 MUD 多開偵測。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:399:| RW MOTD／框線 art 歪 | `ScreenBuffer.isWide` 把 Unicode **Ambiguous**（`─│┌` 等）當 **1 格**；Big5 art 按 **DBCS=2** 排 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:411:2. **Effective mode 先解析，再算 isWide**（`isWide` **永不**接收 `"auto"`）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:412:3. **CJK legacy charset** 預設 cjk mode；**`utf8` / 未知** 預設 western（保守，不誤傷）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:413:4. Profile 可 **人工 override** `widthMode: "cjk" | "western"`（無 auto 欄；auto 只存在於推導函式）。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:420:  big5 | big5hkscs | gbk | gb18030 | utf8 | unknown
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:427:  utf-8, utf8 → utf8
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:429:function resolveWidthMode(profile):
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:430:  if profile.widthMode in {cjk, western}: return profile.widthMode
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:434:  return "western"   // utf8 | unknown | future encodings
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:436:// isWide ONLY sees effective mode:
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:437:function isWide(ch, mode: "cjk" | "western"):
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:448:**非目標 charset**（euc-kr / shift-jis）：v1 不進 auto→cjk；需要時用 **手動 widthMode=cjk**。
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:455:| Prompt 猜「這是 MOTD」再特判 | 脆 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:456:| 改伺服器 MOTD | 非我方 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:462:| `packages/terminal` | `resolveWidthMode` 可放 profiles 或 terminal；`isWide(ch, "cjk"\|"western")`；`ScreenBuffer` ctor / `setWidthMode` + **set 時 clear** |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:464:| `packages/profiles` | optional `widthMode?: "cjk"\|"western"`；charset 正規化表 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:518:| **L1 RW 驗證** | RW MOTD golden + 登入後 map 不歪 | P0 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:531:3. **Unit**: `resolveWidthMode({charset:'big5hkscs'})=='cjk'`；`utf8`→`western`；`unknown`→`western`；顯式 `widthMode:'cjk'` 覆蓋 charset。  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:534:   - 以 `widthMode=cjk`、`cols=80` 寫入 buffer 後，對 **約定列號**（MOTD 圖形區，例如 decodable 後非空 art 列）斷言：  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:593:| 字寬／MOTD | **本 plan** | — |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:610:| **W1** | `widthMode` + `isWide(ch, mode)` + ScreenBuffer API | S | — |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:612:| **W3** | Tests：cjk vs western + RW MOTD fixture（redacted） | S | W1 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:635:| CJK mode 誤用於 utf8 服 | charset 預設 + western 回歸測 |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:683:- 本倉：`buffer.ts` `isWide`；`profiles` charset；`docs/security/hosted-proxy-threat-model.md`  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:684:- Session：RW MOTD byte-width vs isWide mismatch survey  
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:691:  "cp950/ms950 應正規化為 big5，而非 big5hkscs；雖不影響 widthMode，但 charset identity 不精確。",
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:701:  "cp950/ms950 應正規化為 big5，而非 big5hkscs；雖不影響 widthMode，但 charset identity 不精確。",
+packages/terminal/tests/map-vt.test.ts:71:    const ansi = readFileSync(p, "utf8");
+./docs/projects/2026-07-21-cjk-cell-width/README.md:9:- `resolveWidthMode` / charset aliases (`@assmud/profiles`)  
+./docs/projects/2026-07-21-cjk-cell-width/README.md:10:- `isWide(ch, cjk|western)` + ScreenBuffer widthMode  
+./docs/projects/2026-07-21-cjk-cell-width/README.md:12:- RW MOTD golden test  
+./docs/projects/2026-07-21-cjk-cell-width/README.md:13:- `docs/deploy/SELF-HOSTED-PROXY.md`  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:5:> **Why**: RW MOTD 錯位根因是 **Ambiguous/DBCS 字寬**；產品目標**朝向** [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）可用，需 **charset-aware** 修法，並釐清 **共用 proxy IP** 與 MUD 多開偵測。  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:17:| RW MOTD／框線 art 歪 | `ScreenBuffer.isWide` 把 Unicode **Ambiguous**（`─│┌` 等）當 **1 格**；Big5 art 按 **DBCS=2** 排 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:29:2. **Effective mode 先解析，再算 isWide**（`isWide` **永不**接收 `"auto"`）。  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:30:3. **CJK legacy charset** 預設 cjk mode；**`utf8` / 未知** 預設 western（保守，不誤傷）。  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:31:4. Profile 可 **人工 override** `widthMode: "cjk" | "western"`（無 auto 欄；auto 只存在於推導函式）。  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:38:  big5 | big5hkscs | gbk | gb18030 | utf8 | unknown
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:45:  utf-8, utf8 → utf8
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:47:function resolveWidthMode(profile):
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:48:  if profile.widthMode in {cjk, western}: return profile.widthMode
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:52:  return "western"   // utf8 | unknown | future encodings
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:54:// isWide ONLY sees effective mode:
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:55:function isWide(ch, mode: "cjk" | "western"):
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:66:**非目標 charset**（euc-kr / shift-jis）：v1 不進 auto→cjk；需要時用 **手動 widthMode=cjk**。
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:73:| Prompt 猜「這是 MOTD」再特判 | 脆 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:74:| 改伺服器 MOTD | 非我方 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:80:| `packages/profiles` | **`resolveWidthMode` + charset alias 表**（charset 已在此）；`widthMode?: "cjk"\|"western"` |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:81:| `packages/terminal` | `isWide(ch, "cjk"\|"western")`；`ScreenBuffer` ctor / `setWidthMode` + **set 時 clear** |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:136:| **L1 RW 驗證** | RW MOTD golden + 登入後 map 不歪 | P0 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:149:3. **Unit**: `resolveWidthMode({charset:'big5hkscs'})=='cjk'`；`utf8`→`western`；`unknown`→`western`；顯式 `widthMode:'cjk'` 覆蓋 charset。  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:152:   - 以 `widthMode=cjk`、`cols=80` 寫入 buffer 後，對 **約定列號**（MOTD 圖形區，例如 decodable 後非空 art 列）斷言：  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:211:| 字寬／MOTD | **本 plan** | — |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:228:| **W1** | `widthMode` + `isWide(ch, mode)` + ScreenBuffer API | S | — |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:230:| **W3** | Tests：cjk vs western + RW MOTD fixture（redacted） | S | W1 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:253:| CJK mode 誤用於 utf8 服 | charset 預設 + western 回歸測 |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:302:- 本倉：`buffer.ts` `isWide`；`profiles` charset；`docs/security/hosted-proxy-threat-model.md`  
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:303:- Session：RW MOTD byte-width vs isWide mismatch survey  
+packages/terminal/tests/buffer.test.ts:6:import { isWide } from "../src/width.js";
+packages/terminal/tests/buffer.test.ts:12:describe("isWide modes", () => {
+packages/terminal/tests/buffer.test.ts:15:      expect(isWide(ch, "cjk")).toBe(true);
+packages/terminal/tests/buffer.test.ts:16:      expect(isWide(ch, "western")).toBe(false);
+packages/terminal/tests/buffer.test.ts:21:    expect(isWide("A", "cjk")).toBe(false);
+packages/terminal/tests/buffer.test.ts:22:    expect(isWide("A", "western")).toBe(false);
+packages/terminal/tests/buffer.test.ts:26:    expect(isWide("中", "cjk")).toBe(true);
+packages/terminal/tests/buffer.test.ts:27:    expect(isWide("中", "western")).toBe(true);
+packages/terminal/tests/buffer.test.ts:89:  it("RW MOTD: cjk mode per-line cursor matches Big5 byte-cell width", () => {
+
+exec
+/usr/bin/zsh -lc "sed -n '1,210p' apps/web/src/TerminalHost.tsx; sed -n '1,170p' apps/web/src/App.tsx; sed -n '470,520p' apps/web/src/App.tsx; sed -n '1,180p' packages/terminal/tests/buffer.test.ts; sed -n '1,140p' packages/profiles/tests/widthMode.test.ts; sed -n '1,260p' docs/deploy/SELF-HOSTED-PROXY.md; sed -n '1,100p' packages/profiles/src/index.ts; sed -n '1,80p' packages/terminal/src/index.ts; cat package.json; rg -n '\"test\"|vitest' packages/*/package.json apps/web/package.json pnpm-workspace.yaml" in /home/cookys/projects/assmud
+ exited 2 in 0ms:
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ScreenBuffer,
+  Canvas2DRenderer,
+  type SelectionRange,
+  type WidthMode,
+} from "@assmud/terminal";
+import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+
+export type { HelloMsg, StatusEvent };
+
+type Props = {
+  wsUrl: string | null;
+  hello: HelloMsg;
+  onStatus?: (e: StatusEvent) => void;
+  /** Telnet ECHO password-mode (transient; not connection status). */
+  onEchoMask?: (mask: boolean) => void;
+  injectCommand?: string;
+  onInjectConsumed?: () => void;
+  expandInput?: (line: string) => string[];
+  onServerLine?: (line: string) => void;
+  /** Full CSS font-family stack (primary + TC fallbacks) */
+  terminalFontStack?: string;
+  fontSizePx?: number;
+  /** Effective cell width mode (resolved from profile charset). */
+  widthMode?: WidthMode;
+};
+
+type CopyMenuMode = "selection" | "screen";
+
+// @refresh reset
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export function TerminalHost({
+  wsUrl,
+  hello,
+  onStatus,
+  onEchoMask,
+  injectCommand,
+  onInjectConsumed,
+  expandInput,
+  onServerLine,
+  terminalFontStack,
+  fontSizePx = 15,
+  widthMode = "western",
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+  const rendererRef = useRef(new Canvas2DRenderer());
+  const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
+  const widthModeRef = useRef(widthMode);
+  widthModeRef.current = widthMode;
+  const lineAcc = useRef("");
+  const socketRef = useRef<MudSocket | null>(null);
+  const selecting = useRef(false);
+  const selRef = useRef<SelectionRange | null>(null);
+
+  const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const helloRef = useRef(hello);
+  helloRef.current = hello;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const onEchoMaskRef = useRef(onEchoMask);
+  onEchoMaskRef.current = onEchoMask;
+  const onServerLineRef = useRef(onServerLine);
+  onServerLineRef.current = onServerLine;
+  const expandInputRef = useRef(expandInput);
+  expandInputRef.current = expandInput;
+  const onInjectConsumedRef = useRef(onInjectConsumed);
+  onInjectConsumedRef.current = onInjectConsumed;
+
+  const redraw = useCallback(() => {
+    rendererRef.current.draw(bufRef.current, selRef.current);
+  }, []);
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 1600);
+  };
+
+  const copyText = async (kind: "plain" | "ansi", scope: "selection" | "screen") => {
+    const buf = bufRef.current;
+    const sel = selRef.current;
+    let text: string;
+    if (scope === "selection" && sel) {
+      text =
+        kind === "ansi"
+          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+    } else {
+      text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
+    }
+    const ok = await writeClipboard(text);
+    setMenuMode(null);
+    flash(
+      ok
+        ? kind === "ansi"
+          ? "已複製（含色碼）"
+          : "已複製（純文字）"
+        : "複製失敗",
+    );
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    rendererRef.current.mount(canvas);
+    if (terminalFontStack) {
+      rendererRef.current.setTypography({
+        fontFamily: terminalFontStack,
+        fontSizePx,
+      });
+    }
+    redraw();
+    return () => rendererRef.current.dispose();
+  }, [redraw, terminalFontStack, fontSizePx]);
+
+  useEffect(() => {
+    if (!terminalFontStack) return;
+    rendererRef.current.setTypography({
+      fontFamily: terminalFontStack,
+      fontSizePx,
+    });
+    redraw();
+  }, [terminalFontStack, fontSizePx, redraw]);
+
+  // Charset / width mode change: clear buffer so cells never mix modes
+  useEffect(() => {
+    bufRef.current.setWidthMode(widthMode);
+    redraw();
+  }, [widthMode, redraw]);
+
+  useEffect(() => {
+    if (!wsUrl) return;
+
+    // Fresh session buffer with correct width mode
+    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+    decoderRef.current.reset();
+    lineAcc.current = "";
+
+    const sock = new MudSocket(wsUrl, () => helloRef.current);
+    socketRef.current = sock;
+
+    sock.setHandlers({
+      onBinary: (bytes) => {
+        const text = decoderRef.current.push(bytes);
+        if (!text) return;
+        bufRef.current.writeDecoded(text);
+        redraw();
+        lineAcc.current += text;
+        const parts = lineAcc.current.split(/\r?\n/);
+        lineAcc.current = parts.pop() ?? "";
+        for (const ln of parts) {
+          if (ln) onServerLineRef.current?.(ln);
+        }
+      },
+      onEchoMask: (mask) => {
+        onEchoMaskRef.current?.(mask);
+      },
+    });
+
+    const unsub = sock.subscribeStatus(() => {
+      onStatusRef.current?.(sock.getStatus());
+    });
+
+    sock.start();
+
+    return () => {
+      unsub();
+      sock.stop();
+      onEchoMaskRef.current?.(false);
+      if (socketRef.current === sock) socketRef.current = null;
+      decoderRef.current.reset();
+      lineAcc.current = "";
+    };
+  }, [wsUrl, redraw]);
+
+  useEffect(() => {
+    if (!injectCommand) return;
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(injectCommand) : [injectCommand];
+    for (const line of lines) socketRef.current?.send(line);
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TerminalHost, type HelloMsg } from "./TerminalHost";
+import {
+  DEFAULT_PROFILES,
+  loadProfiles,
+  saveProfiles,
+  type MudProfile,
+  exportProfilesJson,
+  importProfilesJson,
+  resolveWidthMode,
+} from "@assmud/profiles";
+import { ScriptEngine } from "@assmud/script-engine";
+import { RW_STARTER_PACK } from "@assmud/rw-pack";
+import { ClientMap } from "@assmud/mapper";
+import { ConnectGate } from "./components/ConnectGate";
+import { ConfirmModal } from "./components/ConfirmModal";
+import { StatusPill } from "./components/StatusPill";
+import { LocaleSwitch } from "./components/LocaleSwitch";
+import { applyAccent, loadAccent, type AccentId } from "./lib/theme";
+import {
+  statusEventsEqual,
+  type StatusEvent,
+} from "./lib/mudSocket";
+import { useLocale, useT } from "./i18n";
+import {
+  STATIC_CATALOG,
+  applyPreset,
+  loadTermFont,
+  resolveFontStack,
+  saveTermFont,
+  type TermFontConfig,
+} from "./termFonts/catalog";
+
+function newTabId(): string {
+  return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+const DEFAULT_WS =
+  import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
+
+const IDLE: StatusEvent = { code: "idle" };
+
+type Tab = {
+  id: string;
+  profileId: string;
+  connected: boolean;
+  status: StatusEvent;
+  log: string[];
+};
+
+const engine = new ScriptEngine();
+try {
+  engine.importPackage(JSON.stringify(RW_STARTER_PACK));
+} catch {
+  /* ignore */
+}
+const clientMap = new ClientMap();
+
+function useIsLg() {
+  const [lg, setLg] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const fn = () => setLg(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+  return lg;
+}
+
+export function App() {
+  const t = useT();
+  const { locale } = useLocale();
+  const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
+  const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
+  const fontStack = useMemo(
+    () => resolveFontStack(termFont, locale),
+    [termFont, locale],
+  );
+  const [token, setToken] = useState(
+    () => localStorage.getItem("assmud_token") ?? "",
+  );
+  const [accent, setAccent] = useState<AccentId>(() => loadAccent());
+  const [activeProfile, setActiveProfile] = useState(
+    profiles[0]?.id ?? "rw-4000",
+  );
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const id = newTabId();
+    return [
+      {
+        id,
+        profileId: "rw-4000",
+        connected: false,
+        status: IDLE,
+        log: [],
+      },
+    ];
+  });
+  const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
+  const [cmd, setCmd] = useState("");
+  const [inputDraft, setInputDraft] = useState("");
+  /** Telnet ECHO password-mode — only while server WILL ECHO. */
+  const [echoMask, setEchoMask] = useState(false);
+  const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
+  const [showLog, setShowLog] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [closeTargetId, setCloseTargetId] = useState<string | null>(null);
+  const isLg = useIsLg();
+  // Board: map open desktop, closed mobile
+  const [mapOpen, setMapOpen] = useState(true);
+  useEffect(() => {
+    setMapOpen(isLg);
+  }, [isLg]);
+
+  useEffect(() => {
+    applyAccent(accent);
+  }, [accent]);
+
+  const tab = tabs.find((t) => t.id === tabId) ?? tabs[0]!;
+  const profile =
+    profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
+    profiles[0]!;
+  const cellWidthMode = useMemo(
+    () =>
+      resolveWidthMode({
+        charset: profile?.charset,
+        widthMode: profile?.widthMode,
+      }),
+    [profile?.charset, profile?.widthMode],
+  );
+
+  const anyConnected = tabs.some((t) => t.connected);
+  const closeTarget = closeTargetId
+    ? tabs.find((t) => t.id === closeTargetId)
+    : undefined;
+  const closeTargetName =
+    profiles.find((p) => p.id === closeTarget?.profileId)?.name ??
+    closeTarget?.id ??
+    "session";
+
+  const requestCloseTab = (id: string) => {
+    setCloseTargetId(id);
+  };
+
+  const confirmCloseTab = () => {
+    const id = closeTargetId;
+    setCloseTargetId(null);
+    if (!id) return;
+
+    setTabs((ts) => {
+      const remaining = ts.filter((t) => t.id !== id);
+      if (remaining.length === 0) {
+        const fresh: Tab = {
+          id: newTabId(),
+          profileId: activeProfile,
+          connected: false,
+          status: IDLE,
+          log: [],
+        };
+        // switch after state settles
+        queueMicrotask(() => setTabId(fresh.id));
+        return [fresh];
+      }
+      if (tabId === id) {
+        const idx = ts.findIndex((t) => t.id === id);
+        const fallback =
+          remaining[Math.max(0, idx - 1)] ?? remaining[0]!;
+        queueMicrotask(() => setTabId(fallback.id));
+      }
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label={t("shell.settings")}
+        >
+          ⚙
+        </button>
+      </header>
+
+      {/* Main stage */}
+      <div className="flex-1 min-h-0 flex relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 p-2 sm:p-3">
+            <div
+              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              style={{
+                borderColor: "var(--border)",
+                background: "#0a0b0e",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+              }}
+            >
+              {tab.connected ? (
+                <TerminalHost
+                  key={tabId}
+                  wsUrl={wsUrl}
+                  hello={hello}
+                  injectCommand={cmd}
+                  onInjectConsumed={() => setCmd("")}
+                  expandInput={onSendThroughEngine}
+                  onServerLine={handleServerLine}
+                  onStatus={handleStatus}
+                  onEchoMask={handleEchoMask}
+                  terminalFontStack={fontStack}
+                  fontSizePx={termFont.fontSizePx}
+                  widthMode={cellWidthMode}
+                />
+              ) : (
+                <div
+                  className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  <p className="font-mono text-sm">{t("shell.session.idle")}</p>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
+                    style={{
+                      background: "var(--accent)",
+                      color: "#0a0b0e",
+                    }}
+                    onClick={connectTab}
+                  >
+                    {t("shell.connect")}
+                  </button>
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ScreenBuffer } from "../src/buffer.js";
+import { isWide } from "../src/width.js";
+import { visibleText } from "@assmud/vt";
+import { Big5StreamDecoder } from "@assmud/codec-big5";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+describe("isWide modes", () => {
+  it("box-drawing Ambiguous: wide only in cjk", () => {
+    for (const ch of ["─", "│", "┌", "╮"]) {
+      expect(isWide(ch, "cjk")).toBe(true);
+      expect(isWide(ch, "western")).toBe(false);
+    }
+  });
+
+  it("ASCII never wide", () => {
+    expect(isWide("A", "cjk")).toBe(false);
+    expect(isWide("A", "western")).toBe(false);
+  });
+
+  it("CJK ideograph wide in both", () => {
+    expect(isWide("中", "cjk")).toBe(true);
+    expect(isWide("中", "western")).toBe(true);
+  });
+});
+
+describe("ScreenBuffer", () => {
+  it("writes SGR colored text", () => {
+    const b = new ScreenBuffer(40, 5);
+    b.writeDecoded("\x1b[1;31mX\x1b[0m");
+    expect(b.cells[0]![0]!.ch).toBe("X");
+    expect(b.cells[0]![0]!.attrs.bold).toBe(true);
+    expect(b.cells[0]![0]!.attrs.fg).toBe(1);
+  });
+
+  it("exports plain without color codes", () => {
+    // western still treats 中 as wide (F/W range)
+    const b = new ScreenBuffer(40, 5, "western");
+    b.writeDecoded("\x1b[1;32m中\x1b[0mAB");
+    const plain = b.snapshotText();
+    expect(plain.startsWith("中AB")).toBe(true);
+    expect(plain.includes("\x1b")).toBe(false);
+  });
+
+  it("setWidthMode clears buffer", () => {
+    const b = new ScreenBuffer(20, 3, "western");
+    b.writeDecoded("Hi");
+    expect(b.cells[0]![0]!.ch).toBe("H");
+    b.setWidthMode("cjk");
+    expect(b.cells[0]![0]!.ch).toBe(" ");
+    expect(b.cursor).toEqual({ r: 0, c: 0 });
+  });
+
+  it("cjk mode advances two cells for box drawing", () => {
+    const b = new ScreenBuffer(10, 2, "cjk");
+    b.writeDecoded("──");
+    expect(b.cursor.c).toBe(4);
+    expect(b.cells[0]![0]!.ch).toBe("─");
+    expect(b.cells[0]![1]!.ch).toBe("");
+  });
+
+  it("western mode advances one cell for box drawing", () => {
+    const b = new ScreenBuffer(10, 2, "western");
+    b.writeDecoded("──");
+    expect(b.cursor.c).toBe(2);
+  });
+
+  it("exports ANSI with SGR and round-trips visible text", () => {
+    const b = new ScreenBuffer(40, 5);
+    b.writeDecoded("\x1b[1;31mHi\x1b[0m!");
+    const ansi = b.snapshotAnsi();
+    expect(ansi.includes("\x1b[")).toBe(true);
+    expect(visibleText(ansi).replace(/\s+$/m, "").startsWith("Hi!")).toBe(true);
+  });
+
+  it("exports linear selection", () => {
+    const b = new ScreenBuffer(10, 3);
+    b.writeDecoded("ABCDEFGHIJ\r\n0123456789");
+    const plain = b.exportSelectionPlain(0, 2, 1, 4);
+    // CDEFGHIJ + newline + 01234
+    expect(plain.split("\n")[0]).toContain("C");
+    expect(plain.includes("\n")).toBe(true);
+  });
+
+  it("RW MOTD: cjk mode per-line cursor matches Big5 byte-cell width", () => {
+    // Prefer stripped Big5 fixture (no IAC); fall back to bin strip
+    const big5Path = join(root, "tests/fixtures/streams/rw-banner-4000.big5.txt");
+    const lineBytesList: Uint8Array[] = [];
+    const rawFile = readFileSync(big5Path);
+    // Split on LF; drop CR
+    let start = 0;
+    for (let i = 0; i <= rawFile.length; i++) {
+      if (i === rawFile.length || rawFile[i] === 0x0a) {
+        let end = i;
+        if (end > start && rawFile[end - 1] === 0x0d) end -= 1;
+        // strip CSI from line
+        const slice = rawFile.subarray(start, end);
+        const out: number[] = [];
+        for (let j = 0; j < slice.length; j++) {
+          if (slice[j] === 0x1b && slice[j + 1] === 0x5b) {
+            j += 2;
+            while (j < slice.length && !(slice[j]! >= 0x40 && slice[j]! <= 0x7e))
+              j += 1;
+            continue;
+          }
+          out.push(slice[j]!);
+        }
+        lineBytesList.push(Uint8Array.from(out));
+        start = i + 1;
+      }
+    }
+
+    function byteCellWidth(line: Uint8Array): number {
+      let w = 0;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]!;
+        if (c >= 0x80 && i + 1 < line.length) {
+          w += 2;
+          i += 1;
+        } else {
+          w += 1;
+        }
+      }
+      return w;
+    }
+
+    let compared = 0;
+    for (const lb of lineBytesList) {
+      const expected = byteCellWidth(lb);
+      if (expected === 0 || expected > 80) continue;
+      // skip pure-space
+      if ([...lb].every((c) => c === 0x20)) continue;
+
+      const text = new Big5StreamDecoder("big5hkscs").push(lb);
+      const buf = new ScreenBuffer(80, 3, "cjk");
+      buf.writeDecoded(text);
+      // cursor.c after writing one line (no NL) == display width
+      expect(buf.cursor.c).toBe(expected);
+      compared += 1;
+    }
+    expect(compared).toBeGreaterThan(8);
+  });
+});
+import { describe, it, expect } from "vitest";
+import {
+  normalizeCharset,
+  resolveWidthMode,
+} from "../src/widthMode.js";
+
+describe("normalizeCharset", () => {
+  it("maps common aliases", () => {
+    expect(normalizeCharset("big5hkscs")).toBe("big5hkscs");
+    expect(normalizeCharset("Big5-HKSCS")).toBe("big5hkscs");
+    expect(normalizeCharset("cp950")).toBe("big5hkscs");
+    expect(normalizeCharset("gbk")).toBe("gbk");
+    expect(normalizeCharset("gb2312")).toBe("gbk");
+    expect(normalizeCharset("utf-8")).toBe("utf8");
+  });
+
+  it("unknown for unlisted", () => {
+    expect(normalizeCharset("euc-kr")).toBe("unknown");
+    expect(normalizeCharset("")).toBe("unknown");
+    expect(normalizeCharset(undefined)).toBe("unknown");
+  });
+});
+
+describe("resolveWidthMode", () => {
+  it("big5* / gbk → cjk", () => {
+    expect(resolveWidthMode({ charset: "big5hkscs" })).toBe("cjk");
+    expect(resolveWidthMode({ charset: "big5" })).toBe("cjk");
+    expect(resolveWidthMode({ charset: "gbk" })).toBe("cjk");
+  });
+
+  it("utf8 / unknown → western", () => {
+    expect(resolveWidthMode({ charset: "utf8" })).toBe("western");
+    expect(resolveWidthMode({ charset: "mystery" })).toBe("western");
+    expect(resolveWidthMode({})).toBe("western");
+  });
+
+  it("explicit widthMode overrides charset", () => {
+    expect(resolveWidthMode({ charset: "utf8", widthMode: "cjk" })).toBe(
+      "cjk",
+    );
+    expect(
+      resolveWidthMode({ charset: "big5hkscs", widthMode: "western" }),
+    ).toBe("western");
+  });
+});
+# Self-hosted proxy — 一等公民（IP / 多開）
+
+> 與 [`docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md`](../plans/2026-07-21-cjk-cell-width-taiwanmud.md) §4 連動。
+
+## 為什麼要自架
+
+多數台灣中文 MUD 用 **來源 IP** 做連線數／多開限制。  
+瀏覽器經 **共用 hosted proxy** 出口時，所有人變成 **同一個 IP** → 容易被踢或限連。
+
+**TCP 來源 IP = 連到 MUD 的那台機器**。客端無法偽造。
+
+| 部署 | MUD 看到的 IP | 多開風險 |
+|------|---------------|----------|
+| **本機 dev proxy** | 你的家用／公司出口 | 與 zMUD 相同（低，除非同 NAT 很多人） |
+| **你自己的 VPS proxy** | 該 VPS IP | 僅你的帳號共用該 IP |
+| **官方共用 hosted** | 單一／少數出口 | **高** — 熱門站易撞 |
+
+## 建議
+
+1. **預設心智**：自架／本機 proxy = **一等公民**；hosted = 便利層。  
+2. Hosted 必須有 token、per-user 連線上限、目的地 allowlist（見 threat model / abuse plan）。  
+3. **不要**用住宅代理池當預設解法。  
+4. 站方白名單官方 proxy IP 只能 **放寬容量**，不能還原「每個瀏覽器真人」身分。
+
+## 本機（localhost-dev）
+
+```bash
+ASSMUD_PROXY_MODE=localhost-dev \
+ASSMUD_BIND_HOST=0.0.0.0 \
+ASSMUD_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173" \
+npm run dev:proxy
+
+VITE_HOST=0.0.0.0 \
+VITE_PROXY_WS="ws://127.0.0.1:7788/ws" \
+npm run dev:web
+```
+
+出口 IP = 你跑 proxy 的機器 → 與桌面客戶端同模型。
+
+## 自架 VPS（概要）
+
+1. 在 VPS 跑 `@assmud/proxy`（prod 模式 + auth + Origin allowlist）。  
+2. 瀏覽器 `VITE_PROXY_WS=wss://your.domain/ws`。  
+3. MUD 看到 **VPS IP**（只有你的使用者走這台時，多開=你的帳號策略）。  
+4. 目的地仍受 allowlist／政策約束 — **不是** open relay。
+
+## 與台灣泥巴列表
+
+列表站多為 Big5 中文 MUD；**字寬**用 profile `charset=big5*` → cjk mode。  
+**IP** 問題與編碼無關 — 同一套自架策略適用全表。
+/** Connection profiles (Phase 4) — no secrets required; token optional. */
+
+export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+export {
+  normalizeCharset,
+  resolveWidthMode,
+} from "./widthMode.js";
+import type { WidthMode } from "./widthMode.js";
+
+export type MudProfile = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+  /** Optional cell-width override; omit to derive from charset. */
+  widthMode?: WidthMode;
+  tlsToMud?: boolean;
+  notes?: string;
+};
+
+const KEY = "assmud.profiles.v1";
+
+export const DEFAULT_PROFILES: MudProfile[] = [
+  {
+    id: "rw-4000",
+    name: "Revival World",
+    host: "mud.revivalworld.org",
+    port: 4000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-5000",
+    name: "Revival World (5000)",
+    host: "mud.revivalworld.org",
+    port: 5000,
+    charset: "big5hkscs",
+  },
+];
+
+export function loadProfiles(): MudProfile[] {
+  if (typeof localStorage === "undefined") return [...DEFAULT_PROFILES];
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [...DEFAULT_PROFILES];
+    const parsed = JSON.parse(raw) as MudProfile[];
+    return parsed.length ? parsed : [...DEFAULT_PROFILES];
+  } catch {
+    return [...DEFAULT_PROFILES];
+  }
+}
+
+export function saveProfiles(list: MudProfile[]): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(KEY, JSON.stringify(list));
+}
+
+export function exportProfilesJson(list: MudProfile[]): string {
+  return JSON.stringify(list, null, 2);
+}
+
+export function importProfilesJson(json: string): MudProfile[] {
+  const list = JSON.parse(json) as MudProfile[];
+  if (!Array.isArray(list)) throw new Error("invalid profiles");
+  return list.filter((p) => p.id && p.host && p.port);
+}
+export * from "./buffer.js";
+export * from "./canvas2d.js";
+export * from "./width.js";
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}
+rg: pnpm-workspace.yaml: No such file or directory (os error 2)
+
+exec
+/usr/bin/zsh -lc "sed -n '24,68p' docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md; sed -n '140,166p' docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md; npm test -- --run packages/profiles/tests/widthMode.test.ts packages/terminal/tests/buffer.test.ts; npm run typecheck" in /home/cookys/projects/assmud
+ succeeded in 2130ms:
+
+> assmud@0.1.0 test
+> vitest run --run packages/profiles/tests/widthMode.test.ts packages/terminal/tests/buffer.test.ts
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ packages/profiles/tests/widthMode.test.ts (5 tests) 4ms
+ ✓ packages/terminal/tests/buffer.test.ts (11 tests) 25ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  18:56:03
+   Duration  591ms (transform 125ms, setup 0ms, collect 159ms, tests 29ms, environment 0ms, prepare 146ms)
+
+
+> assmud@0.1.0 typecheck
+> tsc -b
+
+
+codex
+The focused tests and TypeScript build pass. Two acceptance details remain under scrutiny: whether CJK mode is limited to EAW F/W/A as specified, and whether the RW fixture assertion is a committed golden rather than a value recomputed by the test itself.
+exec
+/usr/bin/zsh -lc 'npm run build -w @assmud/web; git diff --check; git diff -- packages/profiles/src/widthMode.ts packages/terminal/src/width.ts packages/terminal/src/buffer.ts packages/terminal/tests/buffer.test.ts apps/web/src/TerminalHost.tsx apps/web/src/App.tsx docs/deploy/SELF-HOSTED-PROXY.md' in /home/cookys/projects/assmud
+ succeeded in 4037ms:
+
+> @assmud/web@0.1.0 build
+> tsc -p tsconfig.json && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 132 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.02 kB │ gzip:   0.55 kB
+dist/assets/index-CuR25c_7.css   17.72 kB │ gzip:   4.69 kB
+dist/assets/index-Dgq59DcK.js   607.96 kB │ gzip: 257.58 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.56s
+docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:3: trailing whitespace.
++> **Status**: **SHIP**（W1–W4+I1；`feat/cjk-cell-width`）  
+packages/terminal/src/buffer.ts:386: new blank line at EOF.
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index a9c7191..f9d5361 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -7,6 +7,7 @@ import {
+   type MudProfile,
+   exportProfilesJson,
+   importProfilesJson,
++  resolveWidthMode,
+ } from "@assmud/profiles";
+ import { ScriptEngine } from "@assmud/script-engine";
+ import { RW_STARTER_PACK } from "@assmud/rw-pack";
+@@ -120,6 +121,14 @@ export function App() {
+   const profile =
+     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
+     profiles[0]!;
++  const cellWidthMode = useMemo(
++    () =>
++      resolveWidthMode({
++        charset: profile?.charset,
++        widthMode: profile?.widthMode,
++      }),
++    [profile?.charset, profile?.widthMode],
++  );
+ 
+   const anyConnected = tabs.some((t) => t.connected);
+   const closeTarget = closeTargetId
+@@ -490,6 +499,7 @@ export function App() {
+                   onEchoMask={handleEchoMask}
+                   terminalFontStack={fontStack}
+                   fontSizePx={termFont.fontSizePx}
++                  widthMode={cellWidthMode}
+                 />
+               ) : (
+                 <div
+diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+index b2bba7a..f3f3287 100644
+--- a/apps/web/src/TerminalHost.tsx
++++ b/apps/web/src/TerminalHost.tsx
+@@ -3,6 +3,7 @@ import {
+   ScreenBuffer,
+   Canvas2DRenderer,
+   type SelectionRange,
++  type WidthMode,
+ } from "@assmud/terminal";
+ import { Big5StreamDecoder } from "@assmud/codec-big5";
+ import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+@@ -22,6 +23,8 @@ type Props = {
+   /** Full CSS font-family stack (primary + TC fallbacks) */
+   terminalFontStack?: string;
+   fontSizePx?: number;
++  /** Effective cell width mode (resolved from profile charset). */
++  widthMode?: WidthMode;
+ };
+ 
+ type CopyMenuMode = "selection" | "screen";
+@@ -63,12 +66,15 @@ export function TerminalHost({
+   onServerLine,
+   terminalFontStack,
+   fontSizePx = 15,
++  widthMode = "western",
+ }: Props) {
+   const canvasRef = useRef<HTMLCanvasElement>(null);
+   const wrapRef = useRef<HTMLDivElement>(null);
+-  const bufRef = useRef(new ScreenBuffer(80, 28));
++  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+   const rendererRef = useRef(new Canvas2DRenderer());
+   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
++  const widthModeRef = useRef(widthMode);
++  widthModeRef.current = widthMode;
+   const lineAcc = useRef("");
+   const socketRef = useRef<MudSocket | null>(null);
+   const selecting = useRef(false);
+@@ -146,9 +152,20 @@ export function TerminalHost({
+     redraw();
+   }, [terminalFontStack, fontSizePx, redraw]);
+ 
++  // Charset / width mode change: clear buffer so cells never mix modes
++  useEffect(() => {
++    bufRef.current.setWidthMode(widthMode);
++    redraw();
++  }, [widthMode, redraw]);
++
+   useEffect(() => {
+     if (!wsUrl) return;
+ 
++    // Fresh session buffer with correct width mode
++    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
++    decoderRef.current.reset();
++    lineAcc.current = "";
++
+     const sock = new MudSocket(wsUrl, () => helloRef.current);
+     socketRef.current = sock;
+ 
+diff --git a/packages/terminal/src/buffer.ts b/packages/terminal/src/buffer.ts
+index 7c56a2b..663fdff 100644
+--- a/packages/terminal/src/buffer.ts
++++ b/packages/terminal/src/buffer.ts
+@@ -4,12 +4,15 @@ import {
+   sgrDelta,
+   tokenizeAnsi,
+ } from "@assmud/vt";
++import { isWide, type WidthMode } from "./width.js";
+ 
+ export type Cell = { ch: string; attrs: Attrs };
++export type { WidthMode };
+ 
+ /**
+  * Full VT screen buffer for map_d-class redraws (Phase 1b+).
+  * Supports CUP, ED/EL, DECSTBM, save/restore cursor — not SGR-only.
++ * Cell width is charset-aware via widthMode (cjk | western).
+  */
+ export class ScreenBuffer {
+   cols: number;
+@@ -26,14 +29,31 @@ export class ScreenBuffer {
+   /** session log (plain text lines) */
+   sessionLog: string[] = [];
+   maxSessionLog = 20_000;
++  /** Effective width mode — never "auto". Default western (safe for utf8). */
++  widthMode: WidthMode = "western";
+ 
+-  constructor(cols = 80, rows = 24) {
++  constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
+     this.cols = cols;
+     this.rows = rows;
++    this.widthMode = widthMode;
+     this.scrollBottom = rows - 1;
+     this.cells = this.blank();
+   }
+ 
++  /**
++   * Change width mode. Clears the screen so cells never mix two width semantics.
++   */
++  setWidthMode(mode: WidthMode): void {
++    if (this.widthMode === mode) return;
++    this.widthMode = mode;
++    this.cells = this.blank();
++    this.cursor = { r: 0, c: 0 };
++    this.savedCursor = null;
++    this.attrs = defaultAttrs();
++    this.scrollTop = 0;
++    this.scrollBottom = this.rows - 1;
++  }
++
+   private blankRow(): Cell[] {
+     return Array.from({ length: this.cols }, () => ({
+       ch: " ",
+@@ -192,12 +212,12 @@ export class ScreenBuffer {
+       if (this.cursor.c >= this.cols) {
+         this.lineFeed();
+       }
+-      // Fullwidth: occupy two cells when codepoint is wide (rough CJK)
+-      const wide = isWide(ch);
++      // Fullwidth: two cells when isWide under current widthMode
++      const wide = isWide(ch, this.widthMode);
+       this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
+       this.cursor.c += 1;
+       if (wide && this.cursor.c < this.cols) {
+-        // placeholder second cell for dual-color: same ch marker empty continuation
++        // placeholder second cell for dual-color: empty continuation
+         this.cells[this.cursor.r]![this.cursor.c] = {
+           ch: "",
+           attrs: { ...attrs },
+@@ -364,17 +384,4 @@ export class ScreenBuffer {
+   }
+ }
+ 
+-function isWide(ch: string): boolean {
+-  const cp = ch.codePointAt(0) ?? 0;
+-  // rough CJK + fullwidth ranges
+-  return (
+-    (cp >= 0x1100 && cp <= 0x115f) ||
+-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
+-    (cp >= 0xac00 && cp <= 0xd7a3) ||
+-    (cp >= 0xf900 && cp <= 0xfaff) ||
+-    (cp >= 0xfe10 && cp <= 0xfe6f) ||
+-    (cp >= 0xff00 && cp <= 0xff60) ||
+-    (cp >= 0xffe0 && cp <= 0xffe6) ||
+-    (cp >= 0x20000 && cp <= 0x2fffd)
+-  );
+-}
++
+diff --git a/packages/terminal/tests/buffer.test.ts b/packages/terminal/tests/buffer.test.ts
+index 16652d4..00945b3 100644
+--- a/packages/terminal/tests/buffer.test.ts
++++ b/packages/terminal/tests/buffer.test.ts
+@@ -1,6 +1,32 @@
+ import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { dirname, join } from "node:path";
++import { fileURLToPath } from "node:url";
+ import { ScreenBuffer } from "../src/buffer.js";
++import { isWide } from "../src/width.js";
+ import { visibleText } from "@assmud/vt";
++import { Big5StreamDecoder } from "@assmud/codec-big5";
++
++const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
++
++describe("isWide modes", () => {
++  it("box-drawing Ambiguous: wide only in cjk", () => {
++    for (const ch of ["─", "│", "┌", "╮"]) {
++      expect(isWide(ch, "cjk")).toBe(true);
++      expect(isWide(ch, "western")).toBe(false);
++    }
++  });
++
++  it("ASCII never wide", () => {
++    expect(isWide("A", "cjk")).toBe(false);
++    expect(isWide("A", "western")).toBe(false);
++  });
++
++  it("CJK ideograph wide in both", () => {
++    expect(isWide("中", "cjk")).toBe(true);
++    expect(isWide("中", "western")).toBe(true);
++  });
++});
+ 
+ describe("ScreenBuffer", () => {
+   it("writes SGR colored text", () => {
+@@ -12,13 +38,37 @@ describe("ScreenBuffer", () => {
+   });
+ 
+   it("exports plain without color codes", () => {
+-    const b = new ScreenBuffer(40, 5);
++    // western still treats 中 as wide (F/W range)
++    const b = new ScreenBuffer(40, 5, "western");
+     b.writeDecoded("\x1b[1;32m中\x1b[0mAB");
+     const plain = b.snapshotText();
+     expect(plain.startsWith("中AB")).toBe(true);
+     expect(plain.includes("\x1b")).toBe(false);
+   });
+ 
++  it("setWidthMode clears buffer", () => {
++    const b = new ScreenBuffer(20, 3, "western");
++    b.writeDecoded("Hi");
++    expect(b.cells[0]![0]!.ch).toBe("H");
++    b.setWidthMode("cjk");
++    expect(b.cells[0]![0]!.ch).toBe(" ");
++    expect(b.cursor).toEqual({ r: 0, c: 0 });
++  });
++
++  it("cjk mode advances two cells for box drawing", () => {
++    const b = new ScreenBuffer(10, 2, "cjk");
++    b.writeDecoded("──");
++    expect(b.cursor.c).toBe(4);
++    expect(b.cells[0]![0]!.ch).toBe("─");
++    expect(b.cells[0]![1]!.ch).toBe("");
++  });
++
++  it("western mode advances one cell for box drawing", () => {
++    const b = new ScreenBuffer(10, 2, "western");
++    b.writeDecoded("──");
++    expect(b.cursor.c).toBe(2);
++  });
++
+   it("exports ANSI with SGR and round-trips visible text", () => {
+     const b = new ScreenBuffer(40, 5);
+     b.writeDecoded("\x1b[1;31mHi\x1b[0m!");
+@@ -35,4 +85,63 @@ describe("ScreenBuffer", () => {
+     expect(plain.split("\n")[0]).toContain("C");
+     expect(plain.includes("\n")).toBe(true);
+   });
++
++  it("RW MOTD: cjk mode per-line cursor matches Big5 byte-cell width", () => {
++    // Prefer stripped Big5 fixture (no IAC); fall back to bin strip
++    const big5Path = join(root, "tests/fixtures/streams/rw-banner-4000.big5.txt");
++    const lineBytesList: Uint8Array[] = [];
++    const rawFile = readFileSync(big5Path);
++    // Split on LF; drop CR
++    let start = 0;
++    for (let i = 0; i <= rawFile.length; i++) {
++      if (i === rawFile.length || rawFile[i] === 0x0a) {
++        let end = i;
++        if (end > start && rawFile[end - 1] === 0x0d) end -= 1;
++        // strip CSI from line
++        const slice = rawFile.subarray(start, end);
++        const out: number[] = [];
++        for (let j = 0; j < slice.length; j++) {
++          if (slice[j] === 0x1b && slice[j + 1] === 0x5b) {
++            j += 2;
++            while (j < slice.length && !(slice[j]! >= 0x40 && slice[j]! <= 0x7e))
++              j += 1;
++            continue;
++          }
++          out.push(slice[j]!);
++        }
++        lineBytesList.push(Uint8Array.from(out));
++        start = i + 1;
++      }
++    }
++
++    function byteCellWidth(line: Uint8Array): number {
++      let w = 0;
++      for (let i = 0; i < line.length; i++) {
++        const c = line[i]!;
++        if (c >= 0x80 && i + 1 < line.length) {
++          w += 2;
++          i += 1;
++        } else {
++          w += 1;
++        }
++      }
++      return w;
++    }
++
++    let compared = 0;
++    for (const lb of lineBytesList) {
++      const expected = byteCellWidth(lb);
++      if (expected === 0 || expected > 80) continue;
++      // skip pure-space
++      if ([...lb].every((c) => c === 0x20)) continue;
++
++      const text = new Big5StreamDecoder("big5hkscs").push(lb);
++      const buf = new ScreenBuffer(80, 3, "cjk");
++      buf.writeDecoded(text);
++      // cursor.c after writing one line (no NL) == display width
++      expect(buf.cursor.c).toBe(expected);
++      compared += 1;
++    }
++    expect(compared).toBeGreaterThan(8);
++  });
+ });
+
+codex
+VERDICT: BLOCK
+MUST_FIX: [
+  "packages/terminal/src/width.ts: CJK mode marks every non-ASCII code point wide, including EAW Neutral/Narrow characters and combining marks. Implement the specified EAW F/W/A behavior; uncommon EAW=N must remain width 1.",
+  "packages/terminal/tests/buffer.test.ts: RW MOTD test recomputes expectations from the same fixture and samples whichever lines qualify; it is not a committed golden. Assert agreed line numbers against fixed expected columns or a committed rw-motd-cols.json table."
+]
+NITS: [
+  "git diff --check reports trailing whitespace in the plan and an extra blank line at EOF in buffer.ts.",
+  "Web build passes with the existing large-chunk warning."
+]
+tokens used
+61,086
+VERDICT: BLOCK
+MUST_FIX: [
+  "packages/terminal/src/width.ts: CJK mode marks every non-ASCII code point wide, including EAW Neutral/Narrow characters and combining marks. Implement the specified EAW F/W/A behavior; uncommon EAW=N must remain width 1.",
+  "packages/terminal/tests/buffer.test.ts: RW MOTD test recomputes expectations from the same fixture and samples whichever lines qualify; it is not a committed golden. Assert agreed line numbers against fixed expected columns or a committed rw-motd-cols.json table."
+]
+NITS: [
+  "git diff --check reports trailing whitespace in the plan and an extra blank line at EOF in buffer.ts.",
+  "Web build passes with the existing large-chunk warning."
+]

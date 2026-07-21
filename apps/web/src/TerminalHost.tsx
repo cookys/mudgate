@@ -3,6 +3,7 @@ import {
   ScreenBuffer,
   Canvas2DRenderer,
   type SelectionRange,
+  type WidthMode,
 } from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
@@ -22,6 +23,8 @@ type Props = {
   /** Full CSS font-family stack (primary + TC fallbacks) */
   terminalFontStack?: string;
   fontSizePx?: number;
+  /** Effective cell width mode (resolved from profile charset). */
+  widthMode?: WidthMode;
 };
 
 type CopyMenuMode = "selection" | "screen";
@@ -63,12 +66,15 @@ export function TerminalHost({
   onServerLine,
   terminalFontStack,
   fontSizePx = 15,
+  widthMode = "western",
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const bufRef = useRef(new ScreenBuffer(80, 28));
+  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
   const rendererRef = useRef(new Canvas2DRenderer());
   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
+  const widthModeRef = useRef(widthMode);
+  widthModeRef.current = widthMode;
   const lineAcc = useRef("");
   const socketRef = useRef<MudSocket | null>(null);
   const selecting = useRef(false);
@@ -146,8 +152,19 @@ export function TerminalHost({
     redraw();
   }, [terminalFontStack, fontSizePx, redraw]);
 
+  // Charset / width mode change: clear buffer so cells never mix modes
+  useEffect(() => {
+    bufRef.current.setWidthMode(widthMode);
+    redraw();
+  }, [widthMode, redraw]);
+
   useEffect(() => {
     if (!wsUrl) return;
+
+    // Fresh session buffer with correct width mode
+    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+    decoderRef.current.reset();
+    lineAcc.current = "";
 
     const sock = new MudSocket(wsUrl, () => helloRef.current);
     socketRef.current = sock;
