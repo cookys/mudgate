@@ -11,6 +11,7 @@ import { AbuseLimiter, defaultLimits, normalizeIp } from "./limits.js";
 import { resolveEffectiveClientAddr } from "./clientAddr.js";
 import { bridgeWsToMud } from "./bridge.js";
 import { nowIso, tokenHmac, writeAudit } from "./audit.js";
+import { envProxyProtocolEnabled } from "./proxyProtocol.js";
 
 type HelloMsg = {
   type: "hello";
@@ -264,6 +265,8 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
               rows,
               checkInboundBytes: checkIn,
               checkOutboundBytes: checkOut,
+              proxyProtocol: envProxyProtocolEnabled(),
+              proxySrcIp: effectiveIp,
             });
           } catch {
             ws.close(1008, "bad hello");

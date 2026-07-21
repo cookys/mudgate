@@ -84,6 +84,23 @@ Caddy（TLS 終止 + 轉 `/ws`）應：
 - 玩家填 **shared site token**（與 `ASSMUD_AUTH_TOKEN` 相同）  
 - UI 應使用 site mode 文案（本站 Web 閘道；禁止「站方也看不到密碼」）
 
+## PROXY protocol v1（S2 · experimental）
+
+```bash
+# 預設 0 — 不寫前綴（byte-for-byte 無 PROXY）
+export ASSMUD_PROXY_PROTOCOL=0
+
+# 僅當 mud / tcp shim **支援** HAProxy PROXY v1 時再開：
+export ASSMUD_PROXY_PROTOCOL=1
+```
+
+| 項 | 契約 |
+|----|------|
+| 何時寫 | allowlisted dest **TCP connect 成功之後**、任何 telnet 位元組**之前**；每連線一次 |
+| 內容 | `PROXY TCP4 <effectiveClientAddr> <mudIp> <srcPort> <dstPort>\r\n` |
+| 非 IPv4 client | `PROXY UNKNOWN\r\n` |
+| RW / 未驗證 mud | **勿開** — 會把首行當垃圾字元；標 experimental |
+
 ## 驗證
 
 ```bash

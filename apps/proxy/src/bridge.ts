@@ -9,6 +9,10 @@ import {
   OPT,
   type TelnetEvent,
 } from "@assmud/protocol";
+import {
+  envProxyProtocolEnabled,
+  formatProxyV1Header,
+} from "./proxyProtocol.js";
 
 export type BridgeOptions = {
   host: string;
@@ -27,6 +31,15 @@ export type BridgeOptions = {
    */
   checkInboundBytes?: (n: number) => boolean;
   checkOutboundBytes?: (n: number) => boolean;
+  /**
+   * Experimental PROXY protocol v1 (ASSMUD_PROXY_PROTOCOL=1).
+   * Written once after TCP connect succeeds, before any telnet bytes.
+   */
+  proxyProtocol?: boolean;
+  /** Source IP for PROXY header (effectiveClientAddr). */
+  proxySrcIp?: string;
+  /** Source port if known (0 allowed). */
+  proxySrcPort?: number;
 };
 
 const MAX_PARSER_FEED = 60_000;
@@ -101,6 +114,11 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   let echoMask = false;
 
   const sock = net.connect({ host: opts.host, port: opts.port });
+  const proxyEnabled = opts.proxyProtocol ?? envProxyProtocolEnabled();
+  let proxyHeaderWritten = false;
+  /** When PROXY enabled, queue app bytes until header is first on the wire. */
+  let tcpAppReady = !proxyEnabled;
+  const tcpAppQueue: Uint8Array[] = [];
 
   const sendJson = (obj: Record<string, unknown>) => {
     if (closed || ws.readyState !== ws.OPEN) return;
@@ -128,6 +146,7 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   const destroy = (reason: string) => {
     if (closed) return;
     closed = true;
+    tcpAppQueue.length = 0;
     try {
       inflate?.destroy();
     } catch {
@@ -159,8 +178,46 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
     }
   };
 
+  const flushTcpAppQueue = () => {
+    for (const b of tcpAppQueue) {
+      if (sock.destroyed) break;
+      sock.write(Buffer.from(b));
+    }
+    tcpAppQueue.length = 0;
+  };
+
+  const writeProxyHeaderIfNeeded = () => {
+    if (proxyHeaderWritten || !proxyEnabled) return;
+    proxyHeaderWritten = true;
+    const srcIp = opts.proxySrcIp ?? "0.0.0.0";
+    const header = formatProxyV1Header({
+      srcIp,
+      srcPort: opts.proxySrcPort ?? 0,
+      dstIp: opts.host,
+      dstPort: opts.port,
+    });
+    try {
+      sock.write(header, "ascii");
+    } catch {
+      destroy("proxy protocol write failed");
+      return;
+    }
+  };
+
+  sock.on("connect", () => {
+    if (closed) return;
+    writeProxyHeaderIfNeeded();
+    tcpAppReady = true;
+    flushTcpAppQueue();
+  });
+
   const sendTcp = (buf: Uint8Array) => {
-    if (!sock.destroyed) sock.write(Buffer.from(buf));
+    if (sock.destroyed || closed) return;
+    if (!tcpAppReady) {
+      tcpAppQueue.push(buf);
+      return;
+    }
+    sock.write(Buffer.from(buf));
   };
 
   const forwardData = (bytes: Uint8Array) => {
