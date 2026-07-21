@@ -7,6 +7,7 @@ import {
   assertDestinationAllowed,
   safeEqual,
 } from "./policy.js";
+import { AbuseLimiter, defaultLimits, normalizeIp } from "./limits.js";
 import { bridgeWsToMud } from "./bridge.js";
 
 type HelloMsg = {
@@ -24,6 +25,9 @@ function clamp(n: number, lo: number, hi: number, fallback: number): number {
 }
 
 export function createProxyServer(cfg: ProxyConfig): http.Server {
+  const limits = new AbuseLimiter(defaultLimits(cfg.mode));
+  let connSeq = 0;
+
   const server = http.createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, {
@@ -49,6 +53,13 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
         return;
       }
 
+      const ip = normalizeIp(req.socket.remoteAddress);
+      if (!limits.tryUpgrade(ip)) {
+        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
       const origin = req.headers.origin;
       if (!checkOrigin(origin, cfg)) {
         socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
@@ -60,15 +71,26 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
       const preAuth = checkAuth(url, cfg, req.headers.cookie, req.headers.authorization);
 
       wss.handleUpgrade(req, socket, head, (ws) => {
+        const connId = `${ip}:${++connSeq}`;
         const timer = setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.close(1008, "hello timeout");
           }
-        }, 5_000);
+        }, limits.helloTimeoutMs);
+
+        let release: (() => void) | null = null;
+        ws.on("close", () => {
+          release?.();
+          release = null;
+        });
 
         ws.once("message", async (data) => {
           clearTimeout(timer);
           try {
+            if (!limits.tryHello(connId)) {
+              ws.close(1008, "hello rate");
+              return;
+            }
             const text = typeof data === "string" ? data : data.toString("utf8");
             const msg = JSON.parse(text) as HelloMsg;
             if (msg.type !== "hello") {
@@ -86,6 +108,18 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
             }
             if (!authed) {
               ws.close(1008, "unauthorized");
+              return;
+            }
+
+            const tokenKey =
+              cfg.authToken && msg.token && safeEqual(msg.token, cfg.authToken)
+                ? "tok"
+                : preAuth
+                  ? "pre"
+                  : "anon";
+            release = limits.tryAcquire(ip, tokenKey);
+            if (!release) {
+              ws.close(1008, "concurrency limit");
               return;
             }
 

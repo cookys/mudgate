@@ -23,7 +23,7 @@
 | Credential logging | **Never** log telnet payloads by default; metadata-only audit |
 | Session theft | Short-lived tokens; **httpOnly + Secure + SameSite=Strict** session cookie (or equivalent); revoke on logout |
 | Cross-site WebSocket hijack | Validate **`Origin`** (and Host) on WSS upgrade against allowlist; reject missing/mismatched Origin in prod |
-| Resource exhaustion | Per-user concurrency, connect rate, idle timeout; deploy runbook: global max connections |
+| Resource exhaustion | Per-IP/token concurrency + upgrade/hello rate limits (`apps/proxy/src/limits.ts`); MCCP inflate caps; deploy runbook |
 | DNS rebinding | Resolve → validate IP → connect; deny if rebinding class; re-validate per connect |
 | Insider / support tools | No default full-stream capture; explicit time-boxed consent only |
 | Malicious trigger package | Declarative engine **cannot** read document cookies, `localStorage` secrets, or arbitrary `fetch` to exfiltrate session |

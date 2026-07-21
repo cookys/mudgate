@@ -1,6 +1,6 @@
 # Plan — Proxy abuse limits (hosted-ready)
 
-> **Status**: **fold R2** (multi-LLM)  
+> **Status**: **SHIP**  
 > **Owner**: cookys  
 > **Seq**: **5** on roadmap  
 > **Backlog**: #11  
