@@ -1,6 +1,6 @@
 # Plan — Terminal fonts F2+ (trial UX)
 
-> **Status**: **fold R2 nits** · multi-LLM APPROVE_WITH_NITS  
+> **Status**: **SHIP**  
 > **Owner**: cookys  
 > **Seq**: **3** on roadmap  
 > **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  

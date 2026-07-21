@@ -16,6 +16,7 @@ import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
 import { LocaleSwitch } from "./components/LocaleSwitch";
+import { FontTrialPanel } from "./components/FontTrialPanel";
 import { applyAccent, loadAccent, type AccentId } from "./lib/theme";
 import {
   statusEventsEqual,
@@ -95,6 +96,7 @@ export function App() {
   const [trustMode, setTrustMode] = useState<TrustMode>(() => loadTrustMode());
   const [customWs, setCustomWs] = useState(() => loadCustomWs());
   const [customAck, setCustomAck] = useState(() => loadCustomAck());
+  const [fontTrialOpen, setFontTrialOpen] = useState(false);
   const [accent, setAccent] = useState<AccentId>(() => loadAccent());
   const [activeProfile, setActiveProfile] = useState(
     profiles[0]?.id ?? "rw-4000",
@@ -371,6 +373,17 @@ export function App() {
       className="h-full flex flex-col min-h-0"
       style={{ background: "var(--bg-void)" }}
     >
+      <FontTrialPanel
+        open={fontTrialOpen}
+        base={termFont}
+        locale={locale}
+        onClose={() => setFontTrialOpen(false)}
+        onApply={(cfg) => {
+          setTermFont(cfg);
+          saveTermFont(cfg);
+          setFontTrialOpen(false);
+        }}
+      />
       <ConfirmModal
         open={closeTargetId != null}
         title={t("tab.close.title")}
@@ -760,6 +773,71 @@ export function App() {
                     />
                     TC fallback chain
                   </label>
+                  <label className="mt-2 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                    Custom primary
+                    <input
+                      className="mt-1 w-full rounded border px-2 py-1 font-mono text-xs"
+                      style={{
+                        background: "var(--bg-elevated)",
+                        borderColor: "var(--border)",
+                        color: "var(--text)",
+                      }}
+                      value={termFont.primary}
+                      onChange={(e) => {
+                        const next = {
+                          ...termFont,
+                          primary: e.target.value,
+                          presetId: "custom",
+                        };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                  </label>
+                  <label className="mt-2 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                    Size {termFont.fontSizePx}px
+                    <input
+                      type="range"
+                      min={10}
+                      max={24}
+                      value={termFont.fontSizePx}
+                      className="w-full"
+                      onChange={(e) => {
+                        const next = {
+                          ...termFont,
+                          fontSizePx: Number(e.target.value),
+                        };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                  </label>
+                  <label className="mt-1 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                    Cell width ×{termFont.cellWidthScale.toFixed(2)}
+                    <input
+                      type="range"
+                      min={80}
+                      max={140}
+                      value={Math.round(termFont.cellWidthScale * 100)}
+                      className="w-full"
+                      onChange={(e) => {
+                        const next = {
+                          ...termFont,
+                          cellWidthScale: Number(e.target.value) / 100,
+                        };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="mt-2 w-full rounded border px-2 py-1.5 text-xs"
+                    style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                    onClick={() => setFontTrialOpen(true)}
+                  >
+                    Font trial A/B…
+                  </button>
                   <p
                     className="mt-1 text-[10px] font-mono truncate"
                     style={{ color: "var(--text-faint)" }}
