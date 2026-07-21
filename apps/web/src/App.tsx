@@ -346,25 +346,34 @@ export function App() {
   /**
    * Fire a line to the MUD.
    * Prefer imperative mudSendRef (Enter); fall back to inject payload (auto-login).
+   * Empty line is allowed (bare Enter → CR/LF), zMUD-style.
    * @param secret — password / auto-login: no history, no › echo
    */
   const fireInject = useCallback(
     (line: string, opts?: { secret?: boolean; keepDraft?: boolean }) => {
+      // Preserve intentional blank Enter: do not early-return on empty.
+      // Non-empty commands still trim trailing spaces; pure whitespace → blank.
       const trimmed = line.trim();
-      if (!trimmed) return;
+      const toSend = trimmed.length > 0 ? trimmed : "";
       const secret = Boolean(opts?.secret || echoMaskRef.current);
-      if (!secret) {
-        cmdHistoryRef.current.push(trimmed);
-        if (echoCommands) setLocalEcho(trimmed);
+      // Secrets / auto-login must not send blank
+      if (secret && !toSend) return;
+      if (!secret && toSend) {
+        cmdHistoryRef.current.push(toSend);
+        if (echoCommands) setLocalEcho(toSend);
       }
       // 1) Direct send if TerminalHost has published a sender
       const direct = mudSendRef.current;
       if (direct) {
-        direct(trimmed);
+        direct(toSend);
       } else {
         // 2) Fallback: id-based inject (socket may still be mounting)
         injectIdRef.current += 1;
-        setInjectPayload({ id: injectIdRef.current, line: trimmed });
+        // Use a sentinel so inject effect still fires for blank lines
+        setInjectPayload({
+          id: injectIdRef.current,
+          line: toSend.length > 0 ? toSend : "\n",
+        });
       }
       if (!opts?.keepDraft) {
         setInputDraft("");

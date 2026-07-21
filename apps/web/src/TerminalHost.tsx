@@ -385,18 +385,22 @@ export function TerminalHost({
     };
   }, [wsUrl]);
 
-  /** Expand + send one user line; MudSocket queues if not connected yet. */
+  /** Expand + send one user line; MudSocket queues if not connected yet.
+   * Empty string = bare Enter (blank line / CR-LF only). */
   const deliverLine = useCallback((line: string): boolean => {
-    const expand = expandInputRef.current;
-    const lines = expand ? expand(line) : [line];
     const sock = socketRef.current;
     if (!sock) return false;
-    let any = false;
-    for (const l of lines) {
-      if (sock.send(l)) any = true;
-      else any = true; // queued counts as accepted
+    // Blank Enter: do not run alias expand
+    if (line === "" || line === "\n" || line === "\r\n") {
+      sock.send("");
+      return true;
     }
-    return any || lines.length > 0;
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(line) : [line];
+    for (const l of lines) {
+      sock.send(l);
+    }
+    return lines.length > 0;
   }, []);
 
   // Publish imperative sender for App Enter / Send
@@ -410,10 +414,12 @@ export function TerminalHost({
 
   // Auto-login inject path (id-based; still ok for background sends)
   useEffect(() => {
-    if (!injectCommand?.line) return;
+    if (injectCommand == null) return;
     if (lastInjectIdRef.current === injectCommand.id) return;
     lastInjectIdRef.current = injectCommand.id;
-    deliverLine(injectCommand.line);
+    // line may be "\n" sentinel for blank Enter via inject fallback
+    const raw = injectCommand.line;
+    deliverLine(raw === "\n" || raw === "\r\n" ? "" : raw);
     onInjectConsumedRef.current?.();
   }, [injectCommand?.id, injectCommand?.line, deliverLine]);
 
