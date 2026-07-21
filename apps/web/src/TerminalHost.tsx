@@ -49,8 +49,9 @@ export function TerminalHost({
 
   useEffect(() => {
     if (!injectCommand) return;
+    // expand once here; sendLine must not re-expand injected pieces
     const lines = expandInput ? expandInput(injectCommand) : [injectCommand];
-    for (const line of lines) sendLine(line);
+    for (const line of lines) sendRaw(line);
     onInjectConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [injectCommand]);
@@ -139,13 +140,18 @@ export function TerminalHost({
     };
   }, [wsUrl, onStatus, onServerLine]);
 
-  const sendLine = (line: string) => {
+  const sendRaw = (line: string) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       if (line.length > 4096) return;
-      const lines = expandInput ? expandInput(line) : [line];
-      for (const l of lines) ws.send(l);
+      ws.send(line);
     }
+  };
+
+  /** User input: expand aliases once, then send. */
+  const sendLine = (line: string) => {
+    const lines = expandInput ? expandInput(line) : [line];
+    for (const l of lines) sendRaw(l);
   };
 
   return (

@@ -27,7 +27,8 @@ private/
 captures/
 recordings/
 sessions/
-profiles/
+/profiles/
+
 *.mudpkg
 *.zmp
 *.txt.log
