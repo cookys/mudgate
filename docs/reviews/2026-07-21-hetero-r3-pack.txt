@@ -1,0 +1,674 @@
+LOOP R3 re-review after fold. You previously may have BLOCKED.
+Output ENGINE / VERDICT_OVERALL / PER_PLAN / MUST_FIX / NITS / SAFE_IMPLEMENT_ORDER.
+If must-fixes addressed, APPROVE or APPROVE_WITH_NITS only.
+
+===== docs/plans/2026-07-21-roadmap-priority.md =====
+# Roadmap priority — full requirements scan (CEO ordered)
+
+> **Status**: **hetero multi-LLM BLOCK nits** — order must be MCCP→CI→fonts→OSS… (Grok+Codex 2026-07-21)  
+
+> **Owner**: cookys  
+> **Method**: 掃描 BACKLOG + zMUD matrix + residual plans + ship gaps → 依「先能連／能驗／能公開／再加深」排序。
+
+## Already SHIP (do not re-plan)
+
+| Item | Ref |
+|------|-----|
+| Bootstrap P0–P5 / web-zmud-rw | `2026-07-21-web-zmud-rw.md` |
+| UI shell + copy + MudSocket | `2026-07-21-ui-shell-ship.md` |
+| i18n baseline + StatusEvent | `2026-07-21-i18n-locale.md` |
+| Font stack baseline + TC chain | `terminal-fonts.md` (baseline) |
+
+## Ordered queue (implement after plan hetero OK)
+
+| Seq | Plan slug | Size | Why this order |
+|-----|-----------|------|----------------|
+| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質（**hetero 共識第 1**） |
+| **2** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 驗 MCCP/VT 回歸；**在 fonts/OSS 前** |
+| **3** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選 |
+| **4** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + LICENSE + deploy 食譜 |
+| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | hosted 安全 |
+| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 深度 |
+| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | 研究 only |
+
+## Deferred (P2 / not formal plan yet)
+
+| Backlog # | Item | Note |
+|-----------|------|------|
+| 3 | session replay | after log UX stable |
+| 4 | split sessions | after profile-library |
+| 5 | RW 2D map embed | optional chrome |
+| 6 | PWA | after mobile thumb polish |
+| 7 | pack registry | community H |
+| 10 | telnets upstream | RW cleartext today |
+| 9 | threat model v2 write-up | fold into #5 when hosted |
+
+## Expand rule
+
+1. Child plan **hetero APPROVE / APPROVE_WITH_NITS**  
+2. Bootstrap `docs/projects/2026-07-21-<slug>/`  
+3. Implement on `feat/<slug>` · default impl grok-4.5 medium  
+4. Loop review → depth-0 qc → merge `develop`  
+
+===== docs/plans/2026-07-21-mccp2-stream.md =====
+# Plan — MCCP2 stream inflate (proxy)
+
+> **Status**: **fold R2** (multi-LLM loop) — implement after R2 non-BLOCK  
+> **Owner**: cookys  
+> **Seq**: **1**  
+> **Branch**: `feat/mccp2-stream`  
+> **Project**: `docs/projects/2026-07-21-mccp2-stream/`  
+
+## Goal
+
+Flag-gated **IAC DO MCCP2** + proxy **zlib stream inflate** before browser; never Telnet-parse compressed wire.
+
+## Hetero engines (must satisfy)
+
+Grok · Codex · GLM · MiniMax (Claude deferred to 2026-07-23 quota). See `docs/reviews/2026-07-21-hetero-multi-llm.md`.
+
+## Frozen wire path (R1+R2)
+
+### State
+
+```ts
+compressed_mode: boolean = false
+inflate: zlib.Inflate | null = null
+// counters (exact):
+// inflated_session_bytes: number  // lifetime of this bridge connection
+// inflated_window_bytes: number   // reset every WINDOW_MS
+// WINDOW_MS = 60_000
+// MAX_INFLATED_PER_WINDOW = env ASSMUD_MCCP_MAX_WINDOW_BYTES default 16*1024*1024
+// MAX_INFLATED_SESSION = env ASSMUD_MCCP_MAX_SESSION_BYTES default 256*1024*1024  // NOT 64MiB hard kill for long play
+// MAX_COMPRESSED_WIRE_SESSION = env default 128*1024*1024  // wire-side flood guard
+// MAX_PARSER_FEED_CHUNK = 60_000  // < TelnetParser.MAX_BUF 65536
+```
+
+### Per TCP chunk
+
+```
+if (!compressed_mode):
+  // Option A (required): bridge pre-scan OR parser returns residual
+  result = parser.pushWithBoundary(chunk)  
+  // events + optional { mccpStarted: true, residualAfterSe: Uint8Array }
+  for data in events: forward to ws
+  if mccpStarted:
+    if !ASSMUD_MCCP_enabled:
+      // rogue server — do NOT enter compressed_mode
+      destroy("mccp se while disabled")
+    else:
+      compressed_mode = true
+      inflate = zlib.createInflate()  // zlib wrapper, NOT inflateRaw by default
+      wire inflate 'data' → feedParserDecompressed(buf)
+      wire inflate 'error' → destroy, no further forward
+      if residualAfterSe.length: inflate.write(residualAfterSe)
+
+if compressed_mode:
+  // NEVER parser.push(wireChunk)
+  compressed_wire_session += chunk.length
+  if over wire cap: destroy
+  inflate.write(chunk)
+
+function feedParserDecompressed(buf):
+  split buf into slices <= MAX_PARSER_FEED_CHUNK
+  for each slice:
+    events = parser.push(slice)  // plaintext telnet after inflate
+    count inflated bytes; enforce window/session caps BEFORE ws.send
+    for data: ws.send(binary)
+```
+
+### Parser API (must-fix from Grok/Codex/GLM)
+
+`TelnetParser` today keeps residual in private `buf` — **required change**:
+
+```ts
+// packages/protocol
+push(chunk): TelnetEvent[]  // existing
+// ADD one of:
+pushUntilMccpStart(chunk): { events, mccpStarted, residual: Uint8Array }
+// OR after any push that emitted sb OPT.MCCP2:
+takeResidual(): Uint8Array  // drain private buf after SE
+```
+
+**Same-chunk SE+payload** and **SE split across TCP chunks** both required fixtures.
+
+### Flag
+
+- `ASSMUD_MCCP` default **1**
+- Read in **bridge/cli only**; pass `{ mccp: boolean }` into `replyToNegotiation(kind, option, opts)` — **no process.env in pure protocol package**
+- flag 0 → DONT on WILL MCCP2; if server still sends SB MCCP2 SE → **destroy** (protocol violation)
+
+### Ship atomicity
+
+- **M0+M1 ship together** (or keep DONT until inflate ready). Never land DO without inflate path.
+
+### tryInflateMccp
+
+- **Remove export entirely** (unused; dangerous if reused). Stream only.
+
+### Failure
+
+- inflate error / truncated stream / cap → destroy TCP+WS; optional JSON `{type:error,message:'mccp'}` once; **no** silent plaintext fallthrough.
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| M0+M1 | Flag, DO/DONT, parser residual API, stream inflate, fixtures | all unit+bridge tests below green |
+| M2 | Caps, destroy paths, delete tryInflateMccp | bomb/trunc tests |
+| M3 | Manual RW checklist doc | md |
+
+## Required tests
+
+1. DONT when flag 0; DO when flag 1  
+2. Multi-chunk zlib after SE  
+3. **Same chunk**: SE + compressed residual  
+4. **SE split** across two TCP chunks  
+5. Truncated stream → destroy  
+6. Cap exceed → destroy  
+7. No compressed bytes on WebSocket (assert non-zlib looking payload after start)  
+8. Preceding plaintext before SE still forwarded  
+
+## Review log
+
+| Round | Engines | Result |
+|-------|---------|--------|
+| R1 multi-role single | Grok multi-role | BLOCK → partial fold |
+| R2 multi-LLM | Grok+Codex BLOCK; GLM/MiniMax APPROVE_WITH_NITS | this fold R2 |
+
+===== docs/plans/2026-07-21-terminal-fonts-f2.md =====
+# Plan — Terminal fonts F2+ (trial UX)
+
+> **Status**: **fold R2 nits** · multi-LLM APPROVE_WITH_NITS  
+> **Owner**: cookys  
+> **Seq**: **3** on roadmap  
+> **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  
+> **Branch**: `feat/terminal-fonts-f2`  
+
+## Goal
+
+在 baseline（catalog + TC chain + drawer preset）上完成 **試掘 UX**：全列、A/B、alignScore、系統字探測、自訂 primary、on-demand webfont 策略。
+
+## Already done (baseline)
+
+- `termFonts/catalog.ts` STATIC_CATALOG, TC/SC chain, resolveFontStack  
+- Drawer preset + useDefaultTcChain  
+- `Canvas2DRenderer.setTypography` / measureAlignScore  
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| F2a | Trial panel UI（modal/sheet）+ fixture sample | L | 開試掘不重連 MUD |
+| F2b | A/B pin + alignScore display per face | S | 分數 ≈2.0 標綠 |
+| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+| F2d | Custom primary input + extras stack editor | S | 自填 family 進 stack |
+| F3 | Optional self-host Sarasa Term TC subset doc/path | S | 無字時提示安裝/載入 |
+| F4 | Size/width/line sliders wired to setTypography | S | 持久化 localStorage |
+
+## Non-goals
+
+- Bundle 全家族 CJK fonts in git  
+- Force overwrite user preset on locale switch  
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| CDN 大 | on-demand only |
+| measure 不準 | 對照 fixture 人工 checklist |
+
+## Review log
+
+- R0 authored CEO  
+
+===== docs/plans/2026-07-21-open-source-readiness.md =====
+# Plan — Open-source readiness
+
+> **Status**: **fold R2** (multi-LLM)  
+> **Owner**: cookys  
+> **Seq**: **4** on roadmap  
+> **Backlog**: #13, #14, #8  
+> **Project**: `docs/projects/2026-07-21-open-source-readiness/`  
+
+## Goal
+
+MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| O0 | Root MIT `LICENSE` ↔ package metadata | S | consistent |
+| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+| O2 | `docs/deploy/HTTPS-WSS.md` Origin/token/TLS/**MCCP caps** align `policy.ts` | S | matches code |
+| O3 | `docs/deploy/GITHUB.md` branch protection | S | checklist |
+
+## Non-goals
+
+- GitHub org API automation without token  
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+
+===== docs/plans/2026-07-21-ci-e2e-quality.md =====
+# Plan — CI e2e + golden terminal streams
+
+> **Status**: **fold R2** (multi-LLM)  
+> **Owner**: cookys  
+> **Seq**: **2** on roadmap  
+> **Backlog**: #12  
+> **Project**: `docs/projects/2026-07-21-ci-e2e-quality/`  
+
+## Goal
+
+Mock TCP fixtures + golden streams (**including MCCP2**) + **mandatory** `npm run test:e2e` for qc-gate.
+
+## Phases
+
+| ID | Work | Size | Acceptance |
+|----|------|------|------------|
+| Q1 | Mock telnet server 播 fixture | L | 127.0.0.1 可連 |
+| Q2 | Goldens: (a) uncompressed IAC→**protocol data events** (b) **MCCP2 WILL→DO→SB SE→zlib multi/same-chunk→decompressed Big5/VT events** | L | 兩套綠；非 pixel snapshot |
+| Q3 | `npm run test:e2e` + GHA **blocking**；qc-gate 必跑 local e2e | S | **禁止** skip |
+
+## Non-goals
+
+- Live RW in CI  
+- Full browser pixel e2e (unless separately scoped)  
+
+## Review log
+
+- R0 CEO · R2 multi-LLM fold (Grok/Codex/GLM/MiniMax)  
+
+===== docs/plans/2026-07-21-proxy-abuse-limits.md =====
+# Plan — Proxy abuse limits (hosted-ready)
+
+> **Status**: **fold R2** (multi-LLM)  
+> **Owner**: cookys  
+> **Seq**: **5** on roadmap  
+> **Backlog**: #11  
+> **Project**: `docs/projects/2026-07-21-proxy-abuse-limits/`  
+
+## Goal
+
+WS/auth 層精確限流。Origin allowlist 屬既有 `policy.ts`。MCCP inflate caps 屬 mccp2-stream。
+
+## Defaults
+
+| Limit | hosted | localhost-dev |
+|-------|--------|---------------|
+| Concurrent WS / IP | 8 | 64 |
+| Concurrent WS / token | 4 | 32 |
+| Upgrades / IP / min | 30 | 120 |
+| Hellos / conn / min | 20 | 60 |
+| Inbound bytes / conn / min | 2 MiB | 16 MiB |
+| Outbound bytes / conn / min | 16 MiB | 64 MiB |
+| Hello timeout | 10s | 30s |
+
+IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| A1 | Enforce table at upgrade + hello | unit tests |
+| A2 | Env + threat model section | md |
+| A3 | Optional metadata metrics | off default |
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+
+===== docs/plans/2026-07-21-profile-library.md =====
+# Plan — Connection profile library
+
+> **Status**: **fold R2** (multi-LLM)  
+> **Owner**: cookys  
+> **Seq**: **6** on roadmap  
+> **Backlog**: #1  
+> **Project**: `docs/projects/2026-07-21-profile-library/`  
+
+## Goal
+
+Schema + UI + RW seeds + safe optional auto-login.
+
+## Security
+
+- Secrets in `assmud.profileSecrets` separate from exportable profiles  
+- Export **omits** secrets by default  
+- Never log secrets; opt-in + plaintext warning  
+- Custom host still subject to proxy allowlist  
+
+## Schema
+
+- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+- port 1–65535  
+- seed RW 4000/5000/6000  
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| P1 | Strict import validation | reject bad JSON |
+| P2 | CRUD UI | offline edit |
+| P3 | Seeds + docs | 3 RW ports |
+| P4 | Secrets store + export exclude | no leak via export |
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+
+===== docs/plans/2026-07-21-research-spikes.md =====
+# Plan — Research spikes (non-product)
+
+> **Status**: **APPROVE** multi-LLM (Grok+Codex) — research only
+> **Owner**: cookys  
+> **Seq**: **7** on roadmap  
+> **Backlog**: #2, #15, #16  
+
+## Goal
+
+研究輸出 **只進 `docs/research/`**，不成功能 SHIP；餵後續 plan。
+
+## Spikes
+
+| ID | Topic | Output | Constraint |
+|----|-------|--------|------------|
+| R1 | RW login banner + captcha flow capture | fixtures 註記 | **禁** credentials；user-gated |
+| R2 | Mudlet / BeipMU / webmud / mudportal matrix | 一篇 md 對照 zMUD matrix | 公開資訊 only |
+| R3 | zMUD `.mud` / package format | 解析可行性 + 子集建議 | 不成全相容承諾 |
+
+## Phases
+
+| ID | Work | Size |
+|----|------|------|
+| S0 | 三篇 research 大綱 | S |
+| S1 | 執行 R2（最低風險） | S |
+| S2 | R3 格式筆記 | S |
+| S3 | R1 僅在 Board 同意且無密時 | S |
+
+## Review log
+
+- R0 authored CEO  
+
+===== apps/proxy/src/bridge.ts =====
+import net from "node:net";
+import type WebSocket from "ws";
+import {
+  TelnetParser,
+  replyToNegotiation,
+  ttypeIs,
+  naws,
+  OPT,
+} from "@assmud/protocol";
+
+export type BridgeOptions = {
+  host: string;
+  port: number;
+  cols?: number;
+  rows?: number;
+};
+
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
+/**
+ * Bridge one WebSocket client to one TCP MUD connection.
+ * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
+ */
+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+  const parser = new TelnetParser();
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  sock.on("data", (chunk: Buffer) => {
+    const events = parser.push(new Uint8Array(chunk));
+    for (const ev of events) {
+      if (ev.type === "data") {
+        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
+      } else if (ev.type === "will" || ev.type === "do") {
+        const reply = replyToNegotiation(ev.type, ev.option);
+        if (reply) sendTcp(reply);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+        sendTcp(naws(cols, rows));
+      }
+    }
+  });
+
+  sock.on("error", (err) => {
+    if (ws.readyState === ws.OPEN) {
+      const msg = String(err.message)
+        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+        .slice(0, 200);
+      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
+      ws.close(1011, "tcp error");
+    }
+  });
+
+  sock.on("close", () => {
+    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) {
+      const s = String(data);
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
+      sendTcp(new TextEncoder().encode(line));
+      return;
+    }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
+  });
+
+  ws.on("close", () => {
+    sock.destroy();
+  });
+}
+
+===== packages/protocol/src/telnet.ts =====
+/** Telnet IAC constants and stream filter for Phase 1a. */
+
+export const IAC = 255;
+export const WILL = 251;
+export const WONT = 252;
+export const DO = 253;
+export const DONT = 254;
+export const SB = 250;
+export const SE = 240;
+
+export const OPT = {
+  ECHO: 1,
+  SGA: 3,
+  TTYPE: 24,
+  NAWS: 31,
+  MSSP: 70,
+  MCCP2: 86,
+  MXP: 91,
+} as const;
+
+export type TelnetEvent =
+  | { type: "data"; bytes: Uint8Array }
+  | { type: "will"; option: number }
+  | { type: "wont"; option: number }
+  | { type: "do"; option: number }
+  | { type: "dont"; option: number }
+  | { type: "sb"; option: number; payload: Uint8Array };
+
+/**
+ * Incremental Telnet parser. Emits application data and negotiation events.
+ */
+const MAX_BUF = 65_536;
+const MAX_SB = 4_096;
+
+export class TelnetParser {
+  private buf = new Uint8Array(0);
+
+  push(chunk: Uint8Array): TelnetEvent[] {
+    if (this.buf.length + chunk.length > MAX_BUF) {
+      // reset on abuse / runaway SB
+      this.buf = new Uint8Array(0);
+      return [];
+    }
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+
+    const events: TelnetEvent[] = [];
+    const data: number[] = [];
+    let i = 0;
+
+    while (i < this.buf.length) {
+      if (this.buf[i] !== IAC) {
+        data.push(this.buf[i]!);
+        i += 1;
+        continue;
+      }
+      if (i + 1 >= this.buf.length) break;
+      const cmd = this.buf[i + 1]!;
+      if (cmd === IAC) {
+        data.push(IAC);
+        i += 2;
+        continue;
+      }
+      if (cmd === WILL || cmd === WONT || cmd === DO || cmd === DONT) {
+        if (i + 2 >= this.buf.length) break;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const type =
+          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
+        events.push({ type, option });
+        i += 3;
+        continue;
+      }
+      if (cmd === SB) {
+        let j = i + 2;
+        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
+          j += 1;
+          if (j - i > MAX_SB) {
+            // drop runaway subnegotiation
+            this.buf = this.buf.slice(j);
+            i = 0;
+            data.length = 0;
+            break;
+          }
+        }
+        if (j + 1 >= this.buf.length) break;
+        if (!(this.buf[j] === IAC && this.buf[j + 1] === SE)) continue;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const payload = this.buf.slice(i + 3, j);
+        events.push({ type: "sb", option, payload });
+        i = j + 2;
+        continue;
+      }
+      // other IAC cmds — skip one
+      i += 2;
+    }
+
+    if (data.length) {
+      events.push({ type: "data", bytes: Uint8Array.from(data) });
+    }
+    this.buf = this.buf.slice(i);
+    return events;
+  }
+}
+
+export function cmd(cmdByte: number, option: number): Uint8Array {
+  return Uint8Array.of(IAC, cmdByte, option);
+}
+
+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+export function replyToNegotiation(
+  kind: "will" | "do",
+  option: number,
+): Uint8Array | null {
+  if (kind === "will") {
+    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
+    if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+    return cmd(DONT, option);
+  }
+  // DO
+  if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+  if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+  return cmd(WONT, option);
+}
+
+/** IAC SB TTYPE IS "ANSI" IAC SE */
+export function ttypeIs(name = "ANSI"): Uint8Array {
+  const enc = new TextEncoder().encode(name);
+  const out = new Uint8Array(5 + enc.length + 2);
+  out[0] = IAC;
+  out[1] = SB;
+  out[2] = OPT.TTYPE;
+  out[3] = 0; // IS
+  out.set(enc, 4);
+  out[4 + enc.length] = IAC;
+  out[5 + enc.length] = SE;
+  return out;
+}
+
+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+export function naws(cols: number, rows: number): Uint8Array {
+  return Uint8Array.of(
+    IAC,
+    SB,
+    OPT.NAWS,
+    (cols >> 8) & 0xff,
+    cols & 0xff,
+    (rows >> 8) & 0xff,
+    rows & 0xff,
+    IAC,
+    SE,
+  );
+}
+
+===== packages/protocol/src/mccp.ts =====
+/**
+ * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
+ */
+import { inflateRawSync, inflateSync } from "node:zlib";
+
+export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+  try {
+    return new Uint8Array(inflateSync(Buffer.from(chunk)));
+  } catch {
+    try {
+      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
+    } catch {
+      return chunk;
+    }
+  }
+}

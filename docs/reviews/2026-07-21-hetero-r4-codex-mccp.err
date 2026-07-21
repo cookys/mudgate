@@ -1,6 +1,27 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f841f-280d-76f2-a49e-d1fbcbb6b2e8
+--------
+user
+You are ENGINE: Codex. Re-check ONLY docs/plans/2026-07-21-mccp2-stream.md after R3 fold of: (1) inflate.end on TCP EOF (2) pushUntilMccpStart as sole boundary API (3) residual counts toward wire cap. Output:
+ENGINE: Codex
+VERDICT_mccp2-stream: APPROVE|APPROVE_WITH_NITS|BLOCK
+MUST_FIX: (empty if none)
+NITS:
+If only nits, APPROVE_WITH_NITS.
+
+Plan file content:
 # Plan — MCCP2 stream inflate (proxy)
 
-> **Status**: **approved for implement** (multi-LLM loop R2–R4; Grok+GLM+MiniMax APPROVE*; Codex must-fixes folded)
+> **Status**: **fold R2** (multi-LLM loop) — implement after R2 non-BLOCK  
 > **Owner**: cookys  
 > **Seq**: **1**  
 > **Branch**: `feat/mccp2-stream`  
@@ -35,9 +56,9 @@ inflate: zlib.Inflate | null = null
 
 ```
 if (!compressed_mode):
-  // Required atomic API (name is fixed):
-  result = parser.pushUntilMccpStart(chunk)
-  // { events, mccpStarted, residual }
+  // Option A (required): bridge pre-scan OR parser returns residual
+  result = parser.pushWithBoundary(chunk)  
+  // events + optional { mccpStarted: true, residualAfterSe: Uint8Array }
   for data in events: forward to ws
   if mccpStarted:
     if !ASSMUD_MCCP_enabled:
@@ -136,3 +157,12 @@ pushUntilMccpStart(chunk): {
 |-------|---------|--------|
 | R1 multi-role single | Grok multi-role | BLOCK → partial fold |
 | R2 multi-LLM | Grok+Codex BLOCK; GLM/MiniMax APPROVE_WITH_NITS | this fold R2 |
+codex
+ENGINE: Codex
+VERDICT_mccp2-stream: BLOCK
+MUST_FIX:
+- Frozen wire-path pseudocode still calls `parser.pushWithBoundary(chunk)`. Replace it with the canonical and sole boundary API, `parser.pushUntilMccpStart(chunk)`, and use its `residual` field consistently.
+NITS:
+- Update the status/review-log wording from R2 to R3 fold.
+tokens used
+19,781

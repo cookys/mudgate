@@ -1,6 +1,7 @@
 # Roadmap priority — full requirements scan (CEO ordered)
 
-> **Status**: **hetero multi-LLM BLOCK nits** — order must be MCCP→CI→fonts→OSS… (Grok+Codex 2026-07-21)  
+> **Status**: **approved order** MCCP→CI→fonts→OSS→abuse→profiles→research (multi-LLM R3)  
+
 
 > **Owner**: cookys  
 > **Method**: 掃描 BACKLOG + zMUD matrix + residual plans + ship gaps → 依「先能連／能驗／能公開／再加深」排序。

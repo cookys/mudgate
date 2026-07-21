@@ -1,0 +1,54 @@
+ENGINE: Codex GPT-5
+
+VERDICT_OVERALL: BLOCK
+
+PER_PLAN:
+
+- `roadmap-priority`: APPROVE
+- `mccp2-stream`: BLOCK
+- `ci-e2e-quality`: APPROVE_WITH_NITS
+- `terminal-fonts-f2`: APPROVE_WITH_NITS
+- `open-source-readiness`: APPROVE
+- `proxy-abuse-limits`: APPROVE_WITH_NITS
+- `profile-library`: APPROVE_WITH_NITS
+- `research-spikes`: APPROVE
+
+MUST_FIX:
+
+1. `mccp2-stream` must define TCP-close finalization. On upstream EOF, call `inflate.end()` and wait for inflate completion/error before closing the WebSocket. Otherwise a truncated zlib stream may be accepted without producing the required destroy/error behavior.
+
+2. Make the parser boundary API unambiguous. `takeResidual()` is valid only if `push()` stops immediately after `IAC SB MCCP2 IAC SE` and does not parse or emit any following bytes. Prefer the explicitly atomic API:
+
+   ```ts
+   pushUntilMccpStart(chunk): {
+     events: TelnetEvent[];
+     mccpStarted: boolean;
+     residual: Uint8Array;
+   }
+   ```
+
+   It must preserve incomplete `SE` across pushes and return every byte following the completed boundary untouched.
+
+3. Count `residualAfterSe.length` toward `compressed_wire_session` before passing it to `inflate.write()`. The residual is compressed wire data and must not bypass the wire-side flood cap.
+
+NITS:
+
+- Specify that counter checks use overflow-safe addition, e.g. reject when `incoming > cap - current`.
+- Define window implementation and cleanup: fixed or rolling window, reset origin, and timer disposal when the bridge closes.
+- MCCP tests should assert the exact boundary bytes, not merely that forwarded data “does not look like zlib.”
+- Add an explicit successful-stream-finalization fixture alongside the truncated-stream fixture.
+- `ci-e2e-quality`: name the required GHA job/check so branch protection can reference it consistently.
+- `terminal-fonts-f2`: define the tolerance around “≈2.0” and the fallback when canvas probing is inconclusive.
+- `proxy-abuse-limits`: document trusted-proxy trust boundaries and malformed/multiple forwarded-address handling.
+- `profile-library`: explicitly reject unknown fields and dangerous object keys during import; version the exported schema.
+
+SAFE_IMPLEMENT_ORDER:
+
+1. Fold the three MCCP must-fixes into `mccp2-stream`.
+2. Implement `mccp2-stream` atomically, keeping MCCP negotiation disabled until parser boundary, streaming inflate, limits, and finalization all land.
+3. Implement `ci-e2e-quality`, including the completed MCCP fixtures.
+4. Implement `terminal-fonts-f2`.
+5. Implement `open-source-readiness`.
+6. Implement `proxy-abuse-limits`.
+7. Implement `profile-library`.
+8. Run `research-spikes` independently where convenient.

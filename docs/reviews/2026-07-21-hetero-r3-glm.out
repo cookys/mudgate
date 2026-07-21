@@ -1,0 +1,59 @@
+I have all the context. The R3 .out files are empty (0 bytes) — this is the R3 review pass itself. Previous R2 MUST_FIX items came from Codex (BLOCK), GLM (APPROVE_WITH_NITS), and MiniMax (APPROVE_WITH_NITS). Let me verify each against the current plan text.
+
+---
+
+## ENGINE VERDICT — R3 re-review (fold R2 must-fix check)
+
+**ENGINE**: QoderCN (qoderclicn 1.0.45 cn)
+**VERDICT_OVERALL**: **APPROVE_WITH_NITS**
+
+All previous MUST_FIX from R2 (Codex/Grok BLOCK + GLM/MiniMax nits elevated) are now satisfied **in plan text**. Residual items are nits, not blockers.
+
+### Previous MUST_FIX → satisfaction map
+
+| # | Source | Previous MUST_FIX | Plan text now | Status |
+|---|--------|-------------------|---------------|--------|
+| 1 | Codex/Grok | Reorder roadmap MCCP→CI→fonts→OSS→abuse→profile→research | `roadmap-priority.md` table Seq 1–7 in exactly that order | ✅ SATISFIED |
+| 2 | Codex | MCCP2 concrete boundary API (parser residual or pre-inflate framer) | `mccp2-stream.md` "Parser API" §: `pushUntilMccpStart` or `takeResidual()` drain | ✅ SATISFIED |
+| 3 | Codex | Split-marker transition + same-chunk residual routing | Wire path `residualAfterSe` + `inflate.write(residualAfterSe)`; tests #3 & #4 mandate both | ✅ SATISFIED |
+| 4 | Codex | Inflate lifecycle/failure: listeners before writes, teardown, truncated, no output after fail | Flag § + Failure §: `createInflate()` → wire `data`/`error`; "destroy, no further forward"; "destroy TCP+WS; no silent plaintext fallthrough" | ✅ SATISFIED (backpressure left to impl) |
+| 5 | Codex/GLM-nit | Exact caps replace "16/64 MiB"; reset interval; enforcement point; env bounds; compressed-wire guard; MAX_BUF guard | State §: `inflated_session_bytes`, `inflated_window_bytes`, `WINDOW_MS=60_000`, `MAX_INFLATED_PER_WINDOW=16MiB`, `MAX_INFLATED_SESSION=256MiB` (explicitly NOT 64MiB hard kill), `MAX_COMPRESSED_WIRE_SESSION=128MiB`, `MAX_PARSER_FEED_CHUNK=60_000` (<MAX_BUF); enforcement "BEFORE ws.send" | ✅ SATISFIED |
+| 6 | Codex | Bridge-level MCCP2 tests (split/same-chunk/multi/trunc/cap/no-leak) | Required tests #1–8 cover all six cases + "No compressed bytes on WebSocket" | ✅ SATISFIED |
+| 7 | Codex/GLM | CI mandatory + MCCP2 goldens + no skip | `ci-e2e-quality.md` Q2(b): MCCP2 WILL→DO→SB SE→zlib multi/same-chunk→decompressed Big5/VT; Q3: "禁止 skip", GHA blocking | ✅ SATISFIED |
+| 8 | Codex/GLM-nit | OSS: root MIT LICENSE + secret-scan blocking CI + LICENSE phase | `open-source-readiness.md` O0 (LICENSE ↔ metadata), O1 (gitleaks/trufflehog, "CI must run", blocking) | ✅ SATISFIED |
+| 9 | Codex | Abuse limits: auth/unauth keys, trusted-proxy, IPv4/6 norm, rate windows, atomic acquire, timeouts, byte limits, fail-closed | `proxy-abuse-limits.md` defaults table (per-IP, per-token, upgrades/min, hellos/min, in/out bytes/min, hello timeout); "IPv4/IPv6 normalize; trusted proxy; fail-closed; atomic acquire/release; no payload logs" | ✅ SATISFIED (backpressure/cleanup tests = nit) |
+| 10 | Codex | Auto-login secrets separate from export, omitted from export, never logged | `profile-library.md` Security §: `assmud.profileSecrets` separate; "Export omits secrets by default"; "Never log secrets; opt-in + plaintext warning"; P4 "no leak via export" | ✅ SATISFIED |
+| 11 | GLM | Seq mismatches (ci-e2e 4→2, fonts 2→3, OSS 3→4) | All headers now read Seq 2/3/4 correctly | ✅ SATISFIED |
+| 12 | GLM | Gate SB MCCP2 SE mode-flip on `ASSMUD_MCCP==1`; destroy if rogue | Wire path: `if !ASSMUD_MCCP_enabled → destroy("mccp se while disabled")`; Flag §: "flag 0 → DONT; if server still sends SB MCCP2 SE → destroy (protocol violation)" | ✅ SATISFIED |
+| 13 | MiniMax | `replyToNegotiation` flag param not wired | Flag §: "pass `{ mccp: boolean }` into `replyToNegotiation(kind, option, opts)` — no process.env in pure protocol package" | ✅ SATISFIED (plan-text; code change is impl) |
+| 14 | MiniMax | `tryInflateMccp` remove or confirm unused | `mccp2-stream.md` "tryInflateMccp" §: "Remove export entirely (unused; dangerous if reused). Stream only." | ✅ SATISFIED |
+| 15 | MiniMax | `compressed_mode` state machine absent in bridge.ts | Frozen wire path now defines full state machine (compressed_mode flag, inflate lifecycle, feedParserDecompressed) | ✅ SATISFIED (plan-text; code is impl) |
+
+### PER_PLAN (current)
+
+- **roadmap-priority**: APPROVE — order correct; Seq fields consistent; expand rule gates on hetero APPROVE.
+- **mccp2-stream**: APPROVE_WITH_NITS — boundary API, flag gating, caps, atomicity (M0+M1), failure path, 8 tests all specified; 2 rare-edge nits remain.
+- **ci-e2e-quality**: APPROVE — MCCP2 golden in Q2(b); Q3 mandatory + no-skip + GHA blocking.
+- **terminal-fonts-f2**: APPROVE_WITH_NITS — F2c now says "canvas glyph probe (not fonts.check alone)"; acceptance criteria still thin.
+- **open-source-readiness**: APPROVE — O0 LICENSE + O1 blocking secret-scan present; O1 cross-plan dependency on ci-e2e (Seq 2) implicit via ordering.
+- **proxy-abuse-limits**: APPROVE_WITH_NITS — numeric table + algorithms + fail-closed present; backpressure/cleanup tests not explicit.
+- **profile-library**: APPROVE_WITH_NITS — secret separation + export-exclude + no-log present; storage location (localStorage) not explicit.
+- **research-spikes**: APPROVE — R1 credential/user-gated; S3 Board-gated + no-secret.
+
+### MUST_FIX
+None. All R2 must-fixes are folded into plan text.
+
+### NITS (optional, non-blocking)
+1. **mccp2-stream**: inflate backpressure and exactly-once teardown are implied by "destroy, no further forward" but not spelled out — fine for plan level, but impl should add a regression test that a second `inflate.write` after error is a no-op.
+2. **mccp2-stream**: post-start `IAC SB MCCP2 … IAC SE` re-negotiation inside the decompressed stream is unspecified (rare but legal). Add one sentence: "decompressed negotiations are parsed normally; a second SB MCCP2 SE is a no-op (already compressed)."
+3. **proxy-abuse-limits**: state explicitly whether backpressure (WS.send `bufferedAmount` threshold) and cleanup-on-close are in A1 scope or deferred.
+4. **profile-library**: P4 should name the storage surface (`localStorage["assmud.profileSecrets"]`) to match the "no cloud sync" non-goal and block accidental `sessionStorage`/cookie misuse.
+5. **open-source-readiness**: add a one-line cross-plan note that O1's CI gate depends on ci-e2e-quality (Seq 2) landing the `npm run test:e2e` + GHA workflow first.
+6. **roadmap-priority**: the `Status` header still reads "hetero multi-LLM BLOCK nits" — flip to "fold R2 → R3 APPROVE_WITH_NITS" so the file doesn't signal false-block.
+
+### SAFE_IMPLEMENT_ORDER
+`mccp2-stream → ci-e2e-quality → terminal-fonts-f2 → open-source-readiness → proxy-abuse-limits → profile-library → research-spikes`
+
+---
+
+**Summary**: All 15 previous MUST_FIX items (Codex/Grok BLOCK + GLM/MiniMax elevated nits) are resolved in the plan text. Verdict **APPROVE_WITH_NITS** — the 6 residual nits are impl-detail or one-sentence clarifications, not blockers. Safe to bootstrap `docs/projects/2026-07-21-mccp2-stream/` and implement on `feat/mccp2-stream` after folding the 2 mccp nits (decompressed re-negotiation sentence; backpressure test note) into the plan if desired.

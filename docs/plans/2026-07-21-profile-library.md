@@ -1,28 +1,37 @@
-# Plan — Connection profile library (multi-MUD)
+# Plan — Connection profile library
 
-> **Status**: **hetero multi-LLM: needs fold** (Grok+Codex BLOCK or split) — see docs/reviews/2026-07-21-hetero-multi-llm.md
+> **Status**: **fold R2** (multi-LLM)  
 > **Owner**: cookys  
 > **Seq**: **6** on roadmap  
 > **Backlog**: #1  
+> **Project**: `docs/projects/2026-07-21-profile-library/`  
 
 ## Goal
 
-可維護的 **MUD profile 庫**：內建常見服（含 RW 多 port）、自訂 host:port/charset、匯入匯出（已有 JSON 基礎上擴充 UX + 驗證）。
+Schema + UI + RW seeds + safe optional auto-login.
+
+## Security
+
+- Secrets in `assmud.profileSecrets` separate from exportable profiles  
+- Export **omits** secrets by default  
+- Never log secrets; opt-in + plaintext warning  
+- Custom host still subject to proxy allowlist  
+
+## Schema
+
+- charset: `big5hkscs` \| `big5` \| `gbk` \| `utf8`  
+- port 1–65535  
+- seed RW 4000/5000/6000  
 
 ## Phases
 
-| ID | Work | Size | Acceptance |
-|----|------|------|------------|
-| P1 | Schema 驗證（host/port/charset/cols） | S | bad JSON 拒絕 |
-| P2 | UI：新增／編輯／刪除 profile（drawer） | L | 不連線可編 |
-| P3 | 內建 seed 擴充 + 文件 | S | RW 4000/5000/6000 |
-| P4 | 可選 auto-login 字串（預設關、警告明文） | S | 需 explicit opt-in |
-
-## Non-goals
-
-- 雲端同步帳密  
-- 自動探測伺服器協定  
+| ID | Work | Acceptance |
+|----|------|------------|
+| P1 | Strict import validation | reject bad JSON |
+| P2 | CRUD UI | offline edit |
+| P3 | Seeds + docs | 3 RW ports |
+| P4 | Secrets store + export exclude | no leak via export |
 
 ## Review log
 
-- R0 authored CEO  
+- R0 · R2 multi-LLM fold  

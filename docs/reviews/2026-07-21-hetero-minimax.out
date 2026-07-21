@@ -1,0 +1,24 @@
+ENGINE: qoderclicn
+VERDICT_OVERALL: APPROVE_WITH_NITS
+
+PER_PLAN:
+- roadmap-priority: APPROVE — correct sequence follows connect→validate→open→deepen; MCCP first is right for RW compatibility.
+- mccp2-stream: APPROVE_WITH_NITS — R1 fold resolved boundary ambiguity; wire path frozen correctly. Two nits to wire before expand.
+- terminal-fonts-f2: APPROVE_WITH_NITS — solid UX phases; need to verify `measureAlignScore` / `setTypography` signatures against renderer.
+- open-source-readiness: APPROVE — gitleaks config + deploy docs are correct deliverables; no API token required for the checklist.
+- ci-e2e-quality: APPROVE_WITH_NITS — mock server + golden streams correct; Q2 "VT buffer snapshot" wording ambiguous (pixel vs protocol event?).
+- proxy-abuse-limits: APPROVE — scoped limits + metadata-only metrics is the right self-host vs hosted split.
+- profile-library: APPROVE — P4 auto-login opt-in with plaintext warning is correct security boundary.
+- research-spikes: APPROVE — R1 credential guard is correctly gated on Board + no-secret conditions.
+
+MUST_FIX:
+- `replyToNegotiation` (telnet.ts:120) currently hard-codes `DONT` for MCCP2 — plan's `ASSMUD_MCCP` flag is not wired; must add flag parameter before expand.
+- `mccp.ts:tryInflateMccp` — plan says delete from hot path, but it is a standalone export currently unused; must confirm bridge.ts never calls it OR remove the export entirely.
+- `bridge.ts` — compressed_mode state machine entirely absent; plan's frozen wire path is not yet in code; verify all three source files are consistent after MCCP implementation.
+
+NITS:
+- `telnet.ts:120` signature change ripples through bridge.ts:51 — both files need coordinated flag propagation.
+- MCCP plan M0 tests say "DONT when 0, DO when 1" — implementation must add env-var wiring (ASSMUD_MCCP) to bridge.ts options, not just telnet.ts.
+- CI plan Q2 "VT buffer snapshot" needs clarification: golden file should be TelnetParser→data events, not renderer pixel buffer.
+
+SAFE_IMPLEMENT_ORDER: mccp2-stream, ci-e2e-quality, terminal-fonts-f2, open-source-readiness, proxy-abuse-limits, profile-library, research-spikes

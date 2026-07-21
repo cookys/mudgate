@@ -1,0 +1,6 @@
+ENGINE: Codex
+VERDICT_mccp2-stream: BLOCK
+MUST_FIX:
+- Frozen wire-path pseudocode still calls `parser.pushWithBoundary(chunk)`. Replace it with the canonical and sole boundary API, `parser.pushUntilMccpStart(chunk)`, and use its `residual` field consistently.
+NITS:
+- Update the status/review-log wording from R2 to R3 fold.

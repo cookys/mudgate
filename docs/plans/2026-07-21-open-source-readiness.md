@@ -1,27 +1,28 @@
-# Plan — Open-source readiness (scan + GitHub + deploy recipe)
+# Plan — Open-source readiness
 
-> **Status**: **hetero multi-LLM: needs fold** (Grok+Codex BLOCK or split) — see docs/reviews/2026-07-21-hetero-multi-llm.md
+> **Status**: **fold R2** (multi-LLM)  
 > **Owner**: cookys  
-> **Seq**: **3** on roadmap  
+> **Seq**: **4** on roadmap  
 > **Backlog**: #13, #14, #8  
+> **Project**: `docs/projects/2026-07-21-open-source-readiness/`  
 
 ## Goal
 
-公開 repo 前：**密文掃描**、**GitHub 防護建議**、**HTTPS/WSS 部署食譜**（文件為主，可執行腳本可選）。
+MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
 
 ## Phases
 
 | ID | Work | Size | Acceptance |
 |----|------|------|------------|
-| O1 | gitleaks 或 trufflehog config + `npm run secret-scan` | S | CI 本地可跑；README 一行 |
-| O2 | `docs/deploy/HTTPS-WSS.md` Caddy/nginx 範例 | S | 含 Origin allowlist、token、TLS |
-| O3 | `docs/deploy/GITHUB.md` branch protection checklist | S | 不強制改 remote（無 token 時文件 only） |
+| O0 | Root MIT `LICENSE` ↔ package metadata | S | consistent |
+| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+| O2 | `docs/deploy/HTTPS-WSS.md` Origin/token/TLS/**MCCP caps** align `policy.ts` | S | matches code |
+| O3 | `docs/deploy/GITHUB.md` branch protection | S | checklist |
 
 ## Non-goals
 
-- 代使用者操作 GitHub org 設定（無 API token 時）  
-- 完整 k8s chart  
+- GitHub org API automation without token  
 
 ## Review log
 
-- R0 authored CEO  
+- R0 · R2 multi-LLM fold  

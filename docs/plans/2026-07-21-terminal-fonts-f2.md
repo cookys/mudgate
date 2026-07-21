@@ -1,8 +1,8 @@
 # Plan — Terminal fonts F2+ (trial UX)
 
-> **Status**: **APPROVE_WITH_NITS** multi-LLM (Grok+Codex) — nits before ship
+> **Status**: **fold R2 nits** · multi-LLM APPROVE_WITH_NITS  
 > **Owner**: cookys  
-> **Seq**: **2** on roadmap  
+> **Seq**: **3** on roadmap  
 > **Spec**: `docs/design/terminal-fonts.md` §0–§1.1  
 > **Branch**: `feat/terminal-fonts-f2`  
 
@@ -22,7 +22,7 @@
 |----|------|------|------------|
 | F2a | Trial panel UI（modal/sheet）+ fixture sample | L | 開試掘不重連 MUD |
 | F2b | A/B pin + alignScore display per face | S | 分數 ≈2.0 標綠 |
-| F2c | System font detect (MingLiU 等) merge catalog | S | Win 細明 detected |
+| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
 | F2d | Custom primary input + extras stack editor | S | 自填 family 進 stack |
 | F3 | Optional self-host Sarasa Term TC subset doc/path | S | 無字時提示安裝/載入 |
 | F4 | Size/width/line sliders wired to setTypography | S | 持久化 localStorage |

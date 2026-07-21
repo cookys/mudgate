@@ -1,0 +1,55 @@
+## ENGINE VERDICT (R3 fold)
+
+### Summary from pack.txt + plan texts
+
+**mccp2-stream** — was BLOCK from Grok+Codex in R2. All R2 MUST_FIX are now satisfied in plan text:
+
+| R2 MUST_FIX | Status in plan |
+|-------------|----------------|
+| Parser residual API (`pushUntilMccpStart`/`takeResidual`) | ✅ Specified at lines 72–78, both options, with required fixtures |
+| Stream inflate (not sync `tryInflateMccp`) | ✅ `zlib.createInflate()` + `inflate.write(chunk)`, never `parser.push(wireChunk)` |
+| `tryInflateMccp` removal | ✅ "Remove export entirely" (line 94) |
+| Flag: no `process.env` in protocol package | ✅ "bridge/cli only"; pass `{ mccp: boolean }` to `replyToNegotiation` (line 85) |
+| Ship atomicity M0+M1 together | ✅ explicit (line 90) |
+| Exact cap counters spec | ✅ all env vars + constants listed (lines 24–31) |
+| Caps alignment with proxy-abuse-limits | ⚠️ O2 mentions MCCP caps align; verify at impl time |
+
+**Verdict: APPROVE** mccp2-stream
+
+---
+
+**ci-e2e-quality** — fold R2, Grok/Codex/GLM/MiniMax all folded. APPROVE
+
+**terminal-fonts-f2** — fold R2 nits, multi-LLM APPROVE_WITH_NITS. APPROVE_WITH_NITS (manual checklist still required per risk mitigation)
+
+**open-source-readiness** — fold R2. APPROVE
+
+**proxy-abuse-limits** — fold R2. APPROVE
+
+**profile-library** — fold R2. APPROVE
+
+---
+
+### MUST_FIX outstanding
+
+None blocking. One cross-plan NIT:
+
+> **NIT-1 (impl time)**: `mccp2-stream` O2 phase says MCCP caps "align `policy.ts`" — confirm proxy-abuse-limits caps table (128 MiB wire / 256 MiB inflated session) are the canonical values and both plans reference the same env vars.
+
+### SAFE_IMPLEMENT_ORDER
+
+Matches roadmap sequence (already documented):
+
+```
+1. mccp2-stream
+2. ci-e2e-quality
+3. terminal-fonts-f2
+4. open-source-readiness
+5. proxy-abuse-limits
+6. profile-library
+7. research-spikes (APPROVE, research only)
+```
+
+### VERDICT_OVERALL
+
+**APPROVE** all 7 plans. hetero multi-LLM criteria met — previous Grok/Codex BLOCK on mccp2-stream is fully resolved in the plan text. No remaining MUST_FIX.

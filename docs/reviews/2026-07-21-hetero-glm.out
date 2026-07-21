@@ -1,0 +1,32 @@
+Verified: `tryInflateMccp` is an unused standalone export (not in bridge hot path). Review complete.
+
+ENGINE: QoderCN (qoderclicn 1.0.45 cn)
+VERDICT_OVERALL: APPROVE_WITH_NITS
+PER_PLAN:
+- roadmap-priority: APPROVE_WITH_NITS — ordering (MCCP→CI→fonts→OSS→proxy→profile→research) sound, but 3 child plans carry stale Seq numbers contradicting the table.
+- mccp2-stream: APPROVE_WITH_NITS — frozen path is strict on the boundary (never `parser.push` on wire zlib; same-chunk SE+residual mandated; silent passthrough removed); 3 edge-case gaps remain.
+- terminal-fonts-f2: APPROVE_WITH_NITS — trial UX scope reasonable; F2c detection method and alignment-regression acceptance test underspecified.
+- open-source-readiness: APPROVE_WITH_NITS — thin but adequate; LICENSE file in roadmap goal has no phase; O1 depends on CI plan landing first.
+- ci-e2e-quality: APPROVE_WITH_NITS — mock server + golden streams good; Q2 omits the MCCP2 compressed-stream golden that the roadmap ("驗 MCCP/VT 回歸") requires.
+- proxy-abuse-limits: APPROVE_WITH_NITS — limits + metadata-only metrics good; Origin-allowlist and MCCP-caps ownership ambiguous vs OSS/MCCP plans.
+- profile-library: APPROVE_WITH_NITS — schema/UI/seed/opt-in auto-login coherent; credential storage location and charset allowlist should be explicit.
+- research-spikes: APPROVE — research-only into docs/research/, no ship, no credentials, low risk.
+
+MUST_FIX:
+- Fix Seq mismatches: ci-e2e-quality header "Seq 4" → 2; terminal-fonts-f2 "Seq 2" → 3; open-source-readiness "Seq 3" → 4 (roadmap table + header note are the source of truth).
+- MCCP2 frozen path must gate the `SB MCCP2 … SE` mode-flip on `ASSMUD_MCCP==1`: if flag=0 and a rogue server sends SB MCCP2 SE anyway, destroy the connection as protocol violation — do NOT flip `compressed_mode` (frozen path currently says flip unconditionally, breaking the "never parse zlib as telnet" guard when a server misbehaves).
+- MCCP2: specify the mechanism by which the bridge obtains post-SE residual bytes — `TelnetParser.push` keeps residual in private `buf` and only returns events, so either expose a drain method or have the bridge pre-scan the raw chunk for `IAC SB 86 IAC SE` and split before pushing. The plan claims "no ambiguity" but this boundary handoff is unspecified.
+- ci-e2e-quality Q2: add an explicit MCCP2 compressed-stream golden fixture (WILL→DO→SB SE→zlib chunk → decompressed Big5/VT snapshot); otherwise the CI cannot guard the very regression it exists to catch.
+
+NITS:
+- mccp2-stream: `tryInflateMccp` is currently an unused export, not "hot-path" (minimax already flagged this); reword Rule 4/M2 to "remove the `tryInflateMccp` export entirely" to prevent future silent-passthrough misuse.
+- mccp2-stream: caps cover inflated bytes only (16/64 MiB); add a compressed-wire-side cap or ratio guard to catch low-ratio floods before inflate.
+- mccp2-stream: `TelnetParser.MAX_BUF=65_536` silently resets on overflow; decompressed chunks fed to the parser must be <64 KiB or the limit raised, else large MCCP bursts cause silent data loss.
+- mccp2-stream: post-start `IAC SB MCCP2 … IAC SE` re-negotiation inside the decompressed stream is unspecified (rare but legal).
+- open-source-readiness: add a phase/item for LICENSE file (roadmap goal mentions it; no phase covers it).
+- open-source-readiness: O1 `npm run secret-scan` in CI presumes ci-e2e-quality (Seq 2) landed; note the cross-plan dependency.
+- proxy-abuse-limits: clarify Origin-allowlist ownership (here vs OSS O2) and MCCP2 caps ownership (here vs mccp2-stream Rule 5) to avoid double/no-ownership.
+- terminal-fonts-f2: F2c "system font detect (MingLiU)" needs a concrete method (canvas probe) and an acceptance test that a missing face falls through the TC chain without breaking VT grid alignment.
+- profile-library: P4 should state credential storage is localStorage (matches "no cloud sync" non-goal) and P1 charset validation should constrain to a known enum, not free string.
+
+SAFE_IMPLEMENT_ORDER: mccp2-stream, ci-e2e-quality, terminal-fonts-f2, open-source-readiness, proxy-abuse-limits, profile-library, research-spikes
