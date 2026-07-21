@@ -1,0 +1,10 @@
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: []
+
+NITS:
+
+- `finishInflateThenClose()` can run for both TCP `end` and `close`, registering duplicate listeners/timeouts and calling `inflate.end()` twice. Add a `finishing` guard when convenient.
+- Consider tests for multi-chunk compressed streams, inflate/wire caps, malformed zlib, and truncated shutdown.
+
+The MCCP boundary, same-chunk residual routing, persistent stream inflation, disabled-mode rejection, and removal of per-chunk inflation are correct. Supplied 55-test green result accepted; sandbox prevented an independent rerun.

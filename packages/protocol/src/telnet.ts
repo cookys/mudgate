@@ -1,4 +1,4 @@
-/** Telnet IAC constants and stream filter for Phase 1a. */
+/** Telnet IAC constants and stream filter. */
 
 export const IAC = 255;
 export const WILL = 251;
@@ -26,6 +26,12 @@ export type TelnetEvent =
   | { type: "dont"; option: number }
   | { type: "sb"; option: number; payload: Uint8Array };
 
+export type MccpStartResult = {
+  events: TelnetEvent[];
+  mccpStarted: boolean;
+  residual: Uint8Array;
+};
+
 /**
  * Incremental Telnet parser. Emits application data and negotiation events.
  */
@@ -36,10 +42,22 @@ export class TelnetParser {
   private buf = new Uint8Array(0);
 
   push(chunk: Uint8Array): TelnetEvent[] {
+    return this.consume(chunk, false).events;
+  }
+
+  /**
+   * Parse until IAC SB MCCP2 IAC SE completes, then stop.
+   * Residual = every byte after SE (uncompressed-to-compressed boundary).
+   * Incomplete SE is preserved across pushes.
+   */
+  pushUntilMccpStart(chunk: Uint8Array): MccpStartResult {
+    return this.consume(chunk, true);
+  }
+
+  private consume(chunk: Uint8Array, stopAtMccpSe: boolean): MccpStartResult {
     if (this.buf.length + chunk.length > MAX_BUF) {
-      // reset on abuse / runaway SB
       this.buf = new Uint8Array(0);
-      return [];
+      return { events: [], mccpStarted: false, residual: new Uint8Array(0) };
     }
     const merged = new Uint8Array(this.buf.length + chunk.length);
     merged.set(this.buf);
@@ -49,6 +67,8 @@ export class TelnetParser {
     const events: TelnetEvent[] = [];
     const data: number[] = [];
     let i = 0;
+    let mccpStarted = false;
+    let residual = new Uint8Array(0);
 
     while (i < this.buf.length) {
       if (this.buf[i] !== IAC) {
@@ -71,17 +91,25 @@ export class TelnetParser {
         }
         const option = this.buf[i + 2]!;
         const type =
-          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
+          cmd === WILL
+            ? "will"
+            : cmd === WONT
+              ? "wont"
+              : cmd === DO
+                ? "do"
+                : "dont";
         events.push({ type, option });
         i += 3;
         continue;
       }
       if (cmd === SB) {
         let j = i + 2;
-        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
+        while (
+          j + 1 < this.buf.length &&
+          !(this.buf[j] === IAC && this.buf[j + 1] === SE)
+        ) {
           j += 1;
           if (j - i > MAX_SB) {
-            // drop runaway subnegotiation
             this.buf = this.buf.slice(j);
             i = 0;
             data.length = 0;
@@ -98,6 +126,13 @@ export class TelnetParser {
         const payload = this.buf.slice(i + 3, j);
         events.push({ type: "sb", option, payload });
         i = j + 2;
+
+        if (stopAtMccpSe && option === OPT.MCCP2) {
+          mccpStarted = true;
+          residual = this.buf.slice(i);
+          this.buf = new Uint8Array(0);
+          return { events, mccpStarted, residual };
+        }
         continue;
       }
       // other IAC cmds — skip one
@@ -108,7 +143,7 @@ export class TelnetParser {
       events.push({ type: "data", bytes: Uint8Array.from(data) });
     }
     this.buf = this.buf.slice(i);
-    return events;
+    return { events, mccpStarted, residual };
   }
 }
 
@@ -116,13 +151,20 @@ export function cmd(cmdByte: number, option: number): Uint8Array {
   return Uint8Array.of(IAC, cmdByte, option);
 }
 
-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+export type NegotiationOpts = {
+  /** When true, DO MCCP2 on WILL MCCP2; when false, DONT */
+  mccp?: boolean;
+};
+
+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
 export function replyToNegotiation(
   kind: "will" | "do",
   option: number,
+  opts: NegotiationOpts = {},
 ): Uint8Array | null {
+  const mccp = opts.mccp === true;
   if (kind === "will") {
-    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
+    if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
     return cmd(DONT, option);
   }

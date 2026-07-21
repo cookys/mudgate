@@ -1,0 +1,2320 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8424-2efe-71f2-bbcb-3d57427cb497
+--------
+user
+You review MCCP2 implementation (not plan). Code at packages/protocol/src/telnet.ts pushUntilMccpStart, replyToNegotiation mccp opt; apps/proxy/src/bridge.ts stream inflate; packages/protocol/src/mccp.ts no tryInflateMccp; tests green 55. Verdict APPROVE|APPROVE_WITH_NITS|BLOCK for ship merge. MUST_FIX empty if ok.
+
+Key snippets:
+pushUntilMccpStart stops after IAC SB 86 IAC SE returns residual.
+bridge: mccp default true ASSMUD_MCCP!=0; compressed_mode never parser.push wire; createInflate; caps; destroy on SE while disabled.
+Tests: same-chunk residual inflate HelloMap; DONT when false; destroy when SE disabled.
+
+codex
+I’m using the quality-pipeline skill because this is a ship/merge implementation review. I’ll inspect the actual MCCP2 paths and tests, then return only evidence-backed blockers or nits.
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md && sed -n '1,220p' .claude/quality-gate-config.md 2>/dev/null || true && sed -n '1,220p' .claude/dispatch-config.md 2>/dev/null || true && git status --short && git diff -- packages/protocol/src/telnet.ts packages/protocol/src/mccp.ts apps/proxy/src/bridge.ts && sed -n '1,280p' packages/protocol/src/telnet.ts && sed -n '1,320p' apps/proxy/src/bridge.ts && sed -n '1,220p' packages/protocol/src/mccp.ts" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+**Re-review scope:** After each fix round, re-review the **entire diff**, not just the fix. Fixes can introduce new issues.
+
+**Re-review checkpoint (dispatcher-only)**: Before round 1, `scripts/diff-since-last-round.sh mark` snapshots HEAD; between rounds `scripts/diff-since-last-round.sh stat` → JSON `{changed_files, insertions, deletions, doc_only}`. If `doc_only=true` and `changed_files` trivially small, dispatcher MAY short-circuit. Decision + data stay **in the dispatcher only** — never pass delta to the reviewer (leaks round-cycle meta-signal per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md)). Loop closed → `scripts/diff-since-last-round.sh clear`.
+
+**Re-review dispatch is blind** — round 2+ re-dispatch of `autopilot:reviewer` (or chain pick) MUST strip prior-round findings. Pre-flight: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); `scripts/check-redispatch-prompt.sh <prompt-file>` — exit 1 ⇒ strip and re-check. Prior finding stays in dispatcher memory; fixer is NOT blind (gets full finding). Skipping the linter self-bypasses the gate. Holds at any nesting depth — neither reviewer nor fixer dispatches the next round's review ([`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § Nested dispatch).
+
+## Suggestion / Minor Processing
+
+**Suggestion/Minor ≠ "ignore."** Analyze each before merge:
+
+```
+For each Suggestion/Minor finding:
+    ↓
+Dispatch Explore agent to analyze impact and effort
+    ↓
+Classify into one of four outcomes:
+├── S-size fix (< 5 min) → fix now, treat as Major
+├── False positive / by-design → close with written rationale
+├── Independent task needing more analysis → create next task with context
+└── Has clear trigger condition → add to docs/BACKLOG.md with trigger
+```
+
+### Example Processing Table
+
+| # | Issue | Severity | Analysis | Size | Disposition |
+|---|-------|----------|----------|------|-------------|
+| 1 | Null deref in error path | Critical | Crash when DB returns empty | S | Fix now + re-review |
+| 2 | Missing mutex on shared map | Major | Race condition under load | S | Fix now + re-review |
+| 3 | Could use string_view instead of string copy | Suggestion | 2% fewer allocations in hot path | S | Fix now (upgrade to Major) |
+| 4 | Function name `doIt()` unclear | Minor | Rename to `processMatchResult()` | S | Fix now (upgrade to Major) |
+| 5 | Consider caching DB query result | Suggestion | Would help at 10K+ users, not current scale | M | Backlog (trigger: when optimizing for 10K+) |
+| 6 | "Magic number 42" | Minor | Actually `MAX_TILES` constant, used consistently | - | Close (by-design) |
+
+### Backlog Entry Format
+
+Every backlog entry **must** include a trigger:
+
+```markdown
+- [ ] [Suggestion] Cache rank table query results
+# Quality Gate — Project Config (generated by autopilot:onboard; edit freely)
+
+## Test Command
+- not detected (repo is pre-scaffold; update after package manager / test runner lands)
+
+## Scan Command
+- Completeness scan (no stubs/TODO/mock): autopilot `scripts/completeness-scan.sh` over `apps/` `packages/` `src/` when present
+
+## Code Review
+- autopilot:reviewer
+
+## Security-critical surfaces
+Always full review (never fast-path) when a change touches:
+
+| Surface | Why |
+|---------|-----|
+| WebSocket / TCP proxy bridge | trust boundary between browser and MUD; injection / SSRF / open-relay risk |
+| Credential & session storage | player passwords / tokens must not leak to logs, localStorage XSS, or analytics |
+| Terminal HTML/ANSI render | MUD output is untrusted; XSS via escape sequences or raw HTML |
+| User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
+| CSP / CORS / origin checks | browser client security posture |
+| Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
+
+# Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
+# Dispatch — Project Config (generated by autopilot:onboard; edit freely)
+
+# Superpowers is not installed. Edit this file to add superpowers preference chains.
+## Parallel Dispatch
+- native
+
+## Code Review
+- autopilot:reviewer
+
+## Debugging
+- autopilot:debug
+
+## Testing
+- autopilot:test-strategy
+
+## Profiling
+- autopilot:profiling
+
+## Team
+- autopilot:team
+ M apps/proxy/src/bridge.ts
+ M packages/protocol/src/mccp.ts
+ M packages/protocol/src/telnet.ts
+ M packages/protocol/tests/telnet.test.ts
+?? apps/proxy/tests/mccp-bridge.test.ts
+?? docs/plans/2026-07-21-mccp2-checklist.md
+?? docs/reviews/2026-07-21-mccp2-impl-codex.err
+?? docs/reviews/2026-07-21-mccp2-impl-codex.out
+?? docs/reviews/2026-07-21-mccp2-impl-minimax.err
+?? docs/reviews/2026-07-21-mccp2-impl-minimax.out
+diff --git a/apps/proxy/src/bridge.ts b/apps/proxy/src/bridge.ts
+index c5211e9..7954a12 100644
+--- a/apps/proxy/src/bridge.ts
++++ b/apps/proxy/src/bridge.ts
+@@ -1,4 +1,5 @@
+ import net from "node:net";
++import zlib from "node:zlib";
+ import type WebSocket from "ws";
+ import {
+   TelnetParser,
+@@ -6,6 +7,7 @@ import {
+   ttypeIs,
+   naws,
+   OPT,
++  type TelnetEvent,
+ } from "@assmud/protocol";
+ 
+ export type BridgeOptions = {
+@@ -13,8 +15,23 @@ export type BridgeOptions = {
+   port: number;
+   cols?: number;
+   rows?: number;
++  /** DO MCCP2 when server WILL (default true) */
++  mccp?: boolean;
++  maxInflatedPerWindow?: number;
++  maxInflatedSession?: number;
++  maxCompressedWireSession?: number;
++  windowMs?: number;
+ };
+ 
++const MAX_PARSER_FEED = 60_000;
++
++function envInt(name: string, fallback: number): number {
++  const v = process.env[name];
++  if (v == null || v === "") return fallback;
++  const n = Number(v);
++  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
++}
++
+ function escapeIac(buf: Uint8Array): Uint8Array {
+   let extra = 0;
+   for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+@@ -28,27 +45,98 @@ function escapeIac(buf: Uint8Array): Uint8Array {
+   return out;
+ }
+ 
++function addCap(current: number, incoming: number, cap: number): number | null {
++  if (incoming > cap - current) return null;
++  return current + incoming;
++}
++
+ /**
+  * Bridge one WebSocket client to one TCP MUD connection.
+- * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
++ * Optional MCCP2: after IAC SB MCCP2 IAC SE, zlib-inflate wire then telnet-parse.
+  */
+ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   const parser = new TelnetParser();
+   const cols = opts.cols ?? 80;
+   const rows = opts.rows ?? 24;
++  const mccpEnabled =
++    opts.mccp ??
++    (process.env.ASSMUD_MCCP == null
++      ? true
++      : process.env.ASSMUD_MCCP !== "0" && process.env.ASSMUD_MCCP !== "false");
++
++  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
++  const MAX_INFLATED_PER_WINDOW =
++    opts.maxInflatedPerWindow ??
++    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
++  const MAX_INFLATED_SESSION =
++    opts.maxInflatedSession ??
++    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
++  const MAX_WIRE_SESSION =
++    opts.maxCompressedWireSession ??
++    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
++
++  let compressedMode = false;
++  let inflate: zlib.Inflate | null = null;
++  let inflatedSession = 0;
++  let inflatedWindow = 0;
++  let windowStart = Date.now();
++  let wireSession = 0;
++  let closed = false;
++  let errorSent = false;
++
+   const sock = net.connect({ host: opts.host, port: opts.port });
+ 
++  const destroy = (reason: string) => {
++    if (closed) return;
++    closed = true;
++    try {
++      inflate?.destroy();
++    } catch {
++      /* ignore */
++    }
++    inflate = null;
++    if (ws.readyState === ws.OPEN) {
++      if (!errorSent) {
++        errorSent = true;
++        const msg = reason
++          .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
++          .slice(0, 200);
++        try {
++          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
++        } catch {
++          /* ignore */
++        }
++      }
++      try {
++        ws.close(1011, "bridge destroy");
++      } catch {
++        /* ignore */
++      }
++    }
++    try {
++      sock.destroy();
++    } catch {
++      /* ignore */
++    }
++  };
++
+   const sendTcp = (buf: Uint8Array) => {
+     if (!sock.destroyed) sock.write(Buffer.from(buf));
+   };
+ 
+-  sock.on("data", (chunk: Buffer) => {
+-    const events = parser.push(new Uint8Array(chunk));
++  const forwardData = (bytes: Uint8Array) => {
++    if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
++    ws.send(bytes);
++  };
++
++  const handleEvents = (events: TelnetEvent[]) => {
+     for (const ev of events) {
+       if (ev.type === "data") {
+-        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
++        forwardData(ev.bytes);
+       } else if (ev.type === "will" || ev.type === "do") {
+-        const reply = replyToNegotiation(ev.type, ev.option);
++        const reply = replyToNegotiation(ev.type, ev.option, {
++          mccp: mccpEnabled,
++        });
+         if (reply) sendTcp(reply);
+       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+         if (ev.payload.length > 0 && ev.payload[0] === 1) {
+@@ -57,30 +145,139 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+         sendTcp(naws(cols, rows));
+       }
++      // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
++    }
++  };
++
++  const feedDecompressed = (buf: Buffer) => {
++    if (closed) return;
++    const now = Date.now();
++    if (now - windowStart >= WINDOW_MS) {
++      windowStart = now;
++      inflatedWindow = 0;
++    }
++    let offset = 0;
++    while (offset < buf.length) {
++      const slice = buf.subarray(
++        offset,
++        Math.min(offset + MAX_PARSER_FEED, buf.length),
++      );
++      offset += slice.length;
++
++      const nextSess = addCap(inflatedSession, slice.length, MAX_INFLATED_SESSION);
++      const nextWin = addCap(inflatedWindow, slice.length, MAX_INFLATED_PER_WINDOW);
++      if (nextSess == null || nextWin == null) {
++        destroy("mccp inflate cap exceeded");
++        return;
++      }
++      inflatedSession = nextSess;
++      inflatedWindow = nextWin;
++
++      const events = parser.push(new Uint8Array(slice));
++      handleEvents(events);
++    }
++  };
++
++  const startInflate = (residual: Uint8Array) => {
++    inflate = zlib.createInflate();
++    inflate.on("data", (d: Buffer) => feedDecompressed(d));
++    inflate.on("error", () => destroy("mccp inflate error"));
++    // residual is compressed wire
++    if (residual.length) {
++      const nextWire = addCap(wireSession, residual.length, MAX_WIRE_SESSION);
++      if (nextWire == null) {
++        destroy("mccp wire cap exceeded");
++        return;
++      }
++      wireSession = nextWire;
++      try {
++        inflate.write(Buffer.from(residual));
++      } catch {
++        destroy("mccp inflate write");
++      }
++    }
++  };
++
++  sock.on("data", (chunk: Buffer) => {
++    if (closed) return;
++    const u8 = new Uint8Array(chunk);
++
++    if (!compressedMode) {
++      const { events, mccpStarted, residual } = parser.pushUntilMccpStart(u8);
++      handleEvents(events);
++      if (mccpStarted) {
++        if (!mccpEnabled) {
++          destroy("mccp se while disabled");
++          return;
++        }
++        compressedMode = true;
++        startInflate(residual);
++      }
++      return;
++    }
++
++    // compressed mode — never TelnetParser on wire
++    const nextWire = addCap(wireSession, u8.length, MAX_WIRE_SESSION);
++    if (nextWire == null) {
++      destroy("mccp wire cap exceeded");
++      return;
++    }
++    wireSession = nextWire;
++    try {
++      inflate?.write(Buffer.from(u8));
++    } catch {
++      destroy("mccp inflate write");
+     }
+   });
+ 
+   sock.on("error", (err) => {
+-    if (ws.readyState === ws.OPEN) {
+-      const msg = String(err.message)
+-        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+-        .slice(0, 200);
+-      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
+-      ws.close(1011, "tcp error");
+-    }
++    destroy(String(err.message) || "tcp error");
+   });
+ 
+-  sock.on("close", () => {
++  const finishInflateThenClose = () => {
++    if (closed) return;
++    if (inflate && !inflate.destroyed) {
++      try {
++        inflate.end();
++      } catch {
++        destroy("mccp truncated");
++        return;
++      }
++      // give inflate a tick to flush; truncated streams error async
++      inflate.once("end", () => {
++        if (closed) return;
++        closed = true;
++        if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++      });
++      inflate.once("error", () => destroy("mccp truncated"));
++      // safety timeout
++      setTimeout(() => {
++        if (!closed) {
++          closed = true;
++          if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++        }
++      }, 500);
++      return;
++    }
++    closed = true;
+     if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++  };
++
++  sock.on("end", finishInflateThenClose);
++  sock.on("close", () => {
++    if (!closed) finishInflateThenClose();
+   });
+ 
+   ws.on("message", (data, isBinary) => {
++    if (closed) return;
+     if (!isBinary) {
+       const s = String(data);
+       if (s.length > 16_384) return;
+       const cleaned = s.replace(/\xff/g, "");
+       const line =
+-        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
++        cleaned.endsWith("\n") || cleaned.endsWith("\r")
++          ? cleaned
++          : cleaned + "\r\n";
+       sendTcp(new TextEncoder().encode(line));
+       return;
+     }
+@@ -90,6 +287,12 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   });
+ 
+   ws.on("close", () => {
++    closed = true;
++    try {
++      inflate?.destroy();
++    } catch {
++      /* ignore */
++    }
+     sock.destroy();
+   });
+ }
+diff --git a/packages/protocol/src/mccp.ts b/packages/protocol/src/mccp.ts
+index b25bc00..c8bbfdd 100644
+--- a/packages/protocol/src/mccp.ts
++++ b/packages/protocol/src/mccp.ts
+@@ -1,16 +1,7 @@
+ /**
+- * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
++ * MCCP2 helpers — stream inflate lives in proxy bridge (zlib.createInflate).
++ * No silent per-chunk inflate (removed tryInflateMccp anti-pattern).
+  */
+-import { inflateRawSync, inflateSync } from "node:zlib";
+ 
+-export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+-  try {
+-    return new Uint8Array(inflateSync(Buffer.from(chunk)));
+-  } catch {
+-    try {
+-      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
+-    } catch {
+-      return chunk;
+-    }
+-  }
+-}
++/** IAC SB MCCP2 IAC SE — server starts compression after this. */
++export const MCCP2_START_SB = Uint8Array.of(255, 250, 86, 255, 240);
+diff --git a/packages/protocol/src/telnet.ts b/packages/protocol/src/telnet.ts
+index cabf875..ac12035 100644
+--- a/packages/protocol/src/telnet.ts
++++ b/packages/protocol/src/telnet.ts
+@@ -1,4 +1,4 @@
+-/** Telnet IAC constants and stream filter for Phase 1a. */
++/** Telnet IAC constants and stream filter. */
+ 
+ export const IAC = 255;
+ export const WILL = 251;
+@@ -26,6 +26,12 @@ export type TelnetEvent =
+   | { type: "dont"; option: number }
+   | { type: "sb"; option: number; payload: Uint8Array };
+ 
++export type MccpStartResult = {
++  events: TelnetEvent[];
++  mccpStarted: boolean;
++  residual: Uint8Array;
++};
++
+ /**
+  * Incremental Telnet parser. Emits application data and negotiation events.
+  */
+@@ -36,10 +42,22 @@ export class TelnetParser {
+   private buf = new Uint8Array(0);
+ 
+   push(chunk: Uint8Array): TelnetEvent[] {
++    return this.consume(chunk, false).events;
++  }
++
++  /**
++   * Parse until IAC SB MCCP2 IAC SE completes, then stop.
++   * Residual = every byte after SE (uncompressed-to-compressed boundary).
++   * Incomplete SE is preserved across pushes.
++   */
++  pushUntilMccpStart(chunk: Uint8Array): MccpStartResult {
++    return this.consume(chunk, true);
++  }
++
++  private consume(chunk: Uint8Array, stopAtMccpSe: boolean): MccpStartResult {
+     if (this.buf.length + chunk.length > MAX_BUF) {
+-      // reset on abuse / runaway SB
+       this.buf = new Uint8Array(0);
+-      return [];
++      return { events: [], mccpStarted: false, residual: new Uint8Array(0) };
+     }
+     const merged = new Uint8Array(this.buf.length + chunk.length);
+     merged.set(this.buf);
+@@ -49,6 +67,8 @@ export class TelnetParser {
+     const events: TelnetEvent[] = [];
+     const data: number[] = [];
+     let i = 0;
++    let mccpStarted = false;
++    let residual = new Uint8Array(0);
+ 
+     while (i < this.buf.length) {
+       if (this.buf[i] !== IAC) {
+@@ -71,17 +91,25 @@ export class TelnetParser {
+         }
+         const option = this.buf[i + 2]!;
+         const type =
+-          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
++          cmd === WILL
++            ? "will"
++            : cmd === WONT
++              ? "wont"
++              : cmd === DO
++                ? "do"
++                : "dont";
+         events.push({ type, option });
+         i += 3;
+         continue;
+       }
+       if (cmd === SB) {
+         let j = i + 2;
+-        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
++        while (
++          j + 1 < this.buf.length &&
++          !(this.buf[j] === IAC && this.buf[j + 1] === SE)
++        ) {
+           j += 1;
+           if (j - i > MAX_SB) {
+-            // drop runaway subnegotiation
+             this.buf = this.buf.slice(j);
+             i = 0;
+             data.length = 0;
+@@ -98,6 +126,13 @@ export class TelnetParser {
+         const payload = this.buf.slice(i + 3, j);
+         events.push({ type: "sb", option, payload });
+         i = j + 2;
++
++        if (stopAtMccpSe && option === OPT.MCCP2) {
++          mccpStarted = true;
++          residual = this.buf.slice(i);
++          this.buf = new Uint8Array(0);
++          return { events, mccpStarted, residual };
++        }
+         continue;
+       }
+       // other IAC cmds — skip one
+@@ -108,7 +143,7 @@ export class TelnetParser {
+       events.push({ type: "data", bytes: Uint8Array.from(data) });
+     }
+     this.buf = this.buf.slice(i);
+-    return events;
++    return { events, mccpStarted, residual };
+   }
+ }
+ 
+@@ -116,13 +151,20 @@ export function cmd(cmdByte: number, option: number): Uint8Array {
+   return Uint8Array.of(IAC, cmdByte, option);
+ }
+ 
+-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
++export type NegotiationOpts = {
++  /** When true, DO MCCP2 on WILL MCCP2; when false, DONT */
++  mccp?: boolean;
++};
++
++/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+ export function replyToNegotiation(
+   kind: "will" | "do",
+   option: number,
++  opts: NegotiationOpts = {},
+ ): Uint8Array | null {
++  const mccp = opts.mccp === true;
+   if (kind === "will") {
+-    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
++    if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
+     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+     return cmd(DONT, option);
+   }
+/** Telnet IAC constants and stream filter. */
+
+export const IAC = 255;
+export const WILL = 251;
+export const WONT = 252;
+export const DO = 253;
+export const DONT = 254;
+export const SB = 250;
+export const SE = 240;
+
+export const OPT = {
+  ECHO: 1,
+  SGA: 3,
+  TTYPE: 24,
+  NAWS: 31,
+  MSSP: 70,
+  MCCP2: 86,
+  MXP: 91,
+} as const;
+
+export type TelnetEvent =
+  | { type: "data"; bytes: Uint8Array }
+  | { type: "will"; option: number }
+  | { type: "wont"; option: number }
+  | { type: "do"; option: number }
+  | { type: "dont"; option: number }
+  | { type: "sb"; option: number; payload: Uint8Array };
+
+export type MccpStartResult = {
+  events: TelnetEvent[];
+  mccpStarted: boolean;
+  residual: Uint8Array;
+};
+
+/**
+ * Incremental Telnet parser. Emits application data and negotiation events.
+ */
+const MAX_BUF = 65_536;
+const MAX_SB = 4_096;
+
+export class TelnetParser {
+  private buf = new Uint8Array(0);
+
+  push(chunk: Uint8Array): TelnetEvent[] {
+    return this.consume(chunk, false).events;
+  }
+
+  /**
+   * Parse until IAC SB MCCP2 IAC SE completes, then stop.
+   * Residual = every byte after SE (uncompressed-to-compressed boundary).
+   * Incomplete SE is preserved across pushes.
+   */
+  pushUntilMccpStart(chunk: Uint8Array): MccpStartResult {
+    return this.consume(chunk, true);
+  }
+
+  private consume(chunk: Uint8Array, stopAtMccpSe: boolean): MccpStartResult {
+    if (this.buf.length + chunk.length > MAX_BUF) {
+      this.buf = new Uint8Array(0);
+      return { events: [], mccpStarted: false, residual: new Uint8Array(0) };
+    }
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+
+    const events: TelnetEvent[] = [];
+    const data: number[] = [];
+    let i = 0;
+    let mccpStarted = false;
+    let residual = new Uint8Array(0);
+
+    while (i < this.buf.length) {
+      if (this.buf[i] !== IAC) {
+        data.push(this.buf[i]!);
+        i += 1;
+        continue;
+      }
+      if (i + 1 >= this.buf.length) break;
+      const cmd = this.buf[i + 1]!;
+      if (cmd === IAC) {
+        data.push(IAC);
+        i += 2;
+        continue;
+      }
+      if (cmd === WILL || cmd === WONT || cmd === DO || cmd === DONT) {
+        if (i + 2 >= this.buf.length) break;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const type =
+          cmd === WILL
+            ? "will"
+            : cmd === WONT
+              ? "wont"
+              : cmd === DO
+                ? "do"
+                : "dont";
+        events.push({ type, option });
+        i += 3;
+        continue;
+      }
+      if (cmd === SB) {
+        let j = i + 2;
+        while (
+          j + 1 < this.buf.length &&
+          !(this.buf[j] === IAC && this.buf[j + 1] === SE)
+        ) {
+          j += 1;
+          if (j - i > MAX_SB) {
+            this.buf = this.buf.slice(j);
+            i = 0;
+            data.length = 0;
+            break;
+          }
+        }
+        if (j + 1 >= this.buf.length) break;
+        if (!(this.buf[j] === IAC && this.buf[j + 1] === SE)) continue;
+        if (data.length) {
+          events.push({ type: "data", bytes: Uint8Array.from(data) });
+          data.length = 0;
+        }
+        const option = this.buf[i + 2]!;
+        const payload = this.buf.slice(i + 3, j);
+        events.push({ type: "sb", option, payload });
+        i = j + 2;
+
+        if (stopAtMccpSe && option === OPT.MCCP2) {
+          mccpStarted = true;
+          residual = this.buf.slice(i);
+          this.buf = new Uint8Array(0);
+          return { events, mccpStarted, residual };
+        }
+        continue;
+      }
+      // other IAC cmds — skip one
+      i += 2;
+    }
+
+    if (data.length) {
+      events.push({ type: "data", bytes: Uint8Array.from(data) });
+    }
+    this.buf = this.buf.slice(i);
+    return { events, mccpStarted, residual };
+  }
+}
+
+export function cmd(cmdByte: number, option: number): Uint8Array {
+  return Uint8Array.of(IAC, cmdByte, option);
+}
+
+export type NegotiationOpts = {
+  /** When true, DO MCCP2 on WILL MCCP2; when false, DONT */
+  mccp?: boolean;
+};
+
+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+export function replyToNegotiation(
+  kind: "will" | "do",
+  option: number,
+  opts: NegotiationOpts = {},
+): Uint8Array | null {
+  const mccp = opts.mccp === true;
+  if (kind === "will") {
+    if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
+    if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+    return cmd(DONT, option);
+  }
+  // DO
+  if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+  if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
+  return cmd(WONT, option);
+}
+
+/** IAC SB TTYPE IS "ANSI" IAC SE */
+export function ttypeIs(name = "ANSI"): Uint8Array {
+  const enc = new TextEncoder().encode(name);
+  const out = new Uint8Array(5 + enc.length + 2);
+  out[0] = IAC;
+  out[1] = SB;
+  out[2] = OPT.TTYPE;
+  out[3] = 0; // IS
+  out.set(enc, 4);
+  out[4 + enc.length] = IAC;
+  out[5 + enc.length] = SE;
+  return out;
+}
+
+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+export function naws(cols: number, rows: number): Uint8Array {
+  return Uint8Array.of(
+    IAC,
+    SB,
+    OPT.NAWS,
+    (cols >> 8) & 0xff,
+    cols & 0xff,
+    (rows >> 8) & 0xff,
+    rows & 0xff,
+    IAC,
+    SE,
+  );
+}
+import net from "node:net";
+import zlib from "node:zlib";
+import type WebSocket from "ws";
+import {
+  TelnetParser,
+  replyToNegotiation,
+  ttypeIs,
+  naws,
+  OPT,
+  type TelnetEvent,
+} from "@assmud/protocol";
+
+export type BridgeOptions = {
+  host: string;
+  port: number;
+  cols?: number;
+  rows?: number;
+  /** DO MCCP2 when server WILL (default true) */
+  mccp?: boolean;
+  maxInflatedPerWindow?: number;
+  maxInflatedSession?: number;
+  maxCompressedWireSession?: number;
+  windowMs?: number;
+};
+
+const MAX_PARSER_FEED = 60_000;
+
+function envInt(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
+function addCap(current: number, incoming: number, cap: number): number | null {
+  if (incoming > cap - current) return null;
+  return current + incoming;
+}
+
+/**
+ * Bridge one WebSocket client to one TCP MUD connection.
+ * Optional MCCP2: after IAC SB MCCP2 IAC SE, zlib-inflate wire then telnet-parse.
+ */
+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+  const parser = new TelnetParser();
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  const mccpEnabled =
+    opts.mccp ??
+    (process.env.ASSMUD_MCCP == null
+      ? true
+      : process.env.ASSMUD_MCCP !== "0" && process.env.ASSMUD_MCCP !== "false");
+
+  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
+  const MAX_INFLATED_PER_WINDOW =
+    opts.maxInflatedPerWindow ??
+    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
+  const MAX_INFLATED_SESSION =
+    opts.maxInflatedSession ??
+    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
+  const MAX_WIRE_SESSION =
+    opts.maxCompressedWireSession ??
+    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
+
+  let compressedMode = false;
+  let inflate: zlib.Inflate | null = null;
+  let inflatedSession = 0;
+  let inflatedWindow = 0;
+  let windowStart = Date.now();
+  let wireSession = 0;
+  let closed = false;
+  let errorSent = false;
+
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const destroy = (reason: string) => {
+    if (closed) return;
+    closed = true;
+    try {
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    inflate = null;
+    if (ws.readyState === ws.OPEN) {
+      if (!errorSent) {
+        errorSent = true;
+        const msg = reason
+          .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+          .slice(0, 200);
+        try {
+          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        ws.close(1011, "bridge destroy");
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      sock.destroy();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  const forwardData = (bytes: Uint8Array) => {
+    if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
+    ws.send(bytes);
+  };
+
+  const handleEvents = (events: TelnetEvent[]) => {
+    for (const ev of events) {
+      if (ev.type === "data") {
+        forwardData(ev.bytes);
+      } else if (ev.type === "will" || ev.type === "do") {
+        const reply = replyToNegotiation(ev.type, ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+        sendTcp(naws(cols, rows));
+      }
+      // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
+    }
+  };
+
+  const feedDecompressed = (buf: Buffer) => {
+    if (closed) return;
+    const now = Date.now();
+    if (now - windowStart >= WINDOW_MS) {
+      windowStart = now;
+      inflatedWindow = 0;
+    }
+    let offset = 0;
+    while (offset < buf.length) {
+      const slice = buf.subarray(
+        offset,
+        Math.min(offset + MAX_PARSER_FEED, buf.length),
+      );
+      offset += slice.length;
+
+      const nextSess = addCap(inflatedSession, slice.length, MAX_INFLATED_SESSION);
+      const nextWin = addCap(inflatedWindow, slice.length, MAX_INFLATED_PER_WINDOW);
+      if (nextSess == null || nextWin == null) {
+        destroy("mccp inflate cap exceeded");
+        return;
+      }
+      inflatedSession = nextSess;
+      inflatedWindow = nextWin;
+
+      const events = parser.push(new Uint8Array(slice));
+      handleEvents(events);
+    }
+  };
+
+  const startInflate = (residual: Uint8Array) => {
+    inflate = zlib.createInflate();
+    inflate.on("data", (d: Buffer) => feedDecompressed(d));
+    inflate.on("error", () => destroy("mccp inflate error"));
+    // residual is compressed wire
+    if (residual.length) {
+      const nextWire = addCap(wireSession, residual.length, MAX_WIRE_SESSION);
+      if (nextWire == null) {
+        destroy("mccp wire cap exceeded");
+        return;
+      }
+      wireSession = nextWire;
+      try {
+        inflate.write(Buffer.from(residual));
+      } catch {
+        destroy("mccp inflate write");
+      }
+    }
+  };
+
+  sock.on("data", (chunk: Buffer) => {
+    if (closed) return;
+    const u8 = new Uint8Array(chunk);
+
+    if (!compressedMode) {
+      const { events, mccpStarted, residual } = parser.pushUntilMccpStart(u8);
+      handleEvents(events);
+      if (mccpStarted) {
+        if (!mccpEnabled) {
+          destroy("mccp se while disabled");
+          return;
+        }
+        compressedMode = true;
+        startInflate(residual);
+      }
+      return;
+    }
+
+    // compressed mode — never TelnetParser on wire
+    const nextWire = addCap(wireSession, u8.length, MAX_WIRE_SESSION);
+    if (nextWire == null) {
+      destroy("mccp wire cap exceeded");
+      return;
+    }
+    wireSession = nextWire;
+    try {
+      inflate?.write(Buffer.from(u8));
+    } catch {
+      destroy("mccp inflate write");
+    }
+  });
+
+  sock.on("error", (err) => {
+    destroy(String(err.message) || "tcp error");
+  });
+
+  const finishInflateThenClose = () => {
+    if (closed) return;
+    if (inflate && !inflate.destroyed) {
+      try {
+        inflate.end();
+      } catch {
+        destroy("mccp truncated");
+        return;
+      }
+      // give inflate a tick to flush; truncated streams error async
+      inflate.once("end", () => {
+        if (closed) return;
+        closed = true;
+        if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+      });
+      inflate.once("error", () => destroy("mccp truncated"));
+      // safety timeout
+      setTimeout(() => {
+        if (!closed) {
+          closed = true;
+          if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+        }
+      }, 500);
+      return;
+    }
+    closed = true;
+    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+  };
+
+  sock.on("end", finishInflateThenClose);
+  sock.on("close", () => {
+    if (!closed) finishInflateThenClose();
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (closed) return;
+    if (!isBinary) {
+      const s = String(data);
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r")
+          ? cleaned
+          : cleaned + "\r\n";
+      sendTcp(new TextEncoder().encode(line));
+      return;
+    }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
+  });
+
+  ws.on("close", () => {
+    closed = true;
+    try {
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    sock.destroy();
+  });
+}
+/**
+ * MCCP2 helpers — stream inflate lives in proxy bridge (zlib.createInflate).
+ * No silent per-chunk inflate (removed tryInflateMccp anti-pattern).
+ */
+
+/** IAC SB MCCP2 IAC SE — server starts compression after this. */
+export const MCCP2_START_SB = Uint8Array.of(255, 250, 86, 255, 240);
+
+codex
+The core boundary handling is coherent so far: once the MCCP start subnegotiation completes, residual bytes bypass the Telnet parser and enter one persistent zlib stream. I’m checking lifecycle/error races and whether the tests exercise the split-boundary and cap paths, since those are the remaining ship-risk areas.
+exec
+/usr/bin/zsh -lc "rg -n \"MCCP|mccp|pushUntilMccpStart|bridgeWsToMud|tryInflateMccp\" packages apps test tests --glob '"'!**/dist/**'"' 2>/dev/null || true
+rg -n '\"(test|typecheck|check|build)\"' package.json packages/*/package.json apps/*/package.json
+sed -n '1,360p' apps/proxy/test/bridge.test.ts 2>/dev/null || true
+sed -n '1,320p' packages/protocol/test/telnet.test.ts 2>/dev/null || true
+pnpm test" in /home/cookys/projects/assmud
+ exited 1 in 1048ms:
+ WARN  The "workspaces" field in package.json is not supported by pnpm. Create a "pnpm-workspace.yaml" file instead.
+
+> assmud@0.1.0 test /home/cookys/projects/assmud
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 10 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: ENOENT: no such file or directory, mkdir '/tmp/GnmCqp1zUrNOzsppMY51e'
+ ❯ mkdir node:internal/fs/promises:859:10
+ ❯ Proxy.fetch node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:6636:9
+ ❯ EventEmitter.onMessage node_modules/vitest/dist/chunks/index.68735LiX.js:91:20
+
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: EROFS: read-only file system, open '/home/cookys/projects/assmud/node_modules/.vite/vitest/results.json'
+ ❯ open node:internal/fs/promises:640:25
+ ❯ Object.writeFile node:internal/fs/promises:1257:14
+ ❯ ResultsCache.writeToCache node_modules/vitest/dist/chunks/resolveConfig.rBxzbVsl.js:4280:5
+ ❯ node_modules/vitest/dist/chunks/cli-api.DqsSTaIi.js:10827:7
+ ❯ Vitest.runFiles node_modules/vitest/dist/chunks/cli-api.DqsSTaIi.js:10840:12
+ ❯ Vitest.start node_modules/vitest/dist/chunks/cli-api.DqsSTaIi.js:10682:7
+ ❯ startVitest node_modules/vitest/dist/chunks/cli-api.DqsSTaIi.js:11848:7
+ ❯ start node_modules/vitest/dist/chunks/cac.CB_9Zo9Q.js:1506:17
+ ❯ CAC.run node_modules/vitest/dist/chunks/cac.CB_9Zo9Q.js:1486:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -30, code: 'EROFS', syscall: 'open', path: '/home/cookys/projects/assmud/node_modules/.vite/vitest/results.json' }
+
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+ Test Files  no tests
+      Tests  no tests
+     Errors  10 errors
+   Start at  18:07:00
+   Duration  432ms (transform 44ms, setup 0ms, collect 0ms, tests 0ms, environment 0ms, prepare 0ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
+
+exec
+/usr/bin/zsh -lc "nl -ba apps/proxy/src/bridge.ts | sed -n '1,330p'
+nl -ba apps/proxy/tests/mccp-bridge.test.ts | sed -n '1,260p'
+nl -ba packages/protocol/tests/telnet.test.ts | sed -n '1,180p'
+node - <<'NODE'
+const z=require('node:zlib'); const i=z.createInflate();
+i.on('error',e=>console.log('error',e.code)); i.on('end',()=>console.log('end'));
+i.end();
+try { i.end(); console.log('second end returned'); } catch(e) { console.log('threw',e.code); }
+setTimeout(()=>{},30);
+NODE
+npx tsc -b --pretty false --incremental false" in /home/cookys/projects/assmud
+ exited 2 in 1303ms:
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/index.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/index.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/index.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/index.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/index.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/index.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/mccp.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/mccp.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/mccp.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/mccp.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/mccp.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/mccp.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/mccp.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/mccp.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/telnet.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/telnet.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/telnet.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/telnet.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/telnet.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/telnet.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/dist/telnet.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/dist/telnet.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/protocol/tsconfig.tsbuildinfo': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/protocol/tsconfig.tsbuildinfo'.
+packages/protocol/tsconfig.json(3,3): error TS6379: Composite projects may not disable incremental compilation.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/codec-big5/dist/index.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/codec-big5/dist/index.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/codec-big5/dist/index.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/codec-big5/dist/index.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/codec-big5/dist/index.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/codec-big5/dist/index.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/codec-big5/dist/index.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/codec-big5/dist/index.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/codec-big5/tsconfig.tsbuildinfo': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/codec-big5/tsconfig.tsbuildinfo'.
+packages/codec-big5/tsconfig.json(3,3): error TS6379: Composite projects may not disable incremental compilation.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/buffer.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/buffer.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/buffer.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/buffer.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/buffer.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/buffer.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/buffer.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/buffer.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/index.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/index.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/index.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/index.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/index.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/index.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/tsconfig.tsbuildinfo': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/tsconfig.tsbuildinfo'.
+packages/terminal/tsconfig.json(3,3): error TS6379: Composite projects may not disable incremental compilation.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/bridge.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/bridge.d.ts'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/bridge.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/bridge.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/bridge.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/bridge.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/bridge.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/bridge.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/cli.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/cli.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/server.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/server.d.ts.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/server.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/server.js'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/dist/server.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/dist/server.js.map'.
+error TS5033: Could not write file '/home/cookys/projects/assmud/apps/proxy/tsconfig.tsbuildinfo': EROFS: read-only file system, open '/home/cookys/projects/assmud/apps/proxy/tsconfig.tsbuildinfo'.
+apps/proxy/tsconfig.json(3,3): error TS6379: Composite projects may not disable incremental compilation.
+
+exec
+/usr/bin/zsh -lc "node -e 'const z=require(\"node:zlib\");const i=z.createInflate();i.on(\"error\",e=>console.log(\"error\",e.code));i.on(\"end\",()=>console.log(\"end\"));i.end();try{i.end();console.log(\"second end returned\")}catch(e){console.log(\"threw\",e.code)};setTimeout(()=>{},30)' 
+git diff --check
+git diff --stat
+git diff -- apps/proxy/src/bridge.ts apps/proxy/tests/mccp-bridge.test.ts packages/protocol/src/telnet.ts packages/protocol/src/mccp.ts packages/protocol/tests/telnet.test.ts" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+second end returned
+error Z_BUF_ERROR
+ apps/proxy/src/bridge.ts               | 231 +++++++++++++++++++++++++++++++--
+ packages/protocol/src/mccp.ts          |  17 +--
+ packages/protocol/src/telnet.ts        |  60 +++++++--
+ packages/protocol/tests/telnet.test.ts |  82 +++++++++++-
+ 4 files changed, 347 insertions(+), 43 deletions(-)
+diff --git a/apps/proxy/src/bridge.ts b/apps/proxy/src/bridge.ts
+index c5211e9..7954a12 100644
+--- a/apps/proxy/src/bridge.ts
++++ b/apps/proxy/src/bridge.ts
+@@ -1,4 +1,5 @@
+ import net from "node:net";
++import zlib from "node:zlib";
+ import type WebSocket from "ws";
+ import {
+   TelnetParser,
+@@ -6,6 +7,7 @@ import {
+   ttypeIs,
+   naws,
+   OPT,
++  type TelnetEvent,
+ } from "@assmud/protocol";
+ 
+ export type BridgeOptions = {
+@@ -13,8 +15,23 @@ export type BridgeOptions = {
+   port: number;
+   cols?: number;
+   rows?: number;
++  /** DO MCCP2 when server WILL (default true) */
++  mccp?: boolean;
++  maxInflatedPerWindow?: number;
++  maxInflatedSession?: number;
++  maxCompressedWireSession?: number;
++  windowMs?: number;
+ };
+ 
++const MAX_PARSER_FEED = 60_000;
++
++function envInt(name: string, fallback: number): number {
++  const v = process.env[name];
++  if (v == null || v === "") return fallback;
++  const n = Number(v);
++  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
++}
++
+ function escapeIac(buf: Uint8Array): Uint8Array {
+   let extra = 0;
+   for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+@@ -28,27 +45,98 @@ function escapeIac(buf: Uint8Array): Uint8Array {
+   return out;
+ }
+ 
++function addCap(current: number, incoming: number, cap: number): number | null {
++  if (incoming > cap - current) return null;
++  return current + incoming;
++}
++
+ /**
+  * Bridge one WebSocket client to one TCP MUD connection.
+- * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
++ * Optional MCCP2: after IAC SB MCCP2 IAC SE, zlib-inflate wire then telnet-parse.
+  */
+ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   const parser = new TelnetParser();
+   const cols = opts.cols ?? 80;
+   const rows = opts.rows ?? 24;
++  const mccpEnabled =
++    opts.mccp ??
++    (process.env.ASSMUD_MCCP == null
++      ? true
++      : process.env.ASSMUD_MCCP !== "0" && process.env.ASSMUD_MCCP !== "false");
++
++  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
++  const MAX_INFLATED_PER_WINDOW =
++    opts.maxInflatedPerWindow ??
++    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
++  const MAX_INFLATED_SESSION =
++    opts.maxInflatedSession ??
++    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
++  const MAX_WIRE_SESSION =
++    opts.maxCompressedWireSession ??
++    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
++
++  let compressedMode = false;
++  let inflate: zlib.Inflate | null = null;
++  let inflatedSession = 0;
++  let inflatedWindow = 0;
++  let windowStart = Date.now();
++  let wireSession = 0;
++  let closed = false;
++  let errorSent = false;
++
+   const sock = net.connect({ host: opts.host, port: opts.port });
+ 
++  const destroy = (reason: string) => {
++    if (closed) return;
++    closed = true;
++    try {
++      inflate?.destroy();
++    } catch {
++      /* ignore */
++    }
++    inflate = null;
++    if (ws.readyState === ws.OPEN) {
++      if (!errorSent) {
++        errorSent = true;
++        const msg = reason
++          .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
++          .slice(0, 200);
++        try {
++          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
++        } catch {
++          /* ignore */
++        }
++      }
++      try {
++        ws.close(1011, "bridge destroy");
++      } catch {
++        /* ignore */
++      }
++    }
++    try {
++      sock.destroy();
++    } catch {
++      /* ignore */
++    }
++  };
++
+   const sendTcp = (buf: Uint8Array) => {
+     if (!sock.destroyed) sock.write(Buffer.from(buf));
+   };
+ 
+-  sock.on("data", (chunk: Buffer) => {
+-    const events = parser.push(new Uint8Array(chunk));
++  const forwardData = (bytes: Uint8Array) => {
++    if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
++    ws.send(bytes);
++  };
++
++  const handleEvents = (events: TelnetEvent[]) => {
+     for (const ev of events) {
+       if (ev.type === "data") {
+-        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
++        forwardData(ev.bytes);
+       } else if (ev.type === "will" || ev.type === "do") {
+-        const reply = replyToNegotiation(ev.type, ev.option);
++        const reply = replyToNegotiation(ev.type, ev.option, {
++          mccp: mccpEnabled,
++        });
+         if (reply) sendTcp(reply);
+       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+         if (ev.payload.length > 0 && ev.payload[0] === 1) {
+@@ -57,30 +145,139 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+         sendTcp(naws(cols, rows));
+       }
++      // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
++    }
++  };
++
++  const feedDecompressed = (buf: Buffer) => {
++    if (closed) return;
++    const now = Date.now();
++    if (now - windowStart >= WINDOW_MS) {
++      windowStart = now;
++      inflatedWindow = 0;
++    }
++    let offset = 0;
++    while (offset < buf.length) {
++      const slice = buf.subarray(
++        offset,
++        Math.min(offset + MAX_PARSER_FEED, buf.length),
++      );
++      offset += slice.length;
++
++      const nextSess = addCap(inflatedSession, slice.length, MAX_INFLATED_SESSION);
++      const nextWin = addCap(inflatedWindow, slice.length, MAX_INFLATED_PER_WINDOW);
++      if (nextSess == null || nextWin == null) {
++        destroy("mccp inflate cap exceeded");
++        return;
++      }
++      inflatedSession = nextSess;
++      inflatedWindow = nextWin;
++
++      const events = parser.push(new Uint8Array(slice));
++      handleEvents(events);
++    }
++  };
++
++  const startInflate = (residual: Uint8Array) => {
++    inflate = zlib.createInflate();
++    inflate.on("data", (d: Buffer) => feedDecompressed(d));
++    inflate.on("error", () => destroy("mccp inflate error"));
++    // residual is compressed wire
++    if (residual.length) {
++      const nextWire = addCap(wireSession, residual.length, MAX_WIRE_SESSION);
++      if (nextWire == null) {
++        destroy("mccp wire cap exceeded");
++        return;
++      }
++      wireSession = nextWire;
++      try {
++        inflate.write(Buffer.from(residual));
++      } catch {
++        destroy("mccp inflate write");
++      }
++    }
++  };
++
++  sock.on("data", (chunk: Buffer) => {
++    if (closed) return;
++    const u8 = new Uint8Array(chunk);
++
++    if (!compressedMode) {
++      const { events, mccpStarted, residual } = parser.pushUntilMccpStart(u8);
++      handleEvents(events);
++      if (mccpStarted) {
++        if (!mccpEnabled) {
++          destroy("mccp se while disabled");
++          return;
++        }
++        compressedMode = true;
++        startInflate(residual);
++      }
++      return;
++    }
++
++    // compressed mode — never TelnetParser on wire
++    const nextWire = addCap(wireSession, u8.length, MAX_WIRE_SESSION);
++    if (nextWire == null) {
++      destroy("mccp wire cap exceeded");
++      return;
++    }
++    wireSession = nextWire;
++    try {
++      inflate?.write(Buffer.from(u8));
++    } catch {
++      destroy("mccp inflate write");
+     }
+   });
+ 
+   sock.on("error", (err) => {
+-    if (ws.readyState === ws.OPEN) {
+-      const msg = String(err.message)
+-        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+-        .slice(0, 200);
+-      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
+-      ws.close(1011, "tcp error");
+-    }
++    destroy(String(err.message) || "tcp error");
+   });
+ 
+-  sock.on("close", () => {
++  const finishInflateThenClose = () => {
++    if (closed) return;
++    if (inflate && !inflate.destroyed) {
++      try {
++        inflate.end();
++      } catch {
++        destroy("mccp truncated");
++        return;
++      }
++      // give inflate a tick to flush; truncated streams error async
++      inflate.once("end", () => {
++        if (closed) return;
++        closed = true;
++        if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++      });
++      inflate.once("error", () => destroy("mccp truncated"));
++      // safety timeout
++      setTimeout(() => {
++        if (!closed) {
++          closed = true;
++          if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++        }
++      }, 500);
++      return;
++    }
++    closed = true;
+     if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++  };
++
++  sock.on("end", finishInflateThenClose);
++  sock.on("close", () => {
++    if (!closed) finishInflateThenClose();
+   });
+ 
+   ws.on("message", (data, isBinary) => {
++    if (closed) return;
+     if (!isBinary) {
+       const s = String(data);
+       if (s.length > 16_384) return;
+       const cleaned = s.replace(/\xff/g, "");
+       const line =
+-        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
++        cleaned.endsWith("\n") || cleaned.endsWith("\r")
++          ? cleaned
++          : cleaned + "\r\n";
+       sendTcp(new TextEncoder().encode(line));
+       return;
+     }
+@@ -90,6 +287,12 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+   });
+ 
+   ws.on("close", () => {
++    closed = true;
++    try {
++      inflate?.destroy();
++    } catch {
++      /* ignore */
++    }
+     sock.destroy();
+   });
+ }
+diff --git a/packages/protocol/src/mccp.ts b/packages/protocol/src/mccp.ts
+index b25bc00..c8bbfdd 100644
+--- a/packages/protocol/src/mccp.ts
++++ b/packages/protocol/src/mccp.ts
+@@ -1,16 +1,7 @@
+ /**
+- * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
++ * MCCP2 helpers — stream inflate lives in proxy bridge (zlib.createInflate).
++ * No silent per-chunk inflate (removed tryInflateMccp anti-pattern).
+  */
+-import { inflateRawSync, inflateSync } from "node:zlib";
+ 
+-export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
+-  try {
+-    return new Uint8Array(inflateSync(Buffer.from(chunk)));
+-  } catch {
+-    try {
+-      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
+-    } catch {
+-      return chunk;
+-    }
+-  }
+-}
++/** IAC SB MCCP2 IAC SE — server starts compression after this. */
++export const MCCP2_START_SB = Uint8Array.of(255, 250, 86, 255, 240);
+diff --git a/packages/protocol/src/telnet.ts b/packages/protocol/src/telnet.ts
+index cabf875..ac12035 100644
+--- a/packages/protocol/src/telnet.ts
++++ b/packages/protocol/src/telnet.ts
+@@ -1,4 +1,4 @@
+-/** Telnet IAC constants and stream filter for Phase 1a. */
++/** Telnet IAC constants and stream filter. */
+ 
+ export const IAC = 255;
+ export const WILL = 251;
+@@ -26,6 +26,12 @@ export type TelnetEvent =
+   | { type: "dont"; option: number }
+   | { type: "sb"; option: number; payload: Uint8Array };
+ 
++export type MccpStartResult = {
++  events: TelnetEvent[];
++  mccpStarted: boolean;
++  residual: Uint8Array;
++};
++
+ /**
+  * Incremental Telnet parser. Emits application data and negotiation events.
+  */
+@@ -36,10 +42,22 @@ export class TelnetParser {
+   private buf = new Uint8Array(0);
+ 
+   push(chunk: Uint8Array): TelnetEvent[] {
++    return this.consume(chunk, false).events;
++  }
++
++  /**
++   * Parse until IAC SB MCCP2 IAC SE completes, then stop.
++   * Residual = every byte after SE (uncompressed-to-compressed boundary).
++   * Incomplete SE is preserved across pushes.
++   */
++  pushUntilMccpStart(chunk: Uint8Array): MccpStartResult {
++    return this.consume(chunk, true);
++  }
++
++  private consume(chunk: Uint8Array, stopAtMccpSe: boolean): MccpStartResult {
+     if (this.buf.length + chunk.length > MAX_BUF) {
+-      // reset on abuse / runaway SB
+       this.buf = new Uint8Array(0);
+-      return [];
++      return { events: [], mccpStarted: false, residual: new Uint8Array(0) };
+     }
+     const merged = new Uint8Array(this.buf.length + chunk.length);
+     merged.set(this.buf);
+@@ -49,6 +67,8 @@ export class TelnetParser {
+     const events: TelnetEvent[] = [];
+     const data: number[] = [];
+     let i = 0;
++    let mccpStarted = false;
++    let residual = new Uint8Array(0);
+ 
+     while (i < this.buf.length) {
+       if (this.buf[i] !== IAC) {
+@@ -71,17 +91,25 @@ export class TelnetParser {
+         }
+         const option = this.buf[i + 2]!;
+         const type =
+-          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
++          cmd === WILL
++            ? "will"
++            : cmd === WONT
++              ? "wont"
++              : cmd === DO
++                ? "do"
++                : "dont";
+         events.push({ type, option });
+         i += 3;
+         continue;
+       }
+       if (cmd === SB) {
+         let j = i + 2;
+-        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
++        while (
++          j + 1 < this.buf.length &&
++          !(this.buf[j] === IAC && this.buf[j + 1] === SE)
++        ) {
+           j += 1;
+           if (j - i > MAX_SB) {
+-            // drop runaway subnegotiation
+             this.buf = this.buf.slice(j);
+             i = 0;
+             data.length = 0;
+@@ -98,6 +126,13 @@ export class TelnetParser {
+         const payload = this.buf.slice(i + 3, j);
+         events.push({ type: "sb", option, payload });
+         i = j + 2;
++
++        if (stopAtMccpSe && option === OPT.MCCP2) {
++          mccpStarted = true;
++          residual = this.buf.slice(i);
++          this.buf = new Uint8Array(0);
++          return { events, mccpStarted, residual };
++        }
+         continue;
+       }
+       // other IAC cmds — skip one
+@@ -108,7 +143,7 @@ export class TelnetParser {
+       events.push({ type: "data", bytes: Uint8Array.from(data) });
+     }
+     this.buf = this.buf.slice(i);
+-    return events;
++    return { events, mccpStarted, residual };
+   }
+ }
+ 
+@@ -116,13 +151,20 @@ export function cmd(cmdByte: number, option: number): Uint8Array {
+   return Uint8Array.of(IAC, cmdByte, option);
+ }
+ 
+-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
++export type NegotiationOpts = {
++  /** When true, DO MCCP2 on WILL MCCP2; when false, DONT */
++  mccp?: boolean;
++};
++
++/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+ export function replyToNegotiation(
+   kind: "will" | "do",
+   option: number,
++  opts: NegotiationOpts = {},
+ ): Uint8Array | null {
++  const mccp = opts.mccp === true;
+   if (kind === "will") {
+-    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
++    if (option === OPT.MCCP2) return cmd(mccp ? DO : DONT, OPT.MCCP2);
+     if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
+     return cmd(DONT, option);
+   }
+diff --git a/packages/protocol/tests/telnet.test.ts b/packages/protocol/tests/telnet.test.ts
+index 0fa9d24..42aae36 100644
+--- a/packages/protocol/tests/telnet.test.ts
++++ b/packages/protocol/tests/telnet.test.ts
+@@ -4,12 +4,15 @@ import {
+   IAC,
+   WILL,
+   DO,
++  SB,
++  SE,
+   OPT,
+   replyToNegotiation,
+   DONT,
+   WILL as WILL_C,
+   WONT,
+-} from "../src/telnet.js";
++  MCCP2_START_SB,
++} from "../src/index.js";
+ 
+ describe("TelnetParser", () => {
+   it("strips IAC WILL/DO and yields data", () => {
+@@ -25,16 +28,81 @@ describe("TelnetParser", () => {
+       0x69, // Hi
+     );
+     const ev = p.push(raw);
+-    expect(ev.some((e) => e.type === "will" && e.option === OPT.MCCP2)).toBe(true);
+-    expect(ev.some((e) => e.type === "do" && e.option === OPT.TTYPE)).toBe(true);
++    expect(ev.some((e) => e.type === "will" && e.option === OPT.MCCP2)).toBe(
++      true,
++    );
++    expect(ev.some((e) => e.type === "do" && e.option === OPT.TTYPE)).toBe(
++      true,
++    );
+     const data = ev.filter((e) => e.type === "data");
+     expect(data).toHaveLength(1);
+     expect(Buffer.from(data[0]!.bytes).toString("latin1")).toBe("Hi");
+   });
+ 
+-  it("Phase 1a replies DONT MCCP2 and WILL TTYPE", () => {
+-    expect([...replyToNegotiation("will", OPT.MCCP2)!]).toEqual([IAC, DONT, OPT.MCCP2]);
+-    expect([...replyToNegotiation("do", OPT.TTYPE)!]).toEqual([IAC, WILL_C, OPT.TTYPE]);
+-    expect([...replyToNegotiation("do", OPT.MXP)!]).toEqual([IAC, WONT, OPT.MXP]);
++  it("replies DO MCCP2 when mccp true, DONT when false", () => {
++    expect([...replyToNegotiation("will", OPT.MCCP2, { mccp: false })!]).toEqual(
++      [IAC, DONT, OPT.MCCP2],
++    );
++    expect([...replyToNegotiation("will", OPT.MCCP2, { mccp: true })!]).toEqual(
++      [IAC, DO, OPT.MCCP2],
++    );
++    expect([...replyToNegotiation("will", OPT.MCCP2)!]).toEqual([
++      IAC,
++      DONT,
++      OPT.MCCP2,
++    ]);
++    expect([...replyToNegotiation("do", OPT.TTYPE)!]).toEqual([
++      IAC,
++      WILL_C,
++      OPT.TTYPE,
++    ]);
++    expect([...replyToNegotiation("do", OPT.MXP)!]).toEqual([
++      IAC,
++      WONT,
++      OPT.MXP,
++    ]);
++  });
++
++  it("pushUntilMccpStart stops after SE and returns residual", () => {
++    const p = new TelnetParser();
++    // plaintext Hi + IAC SB MCCP2 IAC SE + residual bytes 0x78 0x9c (zlib header-ish)
++    const chunk = Uint8Array.of(
++      0x48,
++      0x69,
++      IAC,
++      SB,
++      OPT.MCCP2,
++      IAC,
++      SE,
++      0x78,
++      0x9c,
++      0x01,
++    );
++    const r = p.pushUntilMccpStart(chunk);
++    expect(r.mccpStarted).toBe(true);
++    expect(r.residual).toEqual(Uint8Array.of(0x78, 0x9c, 0x01));
++    const data = r.events.filter((e) => e.type === "data");
++    expect(Buffer.from(data[0]!.bytes).toString("latin1")).toBe("Hi");
++    expect(r.events.some((e) => e.type === "sb" && e.option === OPT.MCCP2)).toBe(
++      true,
++    );
++  });
++
++  it("pushUntilMccpStart preserves incomplete SE across chunks", () => {
++    const p = new TelnetParser();
++    const a = p.pushUntilMccpStart(
++      Uint8Array.of(0x41, IAC, SB, OPT.MCCP2, IAC),
++    );
++    expect(a.mccpStarted).toBe(false);
++    expect(Buffer.from(a.events.find((e) => e.type === "data")!.bytes).toString(
++      "latin1",
++    )).toBe("A");
++    const b = p.pushUntilMccpStart(Uint8Array.of(SE, 0xab, 0xcd));
++    expect(b.mccpStarted).toBe(true);
++    expect(b.residual).toEqual(Uint8Array.of(0xab, 0xcd));
++  });
++
++  it("MCCP2_START_SB constant matches IAC SB 86 IAC SE", () => {
++    expect(MCCP2_START_SB).toEqual(Uint8Array.of(IAC, SB, OPT.MCCP2, IAC, SE));
+   });
+ });
+
+exec
+/usr/bin/zsh -lc "git status --short
+node -e 'const z=require(\"node:zlib\"),p=z.deflateSync(Buffer.from(\"HelloMap\")),i=z.createInflate();i.on(\"data\",()=>{});i.on(\"error\",e=>console.log(e.code));i.write(p);i.end();i.end();setTimeout(()=>{},30)'" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+ M apps/proxy/src/bridge.ts
+ M packages/protocol/src/mccp.ts
+ M packages/protocol/src/telnet.ts
+ M packages/protocol/tests/telnet.test.ts
+?? apps/proxy/tests/mccp-bridge.test.ts
+?? docs/plans/2026-07-21-mccp2-checklist.md
+?? docs/reviews/2026-07-21-mccp2-impl-codex.err
+?? docs/reviews/2026-07-21-mccp2-impl-codex.out
+?? docs/reviews/2026-07-21-mccp2-impl-minimax.err
+?? docs/reviews/2026-07-21-mccp2-impl-minimax.out
+
+exec
+/usr/bin/zsh -lc "node -e 'const z=require(\"node:zlib\"),i=z.createInflate();i.on(\"error\",e=>console.log(\"single\",e.code));i.end();setTimeout(()=>{},30)'
+node -e 'const z=require(\"node:zlib\"),p=z.deflateSync(Buffer.from(\"HelloMap\")),i=z.createInflate();i.on(\"data\",()=>{});i.on(\"error\",e=>console.log(\"error\",e.code));i.on(\"end\",()=>console.log(\"end\"));i.write(p);i.end();i.end();setTimeout(()=>{},30)'" in /home/cookys/projects/assmud
+ succeeded in 123ms:
+codex
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: []
+
+NITS:
+
+- `finishInflateThenClose()` can run for both TCP `end` and `close`, registering duplicate listeners/timeouts and calling `inflate.end()` twice. Add a `finishing` guard when convenient.
+- Consider tests for multi-chunk compressed streams, inflate/wire caps, malformed zlib, and truncated shutdown.
+
+The MCCP boundary, same-chunk residual routing, persistent stream inflation, disabled-mode rejection, and removal of per-chunk inflation are correct. Supplied 55-test green result accepted; sandbox prevented an independent rerun.
+tokens used
+55,095

@@ -1,0 +1,41 @@
+**VERDICT: APPROVE**
+
+### Review Summary
+
+**Architecture** — Clean separation. `mccp.ts` is a minimal constant module (correct no tryInflateMccp). `telnet.ts` handles the MCCP2 SB/SE boundary. `bridge.ts` owns stream inflate. No mixed responsibilities.
+
+**TelnetParser (telnet.ts)**
+- `pushUntilMccpStart`: correctly stops at MCCP2 SE, returns residual bytes, preserves incomplete SE across chunks (tested line 91-103), resets buffer on return.
+- `replyToNegotiation`: DO on WILL MCCP2 when enabled, DONT when disabled (tested line 42-64).
+- `OPT.MCCP2 = 86` — correct.
+
+**Bridge (bridge.ts)**
+- State machine correct: plain mode → pushUntilMccpStart → compressedMode → stream inflate.
+- Residual bytes fed to inflate before subsequent wire data.
+- Wire bytes never re-enter TelnetParser in compressed mode.
+- Rate limits: `inflatedSession`, `inflatedWindow`, `wireSession` all bounded with destroy on cap.
+- Error path: inflate errors, truncated streams, safety 500ms timeout all close gracefully.
+- IAC escaping on client→server path.
+
+**Tests**
+- `telnet.test.ts`: 4 cases covering boundary, residual, incomplete SE, negotiation.
+- `mccp-bridge.test.ts`: 3 cases — DO MCCP2+inflate, DONT MCCP2, reject MCCP2 when disabled.
+- 55 tests green.
+
+### NITS (non-blocking)
+
+Two must-fix cleanups:
+
+1. `bridge.ts:148` — dangling comment:
+   ```
+   // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
+   ```
+   Can be removed.
+
+2. `bridge.ts:183` — unnecessary explicit type on callback param:
+   ```typescript
+   inflate.on("data", (d: Buffer) => feedDecompressed(d));
+   ```
+   The type `Buffer` is implied; the explicit annotation is redundant.
+
+Neither affects correctness. Ship merge approved.
