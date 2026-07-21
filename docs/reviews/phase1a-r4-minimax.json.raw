@@ -1,0 +1,3 @@
+dispatch-review: run_id=review-1784614360-3693314-00a9 manifest=/tmp/autopilot-dispatch-runs/review-1784614360-3693314-00a9.manifest.json (watch: scripts/dispatch-status.js --run review-1784614360-3693314-00a9)
+dispatch-review: anthropic-compatible/MiniMax-M3 (effort=xhigh) may run for MINUTES — ensure a high Bash-tool timeout (BASH_DEFAULT_TIMEOUT_MS); the 120s default SIGTERMs long runs.
+{ "runner": "anthropic-compatible", "model": "MiniMax-M3", "status": "reviewed", "verdict": "SHIP-AS-IS", "findings": "- none", "raw_log": "/tmp/dispatch-review-log-LuH2xJ", "error": null }

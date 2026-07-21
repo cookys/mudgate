@@ -37,7 +37,7 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
     res.end("not found");
   });
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
   server.on("upgrade", (req, socket, head) => {
     try {
