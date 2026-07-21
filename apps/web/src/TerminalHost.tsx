@@ -37,6 +37,16 @@ export function TerminalHost({
   const wsRef = useRef<WebSocket | null>(null);
   const helloRef = useRef(hello);
   helloRef.current = hello;
+  // Keep callbacks in refs so status updates don't tear down the WebSocket
+  // (parent re-renders pass new function identities every time).
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const onServerLineRef = useRef(onServerLine);
+  onServerLineRef.current = onServerLine;
+  const expandInputRef = useRef(expandInput);
+  expandInputRef.current = expandInput;
+  const onInjectConsumedRef = useRef(onInjectConsumed);
+  onInjectConsumedRef.current = onInjectConsumed;
   const lineAcc = useRef("");
 
   useEffect(() => {
@@ -50,15 +60,16 @@ export function TerminalHost({
   useEffect(() => {
     if (!injectCommand) return;
     // expand once here; sendLine must not re-expand injected pieces
-    const lines = expandInput ? expandInput(injectCommand) : [injectCommand];
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(injectCommand) : [injectCommand];
     for (const line of lines) sendRaw(line);
-    onInjectConsumed?.();
+    onInjectConsumedRef.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [injectCommand]);
 
   useEffect(() => {
     if (!wsUrl) return;
-    onStatus?.("connecting…");
+    onStatusRef.current?.("connecting…");
     let closed = false;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -66,7 +77,9 @@ export function TerminalHost({
 
     const connect = () => {
       if (closed) return;
-      onStatus?.(attempt ? `reconnecting… (${attempt})` : "connecting…");
+      onStatusRef.current?.(
+        attempt ? `reconnecting… (${attempt})` : "connecting…",
+      );
       ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -75,24 +88,24 @@ export function TerminalHost({
 
       ws.onopen = () => {
         attempt = 0;
-        onStatus?.("handshaking…");
+        onStatusRef.current?.("handshaking…");
         ws.send(JSON.stringify(helloRef.current));
       };
       ws.onclose = () => {
         wsRef.current = null;
         if (closed) {
-          onStatus?.("disconnected");
+          onStatusRef.current?.("disconnected");
           return;
         }
         attempt += 1;
         if (attempt > 5) {
-          onStatus?.("disconnected");
+          onStatusRef.current?.("disconnected");
           return;
         }
-        onStatus?.(`reconnect in ${attempt}s`);
+        onStatusRef.current?.(`reconnect in ${attempt}s`);
         timer = setTimeout(connect, attempt * 1000);
       };
-      ws.onerror = () => onStatus?.("error");
+      ws.onerror = () => onStatusRef.current?.("error");
       ws.onmessage = (ev) => {
         if (typeof ev.data === "string") {
           const s = ev.data;
@@ -103,12 +116,12 @@ export function TerminalHost({
                 const msg = (j.message ?? "error")
                   .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
                   .slice(0, 200);
-                onStatus?.(msg || "error");
+                onStatusRef.current?.(msg || "error");
               } else if (j.type === "ready") {
-                onStatus?.("connected");
+                onStatusRef.current?.("connected");
               }
             } catch {
-              onStatus?.("bad control frame");
+              onStatusRef.current?.("bad control frame");
             }
           }
           return;
@@ -123,7 +136,7 @@ export function TerminalHost({
           const parts = lineAcc.current.split(/\r?\n/);
           lineAcc.current = parts.pop() ?? "";
           for (const ln of parts) {
-            if (ln) onServerLine?.(ln);
+            if (ln) onServerLineRef.current?.(ln);
           }
         }
       };
@@ -139,7 +152,7 @@ export function TerminalHost({
       decoderRef.current.reset();
       lineAcc.current = "";
     };
-  }, [wsUrl, onStatus, onServerLine]);
+  }, [wsUrl]);
 
   const sendRaw = (line: string) => {
     const ws = wsRef.current;
