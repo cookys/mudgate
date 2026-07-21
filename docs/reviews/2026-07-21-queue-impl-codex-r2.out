@@ -1,0 +1,3106 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f857c-3a98-77b3-b97b-3bce63937b34
+--------
+user
+Re-review folded ships after Codex MUST_FIX. Evidence:
+- apps/proxy/tests/mccp-e2e-golden.test.ts uses bridgeWsToMud + Big5 + ScreenBuffer multi/same-chunk
+- probeCjkGlyph vs missing font; extras editor; SARASA-TERM-TC.md
+- gitleaks best-effort CI; secret-scan includes reviews
+- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+- ProfileEditor opt-in plaintext + getProfilePassword auto-login inject; loadProfiles validates
+Return per ship VERDICT MUST_FIX and ALL_CLEAR yes|no
+codex
+I’m using the audit skill because this is a parity/completeness re-review across several folded ships. I’ll inspect the claimed evidence and return only substantiated per-ship findings.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+
+exec
+/usr/bin/zsh -lc "pwd && rg -n \"folded ships|MUST_FIX|ALL_CLEAR|bridgeWsToMud|probeCjkGlyph|clientIpFromRequest|getProfilePassword|secret-scan\" -S . --glob '"'!node_modules'"' --glob '"'!dist'"'" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+/home/cookys/projects/assmud
+./scripts/secret-scan.sh:17:    echo "secret-scan: potential secrets found (see matches above)" >&2
+./scripts/secret-scan.sh:22:    echo "secret-scan: potential secrets found" >&2
+./scripts/secret-scan.sh:26:echo "secret-scan: ok (fallback patterns; install gitleaks for full coverage)"
+./docs/plans/2026-07-21-backlog-candidates.md:43:| 13 | CI secret scan before public push | `ci-secret-scan` | S | ？ |
+./docs/plans/2026-07-21-backlog-candidates.md:66:1. **P0** `#13` ci-secret-scan + `#8` prod-deploy-wss（開源／上線前）  
+./package.json:19:    "secret-scan": "bash scripts/secret-scan.sh",
+./docs/plans/2026-07-21-selfhost-proxy-trust.md:282:| R2 | Codex **APPROVE**；MiniMax **APPROVE**；GLM APPROVE_WITH_NITS | MUST_FIX 空；nits → history MUST、release checklist、CF no Bypass |
+./docs/plans/2026-07-21-selfhost-proxy-trust.md:283:| R3 | Codex / MiniMax / GLM 皆 **APPROVE** | MUST_FIX [] NITS [] **ALL_CLEAR: yes** |
+./docs/plans/2026-07-21-open-source-readiness.md:11:MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+./docs/plans/2026-07-21-open-source-readiness.md:18:| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:277:MUST_FIX: []
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:296:| R2 | Codex + MiniMax + GLM-5.2 | **APPROVE*** / APPROVE_WITH_NITS；MUST_FIX 空 |
+./packages/profiles/src/secrets.ts:41:export function getProfilePassword(profileId: string): string | undefined {
+./packages/profiles/src/index.ts:12:  getProfilePassword,
+./docs/knowledge/hetero-definition.md:13:## Fold → re-review until ALL_CLEAR (2026-07-21)
+./docs/knowledge/hetero-definition.md:15:**Problem**: After fold of MUST_FIX/nits, orchestrator stamped plan APPROVED without re-running hetero (selfhost-proxy-trust R2→nits).  
+./docs/knowledge/hetero-definition.md:19:hetero → fold MUST_FIX/adopted NITS into plan/code → hetero again
+./docs/knowledge/hetero-definition.md:20:直到 ALL_CLEAR
+./docs/knowledge/hetero-definition.md:26:| **ALL_CLEAR** | ≥2 families APPROVE*; no BLOCK; MUST_FIX []; NITS [] or explicitly deferred |
+./docs/reviews/2026-07-21-cjk-width-codex.out:26:MUST_FIX: [list]
+./docs/reviews/2026-07-21-cjk-width-codex.out:271:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex.out:365:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/reviews/2026-07-21-cjk-width-codex.out:378:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/reviews/2026-07-21-hetero-r4-codex-mccp.err:17:MUST_FIX: (empty if none)
+./docs/reviews/2026-07-21-hetero-r4-codex-mccp.err:163:MUST_FIX:
+./docs/reviews/2026-07-21-hetero-loop-final.md:11:| R2 first multi-LLM | Grok **BLOCK**, Codex **BLOCK**, GLM **APPROVE_WITH_NITS**, MiniMax **APPROVE_WITH_NITS** | fold all MUST_FIX |
+./docs/reviews/2026-07-21-hetero-loop-final.md:15:## Consensus after fold (no outstanding MUST_FIX for plan-text)
+./docs/deploy/GITHUB.md:6:- [ ] Secret scanning: `npm run secret-scan` in CI (or gitleaks org setting)
+./docs/reviews/2026-07-21-hetero-r3-minimax.out:5:**mccp2-stream** — was BLOCK from Grok+Codex in R2. All R2 MUST_FIX are now satisfied in plan text:
+./docs/reviews/2026-07-21-hetero-r3-minimax.out:7:| R2 MUST_FIX | Status in plan |
+./docs/reviews/2026-07-21-hetero-r3-minimax.out:33:### MUST_FIX outstanding
+./docs/reviews/2026-07-21-hetero-r3-minimax.out:55:**APPROVE** all 7 plans. hetero multi-LLM criteria met — previous Grok/Codex BLOCK on mccp2-stream is fully resolved in the plan text. No remaining MUST_FIX.
+./apps/web/src/App.tsx:11:  getProfilePassword,
+./apps/web/src/App.tsx:305:    const pw = getProfilePassword(profile.id);
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r3.out:1:Both Codex and MiniMax R3 returned **APPROVE** with empty MUST_FIX and NITS. GLM's R2 nit fold is already in the plan (review log row 9 confirms it). Let me verify the three R2 GLM nits are folded:
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r3.out:11:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r3.out:13:ALL_CLEAR: yes
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:15:Re-review CJK width IMPL after fold: width.ts now EAW F/W + Ambiguous ranges in cjk (not all non-ASCII); committed packages/terminal/tests/fixtures/rw-motd-cols.json golden. VERDICT/MUST_FIX only.
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:17:I’m using the quality-pipeline review workflow for this re-review, scoped to the folded CJK-width implementation and its committed golden. I’ll return only `VERDICT` and `MUST_FIX`.
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:57:| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1577:MUST_FIX:
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1583:MUST_FIX:
+./docs/reviews/2026-07-21-cjk-width-minimax-r2.out:30:MUST_FIX: []
+./docs/reviews/2026-07-21-w05-echo-impl-minimax.out:7:### MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r2.out:2:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r2.out:5:All five R0 Codex MUST_FIX items are clearly folded in: §3.3 carries the full SHA-256→digest pin chain; §3.2 locks bind to `127.0.0.1:7788` with TLS/tunnel-only exposure; token is 0600 root-owned, banned from URL/cloud-init userdata/CI-log with SSH-`sudo cat` safe retrieve; Origin empty fail-closed and explicitly ≠ token auth (雙寫); §3.4 makes domain+TLS the recommended T1a path and downgrades raw-IP `wss` to private-CA/test only. The extra asks also land: T0a/T0b split is in §2, T1b Cloudflare Tunnel/Zero Trust has its own §3.7, U2 marks token-not-exported as ship-necessary in §4.3/§5, and the WSS≠E2E sentence is repeated across §0/T3-modal/i18n/§7 so it can't drift. Nits above are hardening/traceability only.
+./apps/web/tests/profileEditor.test.ts:9:  getProfilePassword,
+./apps/web/tests/profileEditor.test.ts:28:    expect(getProfilePassword(p.id)).toBe("s3cret");
+./apps/web/tests/profileEditor.test.ts:32:    expect(getProfilePassword(p.id)).toBeUndefined();
+./apps/proxy/src/server.ts:10:import { AbuseLimiter, clientIpFromRequest, defaultLimits } from "./limits.js";
+./apps/proxy/src/server.ts:11:import { bridgeWsToMud } from "./bridge.js";
+./apps/proxy/src/server.ts:56:      const ip = clientIpFromRequest(req);
+./apps/proxy/src/server.ts:154:            bridgeWsToMud(ws, {
+./apps/proxy/tests/mccp-bridge.test.ts:32:import { bridgeWsToMud } from "../src/bridge.js";
+./apps/proxy/tests/mccp-bridge.test.ts:69:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:82:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: false });
+./apps/proxy/tests/mccp-bridge.test.ts:96:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:106:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:126:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:143:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:156:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: false });
+./apps/proxy/tests/mccp-bridge.test.ts:169:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:203:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-bridge.test.ts:223:    bridgeWsToMud(ws as never, {
+./apps/proxy/tests/mccp-bridge.test.ts:242:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:2:Output ENGINE / VERDICT_OVERALL / PER_PLAN / MUST_FIX / NITS / SAFE_IMPLEMENT_ORDER.
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:236:MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:243:| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:431:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./apps/web/tests/fontTrial.test.ts:2:import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+./apps/web/tests/fontTrial.test.ts:36:  it("probeCjkGlyph is exported and returns structure", () => {
+./apps/web/tests/fontTrial.test.ts:38:    const r = probeCjkGlyph("monospace");
+./docs/reviews/2026-07-21-hetero-r3-codex.out:16:MUST_FIX:
+./docs/reviews/2026-07-21-selfhost-impl-minimax-r2.out:1:**VERDICT: ALL_CLEAR — NITS only**
+./docs/reviews/2026-07-21-selfhost-impl-minimax-r2.out:3:All four MUST_FIX items are correctly implemented:
+./apps/proxy/src/bridge.ts:57:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./apps/proxy/tests/mccp-e2e-golden.test.ts:2: * Production-path MCCP goldens: real bridgeWsToMud + multi/same-chunk + Big5 decode + VT.
+./apps/proxy/tests/mccp-e2e-golden.test.ts:38:import { bridgeWsToMud } from "../src/bridge.js";
+./apps/proxy/tests/mccp-e2e-golden.test.ts:77:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./apps/proxy/tests/mccp-e2e-golden.test.ts:105:    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./docs/reviews/2026-07-21-queue-impl-minimax.out:8:**MUST_FIX: []**
+./docs/reviews/2026-07-21-queue-impl-minimax.out:15:`probeCjkGlyph` (trial.ts:15) correctly detects missing CJK via canvas width delta, fails closed in Node. `isAlignScoreGood` threshold of 0.3 around 2.0 is appropriate. `TRIAL_FIXTURE` contains CJK+box-drawing. `resolveFontStack` imports and uses probe. `lineHeightScale` wired end-to-end: trial slider → save → TerminalHost prop → renderer. Canvas at 96px is sufficient for 3-line fixture at 15px+spacing.
+./docs/reviews/2026-07-21-queue-impl-minimax.out:16:**MUST_FIX: []**
+./docs/reviews/2026-07-21-queue-impl-minimax.out:24:**MUST_FIX: []**
+./docs/reviews/2026-07-21-queue-impl-minimax.out:32:**MUST_FIX: []**
+./docs/reviews/2026-07-21-queue-impl-minimax.out:40:**MUST_FIX: []**
+./docs/reviews/2026-07-21-queue-impl-minimax.out:45:**ALL_CLEAR: yes**
+./docs/reviews/2026-07-21-mccp2-impl-codex.out:3:MUST_FIX: []
+./apps/proxy/src/limits.ts:55:export function clientIpFromRequest(req: {
+./apps/web/src/components/FontTrialPanel.tsx:9:import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
+./apps/web/src/components/FontTrialPanel.tsx:55:      const probe = probeCjkGlyph(
+./docs/reviews/2026-07-21-hetero-pack.txt:42:MUST_FIX: (bullets; empty if none)
+./docs/reviews/2026-07-21-hetero-pack.txt:246:| O1 | gitleaks 或 trufflehog config + `npm run secret-scan` | S | CI 本地可跑；README 一行 |
+./docs/reviews/2026-07-21-hetero-pack.txt:425:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-hetero-r3-codex.err:15:Output ENGINE / VERDICT_OVERALL / PER_PLAN / MUST_FIX / NITS / SAFE_IMPLEMENT_ORDER.
+./docs/reviews/2026-07-21-hetero-r3-codex.err:249:MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+./docs/reviews/2026-07-21-hetero-r3-codex.err:256:| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+./docs/reviews/2026-07-21-hetero-r3-codex.err:444:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-hetero-r3-codex.err:704:MUST_FIX:
+./apps/web/src/components/ProfileEditor.tsx:4:  getProfilePassword,
+./apps/web/src/components/ProfileEditor.tsx:36:    selected ? getProfilePassword(selected.id) ?? "" : "",
+./apps/web/src/components/ProfileEditor.tsx:53:    setPassword(getProfilePassword(selected.id) ?? "");
+./apps/web/src/components/ProfileEditor.tsx:62:      setPassword(getProfilePassword(selected.id) ?? "");
+./apps/web/src/components/ProfileEditor.tsx:140:            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r2.out:1:Checking if R0 Codex MUST_FIX items are now folded into the plan.
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r2.out:16:All R0 Codex MUST_FIX items are present and correctly placed.
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax-r2.out:22:All five R0 Codex MUST_FIX items (installer digest chain, loopback bind, token 0600/safe retrieve, Origin fail-closed, T1 domain TLS) plus the additional items (T0a/T0b split, T1b CF Tunnel architecture, U2 token export block, WSS≠E2E hard constraint) are correctly folded into §3.2–3.5, §4, and §0. The plan is internally consistent: the hard-limit blockquote in §0 prevents any future copy from implying E2E, and §3.7 explicitly corrects the CF exit-IP misconception. No remaining structural gaps.
+./docs/reviews/2026-07-21-hetero-codex.out:14:MUST_FIX:
+./docs/reviews/2026-07-21-hetero-r4-codex-mccp.out:3:MUST_FIX:
+./docs/reviews/2026-07-21-hetero-multi-llm.md:42:## Shared MUST_FIX (both engines)
+./docs/reviews/phase-1a-diff.patch:156:+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/phase-1a-diff.patch:401:+import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/phase-1a-diff.patch:449:+        bridgeWsToMud(ws, {
+./docs/reviews/phase1a-postfix-pack.md:207:import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/phase1a-postfix-pack.md:256:        bridgeWsToMud(ws, {
+./docs/reviews/phase1a-postfix-pack.md:307:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./apps/web/src/termFonts/catalog.ts:3:import { probeCjkGlyph } from "./trial.js";
+./apps/web/src/termFonts/catalog.ts:195:    const p = probeCjkGlyph(primary.includes(" ") ? `"${primary}"` : primary);
+./docs/reviews/2026-07-21-w05-echo-codex.out:26:MUST_FIX: [list]
+./docs/reviews/2026-07-21-w05-echo-codex.out:374:MUST_FIX: [Replace “`type=password` or CSS mask” with “set the web input to `type=password` only while `mask=true`, and restore its normal type when false.”]
+./docs/reviews/2026-07-21-w05-echo-codex.out:380:MUST_FIX: [Replace “`type=password` or CSS mask” with “set the web input to `type=password` only while `mask=true`, and restore its normal type when false.”]
+./docs/reviews/fix-double-expand.md:205:import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/fix-double-expand.md:300:            bridgeWsToMud(ws, {
+./apps/web/src/termFonts/trial.ts:19:export function probeCjkGlyph(
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:14:You review MCCP2 implementation (not plan). Code at packages/protocol/src/telnet.ts pushUntilMccpStart, replyToNegotiation mccp opt; apps/proxy/src/bridge.ts stream inflate; packages/protocol/src/mccp.ts no tryInflateMccp; tests green 55. Verdict APPROVE|APPROVE_WITH_NITS|BLOCK for ship merge. MUST_FIX empty if ok.
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:62:| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:604: export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:694:@@ -57,30 +145,139 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:843:@@ -90,6 +287,12 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1274:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1527:/usr/bin/zsh -lc "rg -n \"MCCP|mccp|pushUntilMccpStart|bridgeWsToMud|tryInflateMccp\" packages apps test tests --glob '"'!**/dist/**'"' 2>/dev/null || true
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1770: export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1860:@@ -57,30 +145,139 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2009:@@ -90,6 +287,12 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2311:MUST_FIX: []
+./docs/reviews/2026-07-21-hetero-minimax.out:14:MUST_FIX:
+./docs/reviews/2026-07-21-w05-echo-hetero.md:9:| Engine | Family | Verdict | MUST_FIX |
+./docs/reviews/2026-07-21-w05-echo-hetero.md:19:| Engine | Verdict | MUST_FIX |
+./docs/reviews/2026-07-21-w05-echo-hetero.md:29:- Loop green (≥2 families APPROVE*, no open MUST_FIX)
+./docs/reviews/2026-07-21-hetero-codex.err:55:MUST_FIX: (bullets; empty if none)
+./docs/reviews/2026-07-21-hetero-codex.err:259:| O1 | gitleaks 或 trufflehog config + `npm run secret-scan` | S | CI 本地可跑；README 一行 |
+./docs/reviews/2026-07-21-hetero-codex.err:438:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-hetero-codex.err:1438:MUST_FIX:
+./docs/reviews/2026-07-21-selfhost-proxy-trust-glm.out:4:MUST_FIX: []
+./docs/reviews/phase1a-qwen.prompt.txt:188:+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/phase1a-qwen.prompt.txt:433:+import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/phase1a-qwen.prompt.txt:481:+        bridgeWsToMud(ws, {
+./docs/reviews/2026-07-21-hetero-glm.out:15:MUST_FIX:
+./docs/reviews/2026-07-21-hetero-glm.out:27:- open-source-readiness: O1 `npm run secret-scan` in CI presumes ci-e2e-quality (Seq 2) landed; note the cross-plan dependency.
+./docs/reviews/full-land-pack.md:850:import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/full-land-pack.md:945:            bridgeWsToMud(ws, {
+./docs/reviews/full-land-pack.md:1201:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-hetero-r5-codex-mccp.out:3:MUST_FIX: None. `pushWithBoundary` is absent; `pushUntilMccpStart` is used consistently.  
+./docs/reviews/2026-07-21-selfhost-impl-minimax.out:1:## VERDICT: MUST_FIX — 2 NITS
+./docs/reviews/2026-07-21-cjk-width-glm-r2.out:5:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-brief.txt:12:MUST_FIX: [list]
+./docs/reviews/2026-07-21-hetero-r5-codex-mccp.err:14:ENGINE Codex. Re-check ONLY this plan file content. MUST_FIX was: replace pushWithBoundary with pushUntilMccpStart. Current file uses pushUntilMccpStart only (grep clean).
+./docs/reviews/2026-07-21-hetero-r5-codex-mccp.err:158:MUST_FIX:
+./docs/reviews/2026-07-21-hetero-r5-codex-mccp.err:385:MUST_FIX: None. `pushWithBoundary` is absent; `pushUntilMccpStart` is used consistently.  
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:17:R0 Codex MUST_FIX that should now be in plan:
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:27:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:320:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:322:R1 已完整 fold R0 五項 MUST_FIX，並清楚納入 T0a/T0b、T1b Cloudflare Tunnel/Zero Trust、U2 token 排除 export，以及 WSS 不等於 E2E 的強制文案；各項亦有對應產物、phase 與 acceptance gate。
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:326:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r2.out:328:R1 已完整 fold R0 五項 MUST_FIX，並清楚納入 T0a/T0b、T1b Cloudflare Tunnel/Zero Trust、U2 token 排除 export，以及 WSS 不等於 E2E 的強制文案；各項亦有對應產物、phase 與 acceptance gate。
+./docs/reviews/2026-07-21-cjk-width-minimax.out:3:**MUST_FIX:**
+./docs/reviews/phase1a-postfix-pack-r4.md:217:import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/phase1a-postfix-pack-r4.md:312:            bridgeWsToMud(ws, {
+./docs/reviews/phase1a-postfix-pack-r4.md:367:export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-w05-echo-brief.txt:12:MUST_FIX: [list]
+./docs/reviews/2026-07-21-cjk-width-hetero.md:15:**Ship claim**: ≥2 families APPROVE*，MUST_FIX 全空 → **plan APPROVED** for expand **W1–W4 + I1**.
+./docs/reviews/2026-07-21-cjk-width-hetero.md:17:## R0 Codex MUST_FIX（已 fold）
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex.out:19:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex.out:236:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex.out:258:MUST_FIX: ["Cloud-init／一行安裝的信任鏈必須具體釘選：固定 installer 版本與 SHA-256，再由 installer 拉固定 image digest；不可只寫原則。", "不得先將 7788 發布到 0.0.0.0 再靠文件提醒；compose／install 必須預設只綁 127.0.0.1:7788，由 TLS reverse proxy 對外提供 443。", "Token 不得出現在 URL、cloud-init log、shell trace 或安裝輸出紀錄；互動安裝可顯示一次，cloud-init 必須寫入 0600 root-owned 檔並提供明確的安全取回流程。", "Origin allowlist 的 cloud-init 非互動行為必須定義；空值須 fail closed，且文件需說明 Origin 只限制瀏覽器來源，不取代 token。", "T1 不能把 wss://<IP>/ws 描述成一般可行路徑；公開信任 TLS 通常需要可驗證域名，否則必須提供明確的憑證／私有 CA 流程。"]
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex.out:273:MUST_FIX: ["Cloud-init／一行安裝的信任鏈必須具體釘選：固定 installer 版本與 SHA-256，再由 installer 拉固定 image digest；不可只寫原則。", "不得先將 7788 發布到 0.0.0.0 再靠文件提醒；compose／install 必須預設只綁 127.0.0.1:7788，由 TLS reverse proxy 對外提供 443。", "Token 不得出現在 URL、cloud-init log、shell trace 或安裝輸出紀錄；互動安裝可顯示一次，cloud-init 必須寫入 0600 root-owned 檔並提供明確的安全取回流程。", "Origin allowlist 的 cloud-init 非互動行為必須定義；空值須 fail closed，且文件需說明 Origin 只限制瀏覽器來源，不取代 token。", "T1 不能把 wss://<IP>/ws 描述成一般可行路徑；公開信任 TLS 通常需要可驗證域名，否則必須提供明確的憑證／私有 CA 流程。"]
+./docs/reviews/2026-07-21-hetero-brief.md:42:MUST_FIX: (bullets; empty if none)
+./docs/reviews/2026-07-21-w05-echo-minimax.out:7:**MUST_FIX:** (none)
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:19:MUST_FIX: []
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:73:| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:785:@@ -85,9 +85,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:812:@@ -140,12 +157,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:858:+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:892:+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:912:     bridgeWsToMud(ws as never, {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2385:@@ -85,9 +85,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2412:@@ -140,12 +157,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2669:MUST_FIX: []
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2681:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:23:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:288:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:659:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:688:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:698:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r3.out:4:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-glm-r3.out:6:ALL_CLEAR: yes
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:15:Re-review folded ships after Codex MUST_FIX. Evidence:
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:16:- apps/proxy/tests/mccp-e2e-golden.test.ts uses bridgeWsToMud + Big5 + ScreenBuffer multi/same-chunk
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:17:- probeCjkGlyph vs missing font; extras editor; SARASA-TERM-TC.md
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:18:- gitleaks best-effort CI; secret-scan includes reviews
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:19:- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:20:- ProfileEditor opt-in plaintext + getProfilePassword auto-login inject; loadProfiles validates
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:21:Return per ship VERDICT MUST_FIX and ALL_CLEAR yes|no
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:23:I’m using the audit skill because this is a parity/completeness re-review across several folded ships. I’ll inspect the claimed evidence and return only substantiated per-ship findings.
+./docs/reviews/2026-07-21-selfhost-proxy-trust-minimax.out:2:MUST_FIX: []
+./docs/reviews/2026-07-21-hetero-r3-glm.out:1:I have all the context. The R3 .out files are empty (0 bytes) — this is the R3 review pass itself. Previous R2 MUST_FIX items came from Codex (BLOCK), GLM (APPROVE_WITH_NITS), and MiniMax (APPROVE_WITH_NITS). Let me verify each against the current plan text.
+./docs/reviews/2026-07-21-hetero-r3-glm.out:10:All previous MUST_FIX from R2 (Codex/Grok BLOCK + GLM/MiniMax nits elevated) are now satisfied **in plan text**. Residual items are nits, not blockers.
+./docs/reviews/2026-07-21-hetero-r3-glm.out:12:### Previous MUST_FIX → satisfaction map
+./docs/reviews/2026-07-21-hetero-r3-glm.out:14:| # | Source | Previous MUST_FIX | Plan text now | Status |
+./docs/reviews/2026-07-21-hetero-r3-glm.out:23:| 8 | Codex/GLM-nit | OSS: root MIT LICENSE + secret-scan blocking CI + LICENSE phase | `open-source-readiness.md` O0 (LICENSE ↔ metadata), O1 (gitleaks/trufflehog, "CI must run", blocking) | ✅ SATISFIED |
+./docs/reviews/2026-07-21-hetero-r3-glm.out:38:- **open-source-readiness**: APPROVE — O0 LICENSE + O1 blocking secret-scan present; O1 cross-plan dependency on ci-e2e (Seq 2) implicit via ordering.
+./docs/reviews/2026-07-21-hetero-r3-glm.out:43:### MUST_FIX
+./docs/reviews/2026-07-21-hetero-r3-glm.out:59:**Summary**: All 15 previous MUST_FIX items (Codex/Grok BLOCK + GLM/MiniMax elevated nits) are resolved in the plan text. Verdict **APPROVE_WITH_NITS** — the 6 residual nits are impl-detail or one-sentence clarifications, not blockers. Safe to bootstrap `docs/projects/2026-07-21-mccp2-stream/` and implement on `feat/mccp2-stream` after folding the 2 mccp nits (decompressed re-negotiation sentence; backpressure test note) into the plan if desired.
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:10:| R0 | **BLOCK** (5 MUST_FIX) | APPROVE_WITH_NITS | APPROVE_WITH_NITS |
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:15:**Ship claim**: R3 三家 **APPROVE**，MUST_FIX [] NITS []，**ALL_CLEAR: yes** → plan 可 expand/ship。
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:17:## R0 Codex MUST_FIX → plan
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:45:review → MUST_FIX? → fold into plan/code → re-review
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:46:直到 每家 APPROVE* 且 MUST_FIX 空
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:47:（NITS 也應 fold 後再跑一輪確認 ALL_CLEAR）
+./docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md:50:R2 後只 fold nits 未再審 → **不完整**；**R3 補齊 ALL_CLEAR: yes**。
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:20:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:23:One line: ALL_CLEAR: yes|no
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:308:| R2 | Codex **APPROVE**；MiniMax **APPROVE**；GLM APPROVE_WITH_NITS | MUST_FIX 空；nits → history MUST、release checklist、CF no Bypass |
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:318:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:320:ALL_CLEAR: yes
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:324:MUST_FIX: []
+./docs/reviews/2026-07-21-selfhost-proxy-trust-codex-r3.out:326:ALL_CLEAR: yes
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:19:MUST_FIX: []
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:687:./docs/reviews/2026-07-21-cjk-width-codex.out:365:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:688:./docs/reviews/2026-07-21-cjk-width-codex.out:378:MUST_FIX: [修正 API 矛盾：`isWide(ch, mode)` 無 charset，不能實作 `auto`；應先以正規化 charset 解析 effective mode，或顯式傳入 charset, 將 RW fixture acceptance 改成可判定的精確 golden／逐列游標欄位，移除「差 ≤ 歷史設計」的模糊條件, 明定連線建立前套用 width mode，切換 charset/profile 時清空或重建 buffer，避免既有 cells 混用寬度語意, 不得在 T1 probe 前宣稱 23 站相容或產生正式 seeds；未知 charset 必須保守處理並允許人工 override, 將 seeds 與 proxy allowlist 技術性隔離：僅允許審核過的精確 host:port，解析後拒絕 private/link-local/loopback，防 DNS rebinding，禁止任意目的地]
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1984:MUST_FIX: [
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1995:MUST_FIX: [
+./docs/reviews/2026-07-21-cjk-width-impl-minimax.out:7:**MUST_FIX: []** — all requirements satisfied.
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:15:Review IMPL of selfhost-proxy-trust: remote-prod bind 127.0.0.1 default, assertProdConfig, deploy/docker-compose.proxy.yml, install-proxy.sh pin image, trustMode T0-T3 custom ack, token not in export tests. Return VERDICT MUST_FIX NITS only.
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:17:I’m using the quality-pipeline skill because this is an implementation review. I’ll inspect the relevant diff and tests, then return only `VERDICT`, `MUST_FIX`, and `NITS`.
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:57:| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:5251:MUST_FIX
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:5270:MUST_FIX
+./docs/reviews/2026-07-21-queue-impl-codex.out:15:Review assmud implemention ships on develop for ALL_CLEAR.
+./docs/reviews/2026-07-21-queue-impl-codex.out:16:Ships: ci-e2e-quality (tests/e2e multi-chunk MCCP), terminal-fonts-f2 (probeCjkGlyph+lineHeight), open-source-readiness (LICENSE secret-scan), proxy-abuse-limits (limits.ts), profile-library (CRUD ProfileEditor + secrets).
+./docs/reviews/2026-07-21-queue-impl-codex.out:20:MUST_FIX: []
+./docs/reviews/2026-07-21-queue-impl-codex.out:22:Then overall ALL_CLEAR: yes|no
+./docs/reviews/2026-07-21-queue-impl-codex.out:27:- apps/web/src/termFonts/trial.ts probeCjkGlyph + catalog resolveFontStackProbed
+./docs/reviews/2026-07-21-queue-impl-codex.out:30:- scripts/secret-scan.sh LICENSE
+./docs/reviews/2026-07-21-queue-impl-codex.out:73:| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+./docs/reviews/2026-07-21-queue-impl-codex.out:462:scripts/secret-scan-diff.js --staged          # blocking secret scan
+./docs/reviews/2026-07-21-queue-impl-codex.out:470:2. `secret-scan-diff.js`: **BLOCKING** step. Range/staged secret scan. Outputs JSON findings. Exit `1` if findings (gate fails), `0` clean, `2` usage error.
+./docs/reviews/2026-07-21-queue-impl-codex.out:958:4e95366 (feat/open-source-readiness) feat(oss): MIT LICENSE, secret-scan CI, HTTPS-WSS + GitHub docs
+./docs/reviews/2026-07-21-queue-impl-codex.out:965:bf7fe46 docs(skill): hetero fold→re-review until ALL_CLEAR (ship pin)
+./docs/reviews/2026-07-21-queue-impl-codex.out:967:d44f857 docs(plan): selfhost-proxy-trust R3 ALL_CLEAR (3× APPROVE)
+./docs/reviews/2026-07-21-queue-impl-codex.out:969:8b466a5 docs(plan): selfhost proxy trust + CF Tunnel; fold Codex MUST_FIX
+./docs/reviews/2026-07-21-queue-impl-codex.out:990:    "secret-scan": "bash scripts/secret-scan.sh",
+./docs/reviews/2026-07-21-queue-impl-codex.out:1008:scripts/secret-scan.sh
+./docs/reviews/2026-07-21-queue-impl-codex.out:1333:MIT LICENSE 核對、secret-scan **CI blocking**、HTTPS/WSS 部署食譜、GitHub checklist。
+./docs/reviews/2026-07-21-queue-impl-codex.out:1340:| O1 | gitleaks/trufflehog + `npm run secret-scan`；CI **must** run | S | blocking; remediation doc if hit |
+./docs/reviews/2026-07-21-queue-impl-codex.out:1429:/usr/bin/zsh -lc 'for f in tests/e2e/golden-streams.test.ts tests/e2e/mock-mud-server.ts .github/workflows/ci.yml vitest.config.ts apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/tests/fontTrial.test.ts apps/proxy/src/limits.ts apps/proxy/src/server.ts apps/proxy/src/bridge.ts packages/profiles/src/index.ts packages/profiles/src/secrets.ts packages/profiles/tests/validate.test.ts packages/profiles/tests/export-sanitize.test.ts apps/web/src/components/ProfileEditor.tsx apps/web/tests/profileEditor.test.ts apps/web/src/App.tsx apps/web/src/components/ConnectGate.tsx scripts/secret-scan.sh LICENSE; do if [ -f "$f" ]; then echo "FILE $f"; nl -ba "$f" | sed -n '"'1,420p'; fi; done" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:1670:    18	      - run: npm run secret-scan
+./docs/reviews/2026-07-21-queue-impl-codex.out:1704:    15	export function probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:1724:     3	import { probeCjkGlyph } from "./trial.js";
+./docs/reviews/2026-07-21-queue-impl-codex.out:1916:   195	    const p = probeCjkGlyph(primary.includes(" ") ? `"${primary}"` : primary);
+./docs/reviews/2026-07-21-queue-impl-codex.out:1971:     9	import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:2017:    55	      const probe = probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:2145:     2	import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:2179:    36	  it("probeCjkGlyph is exported and returns structure", () => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:2181:    38	    const r = probeCjkGlyph("monospace");
+./docs/reviews/2026-07-21-queue-impl-codex.out:2319:    11	import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/2026-07-21-queue-impl-codex.out:2447:   139	            bridgeWsToMud(ws, {
+./docs/reviews/2026-07-21-queue-impl-codex.out:2522:    57	export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-queue-impl-codex.out:2812:    12	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:2985:    41	export function getProfilePassword(profileId: string): string | undefined {
+./docs/reviews/2026-07-21-queue-impl-codex.out:3091:     4	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:3123:    36	    selected ? getProfilePassword(selected.id) ?? "" : "",
+./docs/reviews/2026-07-21-queue-impl-codex.out:3139:    52	    setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:3148:    61	      setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:3222:   135	            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+./docs/reviews/2026-07-21-queue-impl-codex.out:3318:     9	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:3337:    28	    expect(getProfilePassword(p.id)).toBe("s3cret");
+./docs/reviews/2026-07-21-queue-impl-codex.out:3341:    32	    expect(getProfilePassword(p.id)).toBeUndefined();
+./docs/reviews/2026-07-21-queue-impl-codex.out:4111:FILE scripts/secret-scan.sh
+./docs/reviews/2026-07-21-queue-impl-codex.out:4127:    16	    echo "secret-scan: potential secrets found (see matches above)" >&2
+./docs/reviews/2026-07-21-queue-impl-codex.out:4132:    21	    echo "secret-scan: potential secrets found" >&2
+./docs/reviews/2026-07-21-queue-impl-codex.out:4136:    25	echo "secret-scan: ok (fallback patterns; install gitleaks for full coverage)"
+./docs/reviews/2026-07-21-queue-impl-codex.out:4287:    11	import { bridgeWsToMud } from "./bridge.js";
+./docs/reviews/2026-07-21-queue-impl-codex.out:4415:   139	            bridgeWsToMud(ws, {
+./docs/reviews/2026-07-21-queue-impl-codex.out:4489:    57	export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+./docs/reviews/2026-07-21-queue-impl-codex.out:4778:    12	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:4950:    41	export function getProfilePassword(profileId: string): string | undefined {
+./docs/reviews/2026-07-21-queue-impl-codex.out:4962:     4	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:4994:    36	    selected ? getProfilePassword(selected.id) ?? "" : "",
+./docs/reviews/2026-07-21-queue-impl-codex.out:5010:    52	    setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5019:    61	      setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5093:   135	            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+./docs/reviews/2026-07-21-queue-impl-codex.out:5188:     9	  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5207:    28	    expect(getProfilePassword(p.id)).toBe("s3cret");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5211:    32	    expect(getProfilePassword(p.id)).toBeUndefined();
+./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:5319:apps/web/tests/profileEditor.test.ts:9:  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5320:apps/web/tests/profileEditor.test.ts:28:    expect(getProfilePassword(p.id)).toBe("s3cret");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5322:apps/web/tests/profileEditor.test.ts:32:    expect(getProfilePassword(p.id)).toBeUndefined();
+./docs/reviews/2026-07-21-queue-impl-codex.out:5327:packages/profiles/src/secrets.ts:41:export function getProfilePassword(profileId: string): string | undefined {
+./docs/reviews/2026-07-21-queue-impl-codex.out:5329:packages/profiles/src/index.ts:12:  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5338:apps/web/src/components/ProfileEditor.tsx:4:  getProfilePassword,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5340:apps/web/src/components/ProfileEditor.tsx:36:    selected ? getProfilePassword(selected.id) ?? "" : "",
+./docs/reviews/2026-07-21-queue-impl-codex.out:5341:apps/web/src/components/ProfileEditor.tsx:52:    setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5342:apps/web/src/components/ProfileEditor.tsx:61:      setPassword(getProfilePassword(selected.id) ?? "");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5344:apps/web/src/components/ProfileEditor.tsx:135:            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+./docs/reviews/2026-07-21-queue-impl-codex.out:5375:apps/web/tests/fontTrial.test.ts:2:import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:5377:apps/web/tests/fontTrial.test.ts:36:  it("probeCjkGlyph is exported and returns structure", () => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:5378:apps/web/tests/fontTrial.test.ts:38:    const r = probeCjkGlyph("monospace");
+./docs/reviews/2026-07-21-queue-impl-codex.out:5381:apps/web/src/termFonts/catalog.ts:3:import { probeCjkGlyph } from "./trial.js";
+./docs/reviews/2026-07-21-queue-impl-codex.out:5384:apps/web/src/termFonts/catalog.ts:195:    const p = probeCjkGlyph(primary.includes(" ") ? `"${primary}"` : primary);
+./docs/reviews/2026-07-21-queue-impl-codex.out:5386:apps/web/src/termFonts/trial.ts:15:export function probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:5388:apps/web/src/components/FontTrialPanel.tsx:9:import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:5392:apps/web/src/components/FontTrialPanel.tsx:55:      const probe = probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:5399:/usr/bin/zsh -lc 'npm run secret-scan' in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:5406:> assmud@0.1.0 secret-scan
+./docs/reviews/2026-07-21-queue-impl-codex.out:5407:> bash scripts/secret-scan.sh
+./docs/reviews/2026-07-21-queue-impl-codex.out:5409:secret-scan: ok (fallback patterns; install gitleaks for full coverage)
+./docs/reviews/2026-07-21-queue-impl-codex.out:5586:/usr/bin/zsh -lc 'npx vitest run apps/proxy/tests/limits.test.ts apps/web/tests/fontTrial.test.ts apps/web/tests/profileEditor.test.ts packages/profiles/tests/validate.test.ts packages/profiles/tests/export-sanitize.test.ts && bash /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/scripts/completeness-scan.sh --range 4596983..HEAD && node /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/scripts/secret-scan-diff.js --range 4596983..HEAD && bash /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/scripts/error-path-scan.sh --range 4596983..HEAD' in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:6098:     9	import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:6144:    55	      const probe = probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:6271:     2	import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+./docs/reviews/2026-07-21-queue-impl-codex.out:6305:    36	  it("probeCjkGlyph is exported and returns structure", () => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:6307:    38	    const r = probeCjkGlyph("monospace");
+./docs/reviews/2026-07-21-queue-impl-codex.out:6483:/usr/bin/zsh -lc 'node /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/scripts/secret-scan-diff.js --help; bash /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/scripts/error-path-scan.sh --help; git diff --check; git diff --stat; git show --stat --oneline e2d9375 e31c1c6 4e95366 17ecdf9 6674797' in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:6485:Usage: secret-scan-diff.js [--staged | --range A..B | --files ...]
+./docs/reviews/2026-07-21-queue-impl-codex.out:7243:4e95366 feat(oss): MIT LICENSE, secret-scan CI, HTTPS-WSS + GitHub docs
+./docs/reviews/2026-07-21-queue-impl-codex.out:7251: scripts/secret-scan.sh                             | 25 +++++++++++++++++
+./docs/reviews/2026-07-21-queue-impl-codex.out:7289:/usr/bin/zsh -lc "rg -n '\"license\"' --glob 'package.json'; git show HEAD:.github/workflows/ci.yml; git show HEAD:scripts/secret-scan.sh; git show HEAD:apps/web/src/termFonts/trial.ts; git show HEAD:apps/proxy/src/limits.ts | sed -n '1,180p'; git show HEAD:packages/profiles/src/secrets.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:7309:      - run: npm run secret-scan
+./docs/reviews/2026-07-21-queue-impl-codex.out:7329:    echo "secret-scan: potential secrets found (see matches above)" >&2
+./docs/reviews/2026-07-21-queue-impl-codex.out:7334:    echo "secret-scan: potential secrets found" >&2
+./docs/reviews/2026-07-21-queue-impl-codex.out:7338:echo "secret-scan: ok (fallback patterns; install gitleaks for full coverage)"
+./docs/reviews/2026-07-21-queue-impl-codex.out:7353:export function probeCjkGlyph(
+./docs/reviews/2026-07-21-queue-impl-codex.out:7524:export function getProfilePassword(profileId: string): string | undefined {
+./docs/reviews/2026-07-21-queue-impl-codex.out:7538:MUST_FIX: ["Q2b uses UTF-8 payloads instead of exercising the required MCCP→Big5StreamDecoder→VT path.", "Q2b reimplements inflation in the test instead of exercising the production proxy bridge.", "The inflater’s unconditional 100ms success timeout can hide incomplete streams."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7543:MUST_FIX: ["probeCjkGlyph compares requested rendering against monospace width, so browser fallback can be misclassified as a valid requested-font glyph.", "The required extras font-stack editor is missing.", "The required self-hosted font path and missing-font install/load guidance are missing."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7548:MUST_FIX: ["CI installs neither gitleaks nor trufflehog, so clean runners only execute the limited regex fallback.", "The fallback excludes *.out and docs/reviews/*, allowing secrets in tracked review artifacts to pass."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7553:MUST_FIX: ["The specified 2/16 MiB inbound and 16/64 MiB outbound per-connection limits are not implemented.", "Trusted-proxy IP handling is absent, so reverse-proxied clients collapse onto the proxy’s address.", "Hello rate limiting cannot trigger because server.ts processes exactly one message before handing the connection to the bridge."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7558:MUST_FIX: ["Stored passwords are never consumed for auto-login; the UI advertises a feature that is not implemented.", "Passwords are written directly to plaintext localStorage without the required explicit opt-in and plaintext warning.", "loadProfiles accepts persisted JSON without validating entries, array shape, or duplicate IDs."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7561:ALL_CLEAR: no
+./docs/reviews/2026-07-21-queue-impl-codex.out:7566:MUST_FIX: ["Q2b uses UTF-8 payloads instead of exercising the required MCCP→Big5StreamDecoder→VT path.", "Q2b reimplements inflation in the test instead of exercising the production proxy bridge.", "The inflater’s unconditional 100ms success timeout can hide incomplete streams."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7571:MUST_FIX: ["probeCjkGlyph compares requested rendering against monospace width, so browser fallback can be misclassified as a valid requested-font glyph.", "The required extras font-stack editor is missing.", "The required self-hosted font path and missing-font install/load guidance are missing."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7576:MUST_FIX: ["CI installs neither gitleaks nor trufflehog, so clean runners only execute the limited regex fallback.", "The fallback excludes *.out and docs/reviews/*, allowing secrets in tracked review artifacts to pass."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7581:MUST_FIX: ["The specified 2/16 MiB inbound and 16/64 MiB outbound per-connection limits are not implemented.", "Trusted-proxy IP handling is absent, so reverse-proxied clients collapse onto the proxy’s address.", "Hello rate limiting cannot trigger because server.ts processes exactly one message before handing the connection to the bridge."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7586:MUST_FIX: ["Stored passwords are never consumed for auto-login; the UI advertises a feature that is not implemented.", "Passwords are written directly to plaintext localStorage without the required explicit opt-in and plaintext warning.", "loadProfiles accepts persisted JSON without validating entries, array shape, or duplicate IDs."]  
+./docs/reviews/2026-07-21-queue-impl-codex.out:7589:ALL_CLEAR: no
+
+codex
+The prior Codex review identifies five ships and twelve concrete MUST_FIX items. I’ve scoped this pass to re-checking each of those items against the current implementation, including the relevant tests and CI configuration.
+exec
+/usr/bin/zsh -lc "git status --short && git log --oneline -12 && sed -n '1,180p' apps/proxy/tests/mccp-e2e-golden.test.ts && sed -n '1,260p' apps/web/src/termFonts/trial.ts && sed -n '1,260p' apps/web/src/components/FontTrialPanel.tsx && sed -n '1,220p' .github/workflows/ci.yml && sed -n '1,160p' scripts/secret-scan.sh" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+ M .github/workflows/ci.yml
+ M apps/proxy/src/limits.ts
+ M apps/proxy/src/server.ts
+ M apps/web/src/App.tsx
+ M apps/web/src/components/ProfileEditor.tsx
+ M apps/web/src/termFonts/trial.ts
+ M docs/reviews/2026-07-21-queue-impl-codex.out
+ M docs/reviews/2026-07-21-queue-impl-minimax.out
+ M packages/profiles/src/index.ts
+ M scripts/secret-scan.sh
+?? apps/proxy/tests/mccp-e2e-golden.test.ts
+?? docs/deploy/SARASA-TERM-TC.md
+?? docs/reviews/2026-07-21-queue-impl-codex-r2.out
+?? docs/reviews/2026-07-21-queue-impl-minimax-r2.out
+6e58234 fix: skeptic gaps — e2e multi-chunk MCCP, font probe/line height, profile CRUD
+5dde9fa docs: INDEX mark full ship queue complete
+3c74210 merge: feat/profile-library + research-spikes docs
+6674797 feat(profiles): strict validate, RW 6000 seed, secrets store + research spikes docs
+57c3d2c merge: feat/proxy-abuse-limits (landed on profile-library branch)
+17ecdf9 feat(proxy): abuse limits — concurrent WS + upgrade/hello rates
+d354c05 merge: feat/open-source-readiness
+4e95366 feat(oss): MIT LICENSE, secret-scan CI, HTTPS-WSS + GitHub docs
+b81ad3f merge: feat/terminal-fonts-f2
+e31c1c6 feat(fonts): F2 trial A/B panel + size sliders + alignScore
+c7e48d9 merge: feat/ci-e2e-quality — e2e goldens + CI
+e2d9375 feat(ci): e2e golden streams + blocking GHA
+/**
+ * Production-path MCCP goldens: real bridgeWsToMud + multi/same-chunk + Big5 decode + VT.
+ * Runs under apps/proxy tests (production bridge path).
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import zlib from "node:zlib";
+import { EventEmitter } from "node:events";
+import { IAC, WILL, SB, SE, OPT, DO } from "@assmud/protocol";
+import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { ScreenBuffer } from "@assmud/terminal";
+
+const sockets: FakeSock[] = [];
+
+class FakeSock extends EventEmitter {
+  destroyed = false;
+  written: Buffer[] = [];
+  write(buf: Buffer | Uint8Array) {
+    this.written.push(Buffer.from(buf));
+    return true;
+  }
+  destroy() {
+    this.destroyed = true;
+    this.emit("close");
+  }
+}
+
+vi.mock("node:net", () => ({
+  default: {
+    connect: () => {
+      const s = new FakeSock();
+      sockets.push(s);
+      queueMicrotask(() => s.emit("connect"));
+      return s;
+    },
+  },
+}));
+
+import { bridgeWsToMud } from "../src/bridge.js";
+
+function fakeWs() {
+  const ee = new EventEmitter() as EventEmitter & {
+    OPEN: number;
+    readyState: number;
+    send: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  };
+  ee.OPEN = 1;
+  ee.readyState = 1;
+  ee.send = vi.fn();
+  ee.close = vi.fn();
+  return ee;
+}
+
+function binarySends(ws: ReturnType<typeof fakeWs>): Buffer[] {
+  return ws.send.mock.calls
+    .map((c) => {
+      const a = c[0];
+      if (typeof a === "string") return null;
+      return Buffer.isBuffer(a) ? a : Buffer.from(a as Uint8Array);
+    })
+    .filter((b): b is Buffer => !!b && b[0] !== 0x7b);
+}
+
+const waitMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+beforeEach(() => {
+  sockets.length = 0;
+});
+
+describe("MCCP e2e via production bridge", () => {
+  it("same-chunk SE+zlib → bridge inflate → Big5 decoder → ScreenBuffer", async () => {
+    // Big5 for 重生 = ada b a5 cd
+    const big5 = Buffer.from([0xad, 0xab, 0xa5, 0xcd]);
+    const plain = Buffer.concat([Buffer.from("MAP:"), big5, Buffer.from("\r\n")]);
+    const compressed = zlib.deflateSync(plain);
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+    const sock = sockets[0]!;
+    sock.emit("data", Buffer.from([IAC, WILL, OPT.MCCP2]));
+    await waitMs(15);
+    expect(
+      sock.written.some(
+        (b) => b[0] === IAC && b[1] === DO && b[2] === OPT.MCCP2,
+      ),
+    ).toBe(true);
+    sock.emit(
+      "data",
+      Buffer.concat([Buffer.from([IAC, SB, OPT.MCCP2, IAC, SE]), compressed]),
+    );
+    await waitMs(50);
+    const out = Buffer.concat(binarySends(ws));
+    const text = new Big5StreamDecoder("big5hkscs").push(new Uint8Array(out));
+    expect(text).toContain("MAP:");
+    expect(text).toContain("重生");
+    const buf = new ScreenBuffer(40, 5, "cjk");
+    buf.writeDecoded(text);
+    expect(buf.snapshotText()).toContain("MAP:");
+    expect(buf.cells[0]!.some((c) => c.ch === "重" || c.ch === "生")).toBe(true);
+  });
+
+  it("multi-chunk zlib after SE via production bridge", async () => {
+    const plain = Buffer.from("MultiChunkVT\x1b[1;31mX\x1b[0m");
+    const compressed = zlib.deflateSync(plain);
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, { host: "127.0.0.1", port: 4000, mccp: true });
+    const sock = sockets[0]!;
+    sock.emit("data", Buffer.from([IAC, WILL, OPT.MCCP2]));
+    await waitMs(10);
+    sock.emit("data", Buffer.from([IAC, SB, OPT.MCCP2, IAC, SE]));
+    await waitMs(10);
+    const mid = Math.floor(compressed.length / 2);
+    sock.emit("data", compressed.subarray(0, mid));
+    sock.emit("data", compressed.subarray(mid));
+    await waitMs(50);
+    const out = Buffer.concat(binarySends(ws));
+    const buf = new ScreenBuffer(40, 5, "western");
+    buf.writeDecoded(out.toString("utf8"));
+    expect(buf.snapshotText()).toContain("MultiChunkVT");
+    expect(buf.cells[0]![0]!.attrs.fg === 1 || buf.snapshotText().includes("X")).toBe(
+      true,
+    );
+  });
+});
+/** Font trial helpers (F2). */
+
+/** Sample for dual-width visual trial (no MUD reconnect). */
+export const TRIAL_FIXTURE = `M中M中M中
+──│┌┐
+Hello 你好 重 生`;
+
+/** Ideal dual-width: fullwidth ~2× halfwidth. */
+export function isAlignScoreGood(score: number, tol = 0.3): boolean {
+  if (!Number.isFinite(score) || score <= 0) return false;
+  return Math.abs(score - 2) <= tol;
+}
+
+/**
+ * Detect missing CJK glyph via canvas (+ optional fonts.check).
+ * Compare against a known-absent family instead of monospace (browser fallback
+ * can make "missing" look like monospace CJK).
+ */
+export function probeCjkGlyph(
+  fontFamily: string,
+  ch = "中",
+  sizePx = 16,
+): { ok: boolean; width: number } {
+  if (typeof document === "undefined") return { ok: false, width: 0 };
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { ok: false, width: 0 };
+  const stack = fontFamily;
+  ctx.font = `500 ${sizePx}px ${stack}`;
+  const w = ctx.measureText(ch).width;
+  // Control: measure with only an invented family so fallback is browser default
+  ctx.font = `500 ${sizePx}px "__AssmudMissingFont__"`;
+  const wMissing = ctx.measureText(ch).width;
+  let fontsCheck: boolean | null = null;
+  try {
+    const bare = fontFamily.replace(/^"|"$/g, "").split(",")[0]?.trim() ?? "";
+    if (bare && document.fonts?.check) {
+      fontsCheck = document.fonts.check(`${sizePx}px "${bare}"`);
+    }
+  } catch {
+    fontsCheck = null;
+  }
+  // Valid if width differs from pure-missing stack, or fonts.check true
+  const widthOk = w > 0 && Math.abs(w - wMissing) > 0.25;
+  const ok = fontsCheck === true || (fontsCheck !== false && widthOk);
+  return { ok, width: w };
+}
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Canvas2DRenderer } from "@assmud/terminal";
+import {
+  STATIC_CATALOG,
+  applyPreset,
+  resolveFontStackProbed,
+  type TermFontConfig,
+} from "../termFonts/catalog";
+import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../termFonts/trial";
+
+type Props = {
+  open: boolean;
+  base: TermFontConfig;
+  locale: "zh-TW" | "zh-CN" | "en";
+  onClose: () => void;
+  onApply: (cfg: TermFontConfig) => void;
+};
+
+export function FontTrialPanel({
+  open,
+  base,
+  locale,
+  onClose,
+  onApply,
+}: Props) {
+  const [leftId, setLeftId] = useState(base.presetId);
+  const [rightId, setRightId] = useState(
+    STATIC_CATALOG.find((c) => c.id !== base.presetId)?.id ?? "jetbrains-mono",
+  );
+  const [customPrimary, setCustomPrimary] = useState(base.primary);
+  const leftCanvas = useRef<HTMLCanvasElement>(null);
+  const rightCanvas = useRef<HTMLCanvasElement>(null);
+  const [scores, setScores] = useState({ left: 0, right: 0 });
+
+  const leftCfg = useMemo(() => {
+    const p = applyPreset(leftId);
+    return leftId === "custom" ? { ...p, primary: customPrimary, presetId: "custom" } : p;
+  }, [leftId, customPrimary]);
+  const rightCfg = useMemo(() => applyPreset(rightId), [rightId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const run = (canvas: HTMLCanvasElement | null, cfg: TermFontConfig) => {
+      if (!canvas) return 0;
+      const r = new Canvas2DRenderer();
+      r.mount(canvas);
+      const stack = resolveFontStackProbed(cfg, locale);
+      r.setTypography({
+        fontFamily: stack,
+        fontSizePx: cfg.fontSizePx,
+        cellWidthScale: cfg.cellWidthScale,
+        lineHeightScale: cfg.lineHeightScale,
+      });
+      const score = r.measureAlignScore();
+      const probe = probeCjkGlyph(
+        cfg.primary.includes(" ") ? `"${cfg.primary}"` : cfg.primary,
+      );
+      // draw fixture sample line
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#0a0b0e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#e8eaed";
+        ctx.font = `500 ${cfg.fontSizePx}px ${stack}`;
+        ctx.textBaseline = "top";
+        TRIAL_FIXTURE.split("\n").forEach((line, i) => {
+          ctx.fillText(line, 4, 4 + i * (cfg.fontSizePx + 4));
+        });
+        if (!probe.ok) {
+          ctx.fillStyle = "#f59e0b";
+          ctx.font = `500 10px monospace`;
+          ctx.fillText("CJK glyph probe: miss → TC chain", 4, 78);
+        }
+      }
+      r.dispose();
+      return score;
+    };
+    // next frame so canvas is laid out
+    const id = requestAnimationFrame(() => {
+      setScores({
+        left: run(leftCanvas.current, leftCfg),
+        right: run(rightCanvas.current, rightCfg),
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open, leftCfg, rightCfg, locale]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.65)" }}
+      role="dialog"
+      aria-label="Font trial"
+    >
+      <div
+        className="w-full max-w-3xl rounded-[var(--radius)] border p-4 max-h-[90vh] overflow-auto"
+        style={{ background: "var(--bg-panel)", borderColor: "var(--border)" }}
+      >
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+            Font trial A/B
+          </h2>
+          <button type="button" className="text-xs" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {(
+            [
+              ["A", leftId, setLeftId, leftCanvas, scores.left, leftCfg],
+              ["B", rightId, setRightId, rightCanvas, scores.right, rightCfg],
+            ] as const
+          ).map(([label, id, setId, cref, score, cfg]) => (
+            <div key={label} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono" style={{ color: "var(--accent)" }}>
+                  {label}
+                </span>
+                <select
+                  className="flex-1 text-xs rounded border px-2 py-1"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border)",
+                    color: "var(--text)",
+                  }}
+                  value={id}
+                  onChange={(e) => setId(e.target.value)}
+                >
+                  {STATIC_CATALOG.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {label === "A" && id === "custom" && (
+                <input
+                  className="w-full text-xs font-mono rounded border px-2 py-1"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border)",
+                    color: "var(--text)",
+                  }}
+                  value={customPrimary}
+                  onChange={(e) => setCustomPrimary(e.target.value)}
+                  placeholder="Custom primary family"
+                />
+              )}
+              <canvas
+                ref={cref}
+                width={320}
+                height={96}
+                className="w-full rounded border"
+                style={{ borderColor: "var(--border)", background: "#0a0b0e" }}
+              />
+              <p className="text-[11px] font-mono" style={{ color: "var(--text-dim)" }}>
+                alignScore={score.toFixed(3)}{" "}
+                {isAlignScoreGood(score) ? (
+                  <span style={{ color: "var(--accent)" }}>≈2.0 ✓</span>
+                ) : (
+                  <span style={{ color: "var(--text-faint)" }}>off dual-width</span>
+                )}
+              </p>
+              <button
+                type="button"
+                className="text-xs rounded px-2 py-1 font-semibold"
+                style={{ background: "var(--accent)", color: "#0a0b0e" }}
+                onClick={() => onApply(cfg)}
+              >
+                Use {label}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Install gitleaks (best-effort)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks || true
+        continue-on-error: true
+      - run: npm run secret-scan
+      - run: npm test
+      - name: e2e golden streams (blocking)
+        run: npm run test:e2e
+      - run: npm run build -w @assmud/web
+#!/usr/bin/env bash
+# Lightweight secret scan — blocking for CI. Prefer gitleaks when available.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks detect --source . --no-git -v
+  exit $?
+fi
+
+# Fallback: ripgrep-style patterns on tracked-ish paths (no node_modules)
+PATTERN='(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]\s*['\''"][^'\''"]{16,}|ASSMUD_AUTH_TOKEN\s*=\s*["'\''][a-f0-9]{20,})'
+if command -v rg >/dev/null 2>&1; then
+  # Scan tracked sources; still skip node_modules / .git / lockfile
+  if rg -n --hidden -g '!node_modules' -g '!.git' -g '!package-lock.json' "$PATTERN" . ; then
+    echo "secret-scan: potential secrets found (see matches above)" >&2
+    exit 1
+  fi
+else
+  if grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.out' --exclude='package-lock.json' "$PATTERN" . 2>/dev/null; then
+    echo "secret-scan: potential secrets found" >&2
+    exit 1
+  fi
+fi
+echo "secret-scan: ok (fallback patterns; install gitleaks for full coverage)"
+
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' apps/proxy/src/limits.ts && sed -n '1,260p' apps/proxy/src/server.ts && sed -n '1,240p' apps/proxy/tests/limits.test.ts && sed -n '1,240p' packages/profiles/src/index.ts && sed -n '1,240p' packages/profiles/src/secrets.ts && sed -n '1,260p' apps/web/src/components/ProfileEditor.tsx && sed -n '260,350p' apps/web/src/App.tsx && sed -n '1,260p' packages/profiles/tests/validate.test.ts && sed -n '1,180p' apps/web/tests/profileEditor.test.ts && sed -n '1,220p' docs/deploy/SARASA-TERM-TC.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+/** In-memory abuse limits (hosted-ready). Fail-closed on exceed; no payload logs. */
+
+export type LimitConfig = {
+  concurrentWsPerIp: number;
+  concurrentWsPerToken: number;
+  upgradesPerIpPerMin: number;
+  hellosPerConnPerMin: number;
+  helloTimeoutMs: number;
+};
+
+export function defaultLimits(
+  mode: "remote-prod" | "localhost-dev",
+): LimitConfig {
+  if (mode === "localhost-dev") {
+    return {
+      concurrentWsPerIp: envInt("ASSMUD_LIMIT_WS_IP", 64),
+      concurrentWsPerToken: envInt("ASSMUD_LIMIT_WS_TOKEN", 32),
+      upgradesPerIpPerMin: envInt("ASSMUD_LIMIT_UPGRADE_IP", 120),
+      hellosPerConnPerMin: envInt("ASSMUD_LIMIT_HELLO", 60),
+      helloTimeoutMs: envInt("ASSMUD_HELLO_TIMEOUT_MS", 30_000),
+    };
+  }
+  return {
+    concurrentWsPerIp: envInt("ASSMUD_LIMIT_WS_IP", 8),
+    concurrentWsPerToken: envInt("ASSMUD_LIMIT_WS_TOKEN", 4),
+    upgradesPerIpPerMin: envInt("ASSMUD_LIMIT_UPGRADE_IP", 30),
+    hellosPerConnPerMin: envInt("ASSMUD_LIMIT_HELLO", 20),
+    helloTimeoutMs: envInt("ASSMUD_HELLO_TIMEOUT_MS", 10_000),
+  };
+}
+
+function envInt(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/** Normalize remote address for limit keys. */
+export function normalizeIp(raw: string | undefined): string {
+  if (!raw) return "unknown";
+  let ip = raw;
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  // strip port if host:port (rare on socket.remoteAddress)
+  if (ip.includes(":") && !ip.includes(".")) {
+    // IPv6 leave as-is
+    return ip.toLowerCase();
+  }
+  return ip;
+}
+
+/**
+ * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+ */
+export function clientIpFromRequest(req: {
+  socket: { remoteAddress?: string };
+  headers: { [k: string]: string | string[] | undefined };
+}): string {
+  const trust = ["1", "true", "yes"].includes(
+    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+  );
+  if (trust) {
+    const xff = req.headers["x-forwarded-for"];
+    const raw = Array.isArray(xff) ? xff[0] : xff;
+    if (raw) {
+      const first = raw.split(",")[0]?.trim();
+      if (first) return normalizeIp(first);
+    }
+  }
+  return normalizeIp(req.socket.remoteAddress);
+}
+
+type Window = { count: number; resetAt: number };
+
+export class AbuseLimiter {
+  private wsByIp = new Map<string, number>();
+  private wsByToken = new Map<string, number>();
+  private upgrades = new Map<string, Window>();
+  private hellos = new Map<string, Window>();
+
+  constructor(private readonly cfg: LimitConfig) {}
+
+  private hitWindow(map: Map<string, Window>, key: string, max: number): boolean {
+    const now = Date.now();
+    let w = map.get(key);
+    if (!w || now >= w.resetAt) {
+      w = { count: 0, resetAt: now + 60_000 };
+      map.set(key, w);
+    }
+    w.count += 1;
+    return w.count <= max;
+  }
+
+  /** Call on HTTP upgrade. Returns false if rejected. */
+  tryUpgrade(ip: string): boolean {
+    return this.hitWindow(this.upgrades, ip, this.cfg.upgradesPerIpPerMin);
+  }
+
+  /** Acquire concurrent slot after auth. Returns release fn or null. */
+  tryAcquire(ip: string, tokenKey: string): (() => void) | null {
+    const nIp = this.wsByIp.get(ip) ?? 0;
+    const nTok = this.wsByToken.get(tokenKey) ?? 0;
+    if (nIp >= this.cfg.concurrentWsPerIp) return null;
+    if (nTok >= this.cfg.concurrentWsPerToken) return null;
+    this.wsByIp.set(ip, nIp + 1);
+    this.wsByToken.set(tokenKey, nTok + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const a = (this.wsByIp.get(ip) ?? 1) - 1;
+      const b = (this.wsByToken.get(tokenKey) ?? 1) - 1;
+      if (a <= 0) this.wsByIp.delete(ip);
+      else this.wsByIp.set(ip, a);
+      if (b <= 0) this.wsByToken.delete(tokenKey);
+      else this.wsByToken.set(tokenKey, b);
+    };
+  }
+
+  tryHello(connId: string): boolean {
+    return this.hitWindow(this.hellos, connId, this.cfg.hellosPerConnPerMin);
+  }
+
+  private bytes = new Map<string, { bytes: number; resetAt: number }>();
+
+  /** Per-connection inbound byte budget (rolling minute). */
+  tryInboundBytes(connId: string, n: number, maxBytes: number): boolean {
+    const now = Date.now();
+    let w = this.bytes.get(connId);
+    if (!w || now >= w.resetAt) {
+      w = { bytes: 0, resetAt: now + 60_000 };
+      this.bytes.set(connId, w);
+    }
+    w.bytes += n;
+    return w.bytes <= maxBytes;
+  }
+
+  inboundBudget(mode: "remote-prod" | "localhost-dev"): number {
+    const env = process.env.ASSMUD_LIMIT_IN_BYTES;
+    if (env && Number(env) > 0) return Number(env);
+    return mode === "remote-prod" ? 2 * 1024 * 1024 : 16 * 1024 * 1024;
+  }
+
+  get helloTimeoutMs(): number {
+    return this.cfg.helloTimeoutMs;
+  }
+
+  /** Test helper */
+  snapshot() {
+    return {
+      wsByIp: Object.fromEntries(this.wsByIp),
+      wsByToken: Object.fromEntries(this.wsByToken),
+    };
+  }
+}
+import http from "node:http";
+import { WebSocketServer, WebSocket } from "ws";
+import {
+  ProxyConfig,
+  checkAuth,
+  checkOrigin,
+  assertDestinationAllowed,
+  safeEqual,
+} from "./policy.js";
+import { AbuseLimiter, clientIpFromRequest, defaultLimits } from "./limits.js";
+import { bridgeWsToMud } from "./bridge.js";
+
+type HelloMsg = {
+  type: "hello";
+  token?: string;
+  host?: string;
+  port?: number;
+  cols?: number;
+  rows?: number;
+};
+
+function clamp(n: number, lo: number, hi: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, Math.trunc(n)));
+}
+
+export function createProxyServer(cfg: ProxyConfig): http.Server {
+  const limits = new AbuseLimiter(defaultLimits(cfg.mode));
+  let connSeq = 0;
+
+  const server = http.createServer((req, res) => {
+    if (req.url === "/health") {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(JSON.stringify({ ok: true, mode: cfg.mode }));
+      return;
+    }
+    res.writeHead(404);
+    res.end("not found");
+  });
+
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+
+  server.on("upgrade", (req, socket, head) => {
+    try {
+      const hostHdr = req.headers.host ?? "localhost";
+      const url = new URL(req.url ?? "/", `http://${hostHdr}`);
+      if (url.pathname !== "/ws") {
+        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      const ip = clientIpFromRequest(req);
+      if (!limits.tryUpgrade(ip)) {
+        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      const origin = req.headers.origin;
+      if (!checkOrigin(origin, cfg)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      // Optional pre-auth via Bearer / cookie / (dev-only) query — still re-checked on hello
+      const preAuth = checkAuth(url, cfg, req.headers.cookie, req.headers.authorization);
+
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        const connId = `${ip}:${++connSeq}`;
+        const timer = setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(1008, "hello timeout");
+          }
+        }, limits.helloTimeoutMs);
+
+        let release: (() => void) | null = null;
+        let bridged = false;
+        const inBudget = limits.inboundBudget(cfg.mode);
+        ws.on("close", () => {
+          release?.();
+          release = null;
+        });
+
+        const onClientMessage = async (data: WebSocket.RawData) => {
+          try {
+            const nbytes =
+              typeof data === "string"
+                ? Buffer.byteLength(data)
+                : Buffer.isBuffer(data)
+                  ? data.length
+                  : (data as ArrayBuffer).byteLength;
+            if (!limits.tryInboundBytes(connId, nbytes, inBudget)) {
+              ws.close(1008, "inbound byte limit");
+              return;
+            }
+            if (bridged) return; // bridge attaches its own handlers after hello
+
+            if (!limits.tryHello(connId)) {
+              ws.close(1008, "hello rate");
+              return;
+            }
+            clearTimeout(timer);
+            const text = typeof data === "string" ? data : data.toString("utf8");
+            const msg = JSON.parse(text) as HelloMsg;
+            if (msg.type !== "hello") {
+              ws.close(1008, "expected hello");
+              return;
+            }
+
+            let authed = preAuth;
+            if (!authed && msg.token && cfg.authToken) {
+              authed = safeEqual(msg.token, cfg.authToken);
+            }
+            if (cfg.mode === "localhost-dev" && !cfg.authToken) {
+              authed = true;
+            }
+            if (!authed) {
+              ws.close(1008, "unauthorized");
+              return;
+            }
+
+            const tokenKey =
+              cfg.authToken && msg.token && safeEqual(msg.token, cfg.authToken)
+                ? "tok"
+                : preAuth
+                  ? "pre"
+                  : "anon";
+            release = limits.tryAcquire(ip, tokenKey);
+            if (!release) {
+              ws.close(1008, "concurrency limit");
+              return;
+            }
+
+            const mudHost = msg.host ?? "mud.revivalworld.org";
+            const mudPort = clamp(Number(msg.port ?? 4000), 1, 65535, 4000);
+            const dest = await assertDestinationAllowed(mudHost, mudPort, cfg);
+            if (!dest.ok) {
+              ws.send(JSON.stringify({ type: "error", message: dest.reason }));
+              ws.close(1008, "destination denied");
+              return;
+            }
+
+            const cols = clamp(Number(msg.cols ?? 80), 1, 511, 80);
+            const rows = clamp(Number(msg.rows ?? 24), 1, 511, 24);
+
+            bridged = true;
+            ws.off("message", onClientMessage);
+            ws.send(JSON.stringify({ type: "ready", host: mudHost, port: mudPort }));
+            bridgeWsToMud(ws, {
+              host: dest.address,
+              port: mudPort,
+              cols,
+              rows,
+            });
+          } catch {
+            ws.close(1008, "bad hello");
+          }
+        };
+        ws.on("message", onClientMessage);
+      });
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  return server;
+}
+import { describe, it, expect } from "vitest";
+import { AbuseLimiter, defaultLimits, normalizeIp } from "../src/limits.js";
+
+describe("AbuseLimiter", () => {
+  it("normalizes IPv4-mapped IPv6", () => {
+    expect(normalizeIp("::ffff:1.2.3.4")).toBe("1.2.3.4");
+  });
+
+  it("enforces concurrent WS per IP", () => {
+    const lim = new AbuseLimiter({
+      ...defaultLimits("remote-prod"),
+      concurrentWsPerIp: 2,
+      concurrentWsPerToken: 10,
+    });
+    const a = lim.tryAcquire("1.1.1.1", "t");
+    const b = lim.tryAcquire("1.1.1.1", "t2");
+    const c = lim.tryAcquire("1.1.1.1", "t3");
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(c).toBeNull();
+    a!();
+    const d = lim.tryAcquire("1.1.1.1", "t3");
+    expect(d).not.toBeNull();
+    d!();
+    b!();
+  });
+
+  it("enforces concurrent WS per token", () => {
+    const lim = new AbuseLimiter({
+      ...defaultLimits("remote-prod"),
+      concurrentWsPerIp: 100,
+      concurrentWsPerToken: 1,
+    });
+    const a = lim.tryAcquire("1.1.1.1", "tok");
+    const b = lim.tryAcquire("2.2.2.2", "tok");
+    expect(a).not.toBeNull();
+    expect(b).toBeNull();
+    a!();
+  });
+
+  it("rate-limits upgrades per IP per minute", () => {
+    const lim = new AbuseLimiter({
+      ...defaultLimits("remote-prod"),
+      upgradesPerIpPerMin: 3,
+    });
+    expect(lim.tryUpgrade("9.9.9.9")).toBe(true);
+    expect(lim.tryUpgrade("9.9.9.9")).toBe(true);
+    expect(lim.tryUpgrade("9.9.9.9")).toBe(true);
+    expect(lim.tryUpgrade("9.9.9.9")).toBe(false);
+  });
+
+  it("hosted defaults tighter than dev", () => {
+    expect(defaultLimits("remote-prod").concurrentWsPerIp).toBeLessThan(
+      defaultLimits("localhost-dev").concurrentWsPerIp,
+    );
+  });
+});
+/** Connection profiles (Phase 4) — no secrets required; token optional. */
+
+export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+export {
+  normalizeCharset,
+  resolveWidthMode,
+} from "./widthMode.js";
+export {
+  loadProfileSecrets,
+  saveProfileSecrets,
+  setProfilePassword,
+  getProfilePassword,
+  clearProfileSecret,
+  type ProfileSecrets,
+} from "./secrets.js";
+import type { WidthMode } from "./widthMode.js";
+
+export type MudCharset = "big5hkscs" | "big5" | "utf8" | "gbk";
+
+export type MudProfile = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  charset: MudCharset;
+  /** Optional cell-width override; omit to derive from charset. */
+  widthMode?: WidthMode;
+  tlsToMud?: boolean;
+  notes?: string;
+};
+
+const CHARSETS = new Set<MudCharset>(["big5hkscs", "big5", "utf8", "gbk"]);
+
+/** Strict validate one profile object. */
+export function validateProfile(p: unknown): MudProfile {
+  if (!p || typeof p !== "object") throw new Error("profile not object");
+  const o = p as Record<string, unknown>;
+  if (typeof o.id !== "string" || !o.id.trim()) throw new Error("id required");
+  if (typeof o.name !== "string" || !o.name.trim())
+    throw new Error("name required");
+  if (typeof o.host !== "string" || !o.host.trim())
+    throw new Error("host required");
+  const port = Number(o.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("port 1-65535");
+  const charset = String(o.charset ?? "big5hkscs") as MudCharset;
+  if (!CHARSETS.has(charset)) throw new Error("invalid charset");
+  return sanitizeProfileForExport({
+    id: o.id.trim(),
+    name: o.name.trim(),
+    host: o.host.trim(),
+    port,
+    charset,
+    widthMode:
+      o.widthMode === "cjk" || o.widthMode === "western"
+        ? o.widthMode
+        : undefined,
+    tlsToMud: Boolean(o.tlsToMud) || undefined,
+    notes: typeof o.notes === "string" ? o.notes : undefined,
+  } as MudProfile & Record<string, unknown>);
+}
+
+const KEY = "assmud.profiles.v1";
+
+export const DEFAULT_PROFILES: MudProfile[] = [
+  {
+    id: "rw-4000",
+    name: "Revival World",
+    host: "mud.revivalworld.org",
+    port: 4000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-5000",
+    name: "Revival World (5000)",
+    host: "mud.revivalworld.org",
+    port: 5000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-6000",
+    name: "Revival World (6000)",
+    host: "mud.revivalworld.org",
+    port: 6000,
+    charset: "big5hkscs",
+  },
+];
+
+export function loadProfiles(): MudProfile[] {
+  if (typeof localStorage === "undefined") return [...DEFAULT_PROFILES];
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [...DEFAULT_PROFILES];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_PROFILES];
+    const out: MudProfile[] = [];
+    const seen = new Set<string>();
+    for (const item of parsed) {
+      try {
+        const p = validateProfile(item);
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        out.push(p);
+      } catch {
+        /* skip invalid entry */
+      }
+    }
+    return out.length ? out : [...DEFAULT_PROFILES];
+  } catch {
+    return [...DEFAULT_PROFILES];
+  }
+}
+
+export function saveProfiles(list: MudProfile[]): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(KEY, JSON.stringify(list));
+}
+
+const SECRET_KEYS = new Set([
+  "proxyToken",
+  "assmud_token",
+  "password",
+  "token",
+  "secret",
+]);
+
+/** Strip secret-like keys; never re-export imported credentials. */
+export function sanitizeProfileForExport(
+  p: MudProfile & Record<string, unknown>,
+): MudProfile {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (SECRET_KEYS.has(k)) continue;
+    out[k] = v;
+  }
+  return out as unknown as MudProfile;
+}
+
+export function exportProfilesJson(list: MudProfile[]): string {
+  const clean = list.map((p) =>
+    sanitizeProfileForExport(p as MudProfile & Record<string, unknown>),
+  );
+  return JSON.stringify(clean, null, 2);
+}
+
+export function importProfilesJson(json: string): MudProfile[] {
+  let list: unknown;
+  try {
+    list = JSON.parse(json);
+  } catch {
+    throw new Error("invalid profiles JSON");
+  }
+  if (!Array.isArray(list)) throw new Error("invalid profiles");
+  if (list.length === 0) throw new Error("empty profiles");
+  return list.map((p) => validateProfile(p));
+}
+/** Profile secrets store — separate from exportable profiles. */
+
+const KEY = "assmud.profileSecrets";
+
+export type ProfileSecrets = Record<
+  string,
+  { password?: string; notes?: string }
+>;
+
+/** Node / tests without DOM: in-memory store. */
+let memoryStore: ProfileSecrets = {};
+
+export function loadProfileSecrets(): ProfileSecrets {
+  if (typeof localStorage === "undefined") {
+    return { ...memoryStore };
+  }
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return {};
+    const j = JSON.parse(raw) as ProfileSecrets;
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveProfileSecrets(s: ProfileSecrets): void {
+  if (typeof localStorage === "undefined") {
+    memoryStore = { ...s };
+    return;
+  }
+  localStorage.setItem(KEY, JSON.stringify(s));
+}
+
+export function setProfilePassword(profileId: string, password: string): void {
+  const s = loadProfileSecrets();
+  s[profileId] = { ...s[profileId], password };
+  saveProfileSecrets(s);
+}
+
+export function getProfilePassword(profileId: string): string | undefined {
+  return loadProfileSecrets()[profileId]?.password;
+}
+
+export function clearProfileSecret(profileId: string): void {
+  const s = loadProfileSecrets();
+  delete s[profileId];
+  saveProfileSecrets(s);
+}
+import { useState } from "react";
+import type { MudProfile } from "@assmud/profiles";
+import {
+  getProfilePassword,
+  setProfilePassword,
+  clearProfileSecret,
+  validateProfile,
+} from "@assmud/profiles";
+
+type Props = {
+  profiles: MudProfile[];
+  selectedId: string;
+  onChange: (list: MudProfile[]) => void;
+  onSelect: (id: string) => void;
+};
+
+const emptyDraft = (): Partial<MudProfile> => ({
+  id: "",
+  name: "",
+  host: "",
+  port: 4000,
+  charset: "big5hkscs",
+});
+
+export function ProfileEditor({
+  profiles,
+  selectedId,
+  onChange,
+  onSelect,
+}: Props) {
+  const selected = profiles.find((p) => p.id === selectedId);
+  const [draft, setDraft] = useState<Partial<MudProfile>>(
+    () => selected ?? emptyDraft(),
+  );
+  const [password, setPassword] = useState(() =>
+    selected ? getProfilePassword(selected.id) ?? "" : "",
+  );
+  const [storePlain, setStorePlain] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<"view" | "edit" | "create">("view");
+
+  const startCreate = () => {
+    setMode("create");
+    setDraft(emptyDraft());
+    setPassword("");
+    setErr(null);
+  };
+
+  const startEdit = () => {
+    if (!selected) return;
+    setMode("edit");
+    setDraft({ ...selected });
+    setPassword(getProfilePassword(selected.id) ?? "");
+    setErr(null);
+  };
+
+  const cancel = () => {
+    setMode("view");
+    setErr(null);
+    if (selected) {
+      setDraft({ ...selected });
+      setPassword(getProfilePassword(selected.id) ?? "");
+    }
+  };
+
+  const save = () => {
+    try {
+      const p = validateProfile({
+        ...draft,
+        id: draft.id || `p-${Date.now()}`,
+        name: draft.name || draft.host || "unnamed",
+      });
+      let next: MudProfile[];
+      if (mode === "create") {
+        if (profiles.some((x) => x.id === p.id)) {
+          throw new Error("id already exists");
+        }
+        next = [...profiles, p];
+      } else {
+        next = profiles.map((x) => (x.id === selectedId ? p : x));
+      }
+      onChange(next);
+      if (password) {
+        if (!storePlain) {
+          throw new Error("opt-in required to store password in plaintext localStorage");
+        }
+        setProfilePassword(p.id, password);
+      } else clearProfileSecret(p.id);
+      onSelect(p.id);
+      setMode("view");
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "invalid");
+    }
+  };
+
+  const remove = () => {
+    if (!selected || profiles.length <= 1) return;
+    clearProfileSecret(selected.id);
+    const next = profiles.filter((p) => p.id !== selected.id);
+    onChange(next);
+    onSelect(next[0]!.id);
+    setMode("view");
+  };
+
+  if (mode === "view") {
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="text-xs rounded border px-2 py-1"
+            style={{ borderColor: "var(--border)", color: "var(--text)" }}
+            onClick={startCreate}
+          >
+            + New profile
+          </button>
+          <button
+            type="button"
+            className="text-xs rounded border px-2 py-1"
+            style={{ borderColor: "var(--border)", color: "var(--text)" }}
+            onClick={startEdit}
+            disabled={!selected}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            className="text-xs rounded border px-2 py-1"
+            style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+            onClick={remove}
+            disabled={!selected || profiles.length <= 1}
+          >
+            Delete
+          </button>
+        </div>
+        {selected && (
+          <p className="text-[11px] font-mono" style={{ color: "var(--text-faint)" }}>
+            {selected.host}:{selected.port} · {selected.charset}
+            {getProfilePassword(selected.id) ? " · 🔑 secret stored" : ""}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded border p-2" style={{ borderColor: "var(--border)" }}>
+      <div className="text-xs font-medium" style={{ color: "var(--text)" }}>
+        {mode === "create" ? "New profile" : "Edit profile"}
+      </div>
+      {(
+        [
+          ["id", "id"],
+          ["name", "name"],
+          ["host", "host"],
+          ["port", "port"],
+          ["charset", "charset"],
+        ] as const
+      ).map(([key, label]) => (
+        <label
+          key={key}
+          className="block text-[11px]"
+          style={{ color: "var(--text-dim)" }}
+        >
+          {label}
+          <input
+            className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+            }}
+            disabled={mode === "edit" && key === "id"}
+            value={String(draft[key] ?? "")}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                [key]:
+                  key === "port" ? Number(e.target.value) : e.target.value,
+              }))
+            }
+          />
+        </label>
+      ))}
+      <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
+        Auto-login password (local only, not exported)
+        <input
+          type="password"
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text)",
+          }}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="off"
+        />
+      </label>
+      <label
+        className="flex items-start gap-2 text-[10px] leading-snug"
+        style={{ color: "var(--text-faint)" }}
+      >
+        <input
+          type="checkbox"
+          checked={storePlain}
+          onChange={(e) => setStorePlain(e.target.checked)}
+        />
+        I opt in to store this password in **plaintext localStorage** on this
+        device (not exported; proxy/MUD operators can still see it on the wire).
+      </label>
+      {err && (
+        <p className="text-[11px]" style={{ color: "var(--danger)" }}>
+          {err}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="text-xs rounded px-2 py-1 font-semibold"
+          style={{ background: "var(--accent)", color: "#0a0b0e" }}
+          onClick={save}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className="text-xs rounded border px-2 py-1"
+          style={{ borderColor: "var(--border)", color: "var(--text)" }}
+          onClick={cancel}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+    [token, profile],
+  );
+
+  const onSendThroughEngine = useCallback((line: string) => {
+    const expanded = engine.expandInput(line);
+    for (const l of expanded) {
+      const dir = l.trim().toLowerCase();
+      if (["n", "s", "e", "w", "ne", "nw", "se", "sw", "u", "d"].includes(dir)) {
+        clientMap.move(dir as "n", dir);
+        setMapAscii(clientMap.ascii(4));
+      }
+    }
+    return expanded;
+  }, []);
+
+  const downloadLog = () => {
+    const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `assmud-session-${tab.id}.log`;
+    a.click();
+  };
+
+  const exportProfiles = () => {
+    const blob = new Blob([exportProfilesJson(profiles)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "assmud-profiles.json";
+    a.click();
+  };
+
+  const importProfilesFile = async (file: File) => {
+    const text = await file.text();
+    const list = importProfilesJson(text);
+    setProfiles(list);
+    saveProfiles(list);
+  };
+
+  const connectTab = () => {
+    setTabs((ts) =>
+      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+    );
+    // Optional auto-login: queue password after connect if secret stored (opt-in store)
+    const pw = getProfilePassword(profile.id);
+    if (pw) {
+      window.setTimeout(() => setCmd(pw), 800);
+    }
+  };
+
+  const disconnectTab = () => {
+    setTabs((ts) =>
+      ts.map((x) =>
+        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
+      ),
+    );
+  };
+
+  const submitCmd = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    setCmd(trimmed);
+    setInputDraft("");
+  };
+
+  // ── Connect gate (pre-session) ─────────────────────────────────────
+  if (!anyConnected) {
+    return (
+      <ConnectGate
+        profiles={profiles.length ? profiles : DEFAULT_PROFILES}
+        profileId={tab.profileId}
+        token={token}
+        accent={accent}
+        trustMode={trustMode}
+        customWs={customWs}
+        customAck={customAck}
+        onProfile={(id) => {
+          setActiveProfile(id);
+          setTabs((ts) =>
+            ts.map((x) => (x.id === tabId ? { ...x, profileId: id } : x)),
+          );
+        }}
+        onProfilesChange={(list) => {
+          setProfiles(list);
+          saveProfiles(list);
+        }}
+        onToken={(tok) => {
+          setToken(tok);
+          saveProxyToken(tok);
+        }}
+import { describe, it, expect } from "vitest";
+import {
+  DEFAULT_PROFILES,
+  importProfilesJson,
+  validateProfile,
+} from "../src/index.js";
+
+describe("validateProfile / import", () => {
+  it("accepts DEFAULT_PROFILES seeds including RW 6000", () => {
+    expect(DEFAULT_PROFILES.some((p) => p.port === 6000)).toBe(true);
+    for (const p of DEFAULT_PROFILES) {
+      expect(validateProfile(p).id).toBe(p.id);
+    }
+  });
+
+  it("rejects bad JSON and bad fields", () => {
+    expect(() => importProfilesJson("not-json")).toThrow(/JSON/);
+    expect(() => importProfilesJson("{}")).toThrow(/invalid profiles/);
+    expect(() => importProfilesJson("[]")).toThrow(/empty/);
+    expect(() =>
+      importProfilesJson(
+        JSON.stringify([{ id: "a", name: "n", host: "h", port: 0 }]),
+      ),
+    ).toThrow(/port/);
+    expect(() =>
+      importProfilesJson(
+        JSON.stringify([
+          { id: "a", name: "n", host: "h", port: 4000, charset: "latin1" },
+        ]),
+      ),
+    ).toThrow(/charset/);
+  });
+
+  it("import strips secrets", () => {
+    const list = importProfilesJson(
+      JSON.stringify([
+        {
+          id: "z",
+          name: "Z",
+          host: "mud.example",
+          port: 4000,
+          charset: "utf8",
+          password: "nope",
+          proxyToken: "x",
+        },
+      ]),
+    );
+    expect(JSON.stringify(list)).not.toContain("nope");
+  });
+});
+/**
+ * Structural + API path test: ProfileEditor uses validateProfile + secrets store.
+ * (Component DOM covered via exports used by ConnectGate.)
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  validateProfile,
+  setProfilePassword,
+  getProfilePassword,
+  clearProfileSecret,
+  exportProfilesJson,
+} from "@assmud/profiles";
+
+describe("profile CRUD API path (P2 secrets)", () => {
+  beforeEach(() => {
+    if (typeof localStorage !== "undefined") localStorage.clear();
+  });
+
+  it("create-like validate + secret store round-trip", () => {
+    const p = validateProfile({
+      id: "crud-1",
+      name: "CRUD",
+      host: "mud.example",
+      port: 4000,
+      charset: "big5hkscs",
+    });
+    setProfilePassword(p.id, "s3cret");
+    expect(getProfilePassword(p.id)).toBe("s3cret");
+    // export never includes password
+    expect(exportProfilesJson([p])).not.toContain("s3cret");
+    clearProfileSecret(p.id);
+    expect(getProfilePassword(p.id)).toBeUndefined();
+  });
+});
+# Self-host / install Sarasa Term TC (F3)
+
+When trial alignScore is off dual-width or CJK glyphs look like tofu:
+
+1. Install [Sarasa Gothic / Sarasa Term](https://github.com/be5invis/Sarasa-Gothic) **TC** variant system-wide.
+2. Or load a subset webfont via your own CDN and set **Custom primary** to that family.
+3. Keep **TC fallback chain** enabled so missing primaries still fall back.
+4. Use **Font trial A/B** — green ≈2.0 alignScore preferred.
+
+assmud does **not** bundle full CJK fonts in git.
+
+exec
+/usr/bin/zsh -lc "rg -n \"\\bcmd\\b|setCmd|sendLine|onSend\" apps/web/src/App.tsx apps/web/src -g '*.tsx' && rg -n \"outbound|tryInboundBytes|LIMIT_.*BYTES|byte limit|maxPayload|ws\\.send|mud\\.on\\(\\\"data\\\"\" apps/proxy/src apps/proxy/tests && git diff -- .github/workflows/ci.yml apps/proxy/src/limits.ts apps/proxy/src/server.ts apps/web/src/App.tsx apps/web/src/components/ProfileEditor.tsx apps/web/src/termFonts/trial.ts packages/profiles/src/index.ts scripts/secret-scan.sh" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+apps/web/src/App.tsx:118:  const [cmd, setCmd] = useState("");
+apps/web/src/App.tsx:263:  const onSendThroughEngine = useCallback((line: string) => {
+apps/web/src/App.tsx:307:      window.setTimeout(() => setCmd(pw), 800);
+apps/web/src/App.tsx:322:    setCmd(trimmed);
+apps/web/src/App.tsx:555:                  injectCommand={cmd}
+apps/web/src/App.tsx:556:                  onInjectConsumed={() => setCmd("")}
+apps/web/src/App.tsx:557:                  expandInput={onSendThroughEngine}
+apps/web/src/App.tsx:1027:                ? t("shell.cmd.placeholder.idle")
+apps/web/src/App.tsx:1030:                  : t("shell.cmd.placeholder")
+apps/web/src/TerminalHost.tsx:433:            // sit just above typical command bar (~cmd + thumb pad)
+apps/web/src/App.tsx:118:  const [cmd, setCmd] = useState("");
+apps/web/src/App.tsx:263:  const onSendThroughEngine = useCallback((line: string) => {
+apps/web/src/App.tsx:307:      window.setTimeout(() => setCmd(pw), 800);
+apps/web/src/App.tsx:322:    setCmd(trimmed);
+apps/web/src/App.tsx:555:                  injectCommand={cmd}
+apps/web/src/App.tsx:556:                  onInjectConsumed={() => setCmd("")}
+apps/web/src/App.tsx:557:                  expandInput={onSendThroughEngine}
+apps/web/src/App.tsx:1027:                ? t("shell.cmd.placeholder.idle")
+apps/web/src/App.tsx:1030:                  : t("shell.cmd.placeholder")
+apps/proxy/tests/mccp-bridge.test.ts:49:  return ws.send.mock.calls
+apps/proxy/tests/mccp-bridge.test.ts:178:    const maskOn = ws.send.mock.calls
+apps/proxy/tests/mccp-bridge.test.ts:193:    const echoes = ws.send.mock.calls
+apps/proxy/tests/mccp-bridge.test.ts:213:    const maskOn = ws.send.mock.calls
+apps/proxy/tests/mccp-e2e-golden.test.ts:55:  return ws.send.mock.calls
+apps/proxy/src/server.ts:44:  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+apps/proxy/src/server.ts:97:            if (!limits.tryInboundBytes(connId, nbytes, inBudget)) {
+apps/proxy/src/server.ts:98:              ws.close(1008, "inbound byte limit");
+apps/proxy/src/server.ts:143:              ws.send(JSON.stringify({ type: "error", message: dest.reason }));
+apps/proxy/src/server.ts:153:            ws.send(JSON.stringify({ type: "ready", host: mudHost, port: mudPort }));
+apps/proxy/src/limits.ts:127:  tryInboundBytes(connId: string, n: number, maxBytes: number): boolean {
+apps/proxy/src/limits.ts:139:    const env = process.env.ASSMUD_LIMIT_IN_BYTES;
+apps/proxy/src/bridge.ts:96:      ws.send(JSON.stringify(obj));
+apps/proxy/src/bridge.ts:124:          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
+apps/proxy/src/bridge.ts:148:    ws.send(bytes);
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index ad38af5..72f1e97 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -15,6 +15,11 @@ jobs:
+           node-version: "22"
+           cache: npm
+       - run: npm ci
++      - name: Install gitleaks (best-effort)
++        run: |
++          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz -C /tmp
++          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks || true
++        continue-on-error: true
+       - run: npm run secret-scan
+       - run: npm test
+       - name: e2e golden streams (blocking)
+diff --git a/apps/proxy/src/limits.ts b/apps/proxy/src/limits.ts
+index 85a8854..1577e3b 100644
+--- a/apps/proxy/src/limits.ts
++++ b/apps/proxy/src/limits.ts
+@@ -49,6 +49,27 @@ export function normalizeIp(raw: string | undefined): string {
+   return ip;
+ }
+ 
++/**
++ * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
++ */
++export function clientIpFromRequest(req: {
++  socket: { remoteAddress?: string };
++  headers: { [k: string]: string | string[] | undefined };
++}): string {
++  const trust = ["1", "true", "yes"].includes(
++    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
++  );
++  if (trust) {
++    const xff = req.headers["x-forwarded-for"];
++    const raw = Array.isArray(xff) ? xff[0] : xff;
++    if (raw) {
++      const first = raw.split(",")[0]?.trim();
++      if (first) return normalizeIp(first);
++    }
++  }
++  return normalizeIp(req.socket.remoteAddress);
++}
++
+ type Window = { count: number; resetAt: number };
+ 
+ export class AbuseLimiter {
+@@ -100,6 +121,26 @@ export class AbuseLimiter {
+     return this.hitWindow(this.hellos, connId, this.cfg.hellosPerConnPerMin);
+   }
+ 
++  private bytes = new Map<string, { bytes: number; resetAt: number }>();
++
++  /** Per-connection inbound byte budget (rolling minute). */
++  tryInboundBytes(connId: string, n: number, maxBytes: number): boolean {
++    const now = Date.now();
++    let w = this.bytes.get(connId);
++    if (!w || now >= w.resetAt) {
++      w = { bytes: 0, resetAt: now + 60_000 };
++      this.bytes.set(connId, w);
++    }
++    w.bytes += n;
++    return w.bytes <= maxBytes;
++  }
++
++  inboundBudget(mode: "remote-prod" | "localhost-dev"): number {
++    const env = process.env.ASSMUD_LIMIT_IN_BYTES;
++    if (env && Number(env) > 0) return Number(env);
++    return mode === "remote-prod" ? 2 * 1024 * 1024 : 16 * 1024 * 1024;
++  }
++
+   get helloTimeoutMs(): number {
+     return this.cfg.helloTimeoutMs;
+   }
+diff --git a/apps/proxy/src/server.ts b/apps/proxy/src/server.ts
+index 37dd538..9d177dd 100644
+--- a/apps/proxy/src/server.ts
++++ b/apps/proxy/src/server.ts
+@@ -7,7 +7,7 @@ import {
+   assertDestinationAllowed,
+   safeEqual,
+ } from "./policy.js";
+-import { AbuseLimiter, defaultLimits, normalizeIp } from "./limits.js";
++import { AbuseLimiter, clientIpFromRequest, defaultLimits } from "./limits.js";
+ import { bridgeWsToMud } from "./bridge.js";
+ 
+ type HelloMsg = {
+@@ -53,7 +53,7 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
+         return;
+       }
+ 
+-      const ip = normalizeIp(req.socket.remoteAddress);
++      const ip = clientIpFromRequest(req);
+       if (!limits.tryUpgrade(ip)) {
+         socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+         socket.destroy();
+@@ -79,18 +79,32 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
+         }, limits.helloTimeoutMs);
+ 
+         let release: (() => void) | null = null;
++        let bridged = false;
++        const inBudget = limits.inboundBudget(cfg.mode);
+         ws.on("close", () => {
+           release?.();
+           release = null;
+         });
+ 
+-        ws.once("message", async (data) => {
+-          clearTimeout(timer);
++        const onClientMessage = async (data: WebSocket.RawData) => {
+           try {
++            const nbytes =
++              typeof data === "string"
++                ? Buffer.byteLength(data)
++                : Buffer.isBuffer(data)
++                  ? data.length
++                  : (data as ArrayBuffer).byteLength;
++            if (!limits.tryInboundBytes(connId, nbytes, inBudget)) {
++              ws.close(1008, "inbound byte limit");
++              return;
++            }
++            if (bridged) return; // bridge attaches its own handlers after hello
++
+             if (!limits.tryHello(connId)) {
+               ws.close(1008, "hello rate");
+               return;
+             }
++            clearTimeout(timer);
+             const text = typeof data === "string" ? data : data.toString("utf8");
+             const msg = JSON.parse(text) as HelloMsg;
+             if (msg.type !== "hello") {
+@@ -98,7 +112,6 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
+               return;
+             }
+ 
+-            // Auth: Bearer/cookie pre-auth OR hello.token (never rely on query in remote-prod)
+             let authed = preAuth;
+             if (!authed && msg.token && cfg.authToken) {
+               authed = safeEqual(msg.token, cfg.authToken);
+@@ -135,6 +148,8 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
+             const cols = clamp(Number(msg.cols ?? 80), 1, 511, 80);
+             const rows = clamp(Number(msg.rows ?? 24), 1, 511, 24);
+ 
++            bridged = true;
++            ws.off("message", onClientMessage);
+             ws.send(JSON.stringify({ type: "ready", host: mudHost, port: mudPort }));
+             bridgeWsToMud(ws, {
+               host: dest.address,
+@@ -145,7 +160,8 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
+           } catch {
+             ws.close(1008, "bad hello");
+           }
+-        });
++        };
++        ws.on("message", onClientMessage);
+       });
+     } catch {
+       socket.destroy();
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 1e1b251..8d045c8 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -8,6 +8,7 @@ import {
+   exportProfilesJson,
+   importProfilesJson,
+   resolveWidthMode,
++  getProfilePassword,
+ } from "@assmud/profiles";
+ import { ScriptEngine } from "@assmud/script-engine";
+ import { RW_STARTER_PACK } from "@assmud/rw-pack";
+@@ -300,6 +301,11 @@ export function App() {
+     setTabs((ts) =>
+       ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+     );
++    // Optional auto-login: queue password after connect if secret stored (opt-in store)
++    const pw = getProfilePassword(profile.id);
++    if (pw) {
++      window.setTimeout(() => setCmd(pw), 800);
++    }
+   };
+ 
+   const disconnectTab = () => {
+@@ -800,6 +806,27 @@ export function App() {
+                       }}
+                     />
+                   </label>
++                  <label className="mt-2 block text-[11px]" style={{ color: "var(--text-dim)" }}>
++                    Extras (comma-separated families)
++                    <input
++                      className="mt-1 w-full rounded border px-2 py-1 font-mono text-xs"
++                      style={{
++                        background: "var(--bg-elevated)",
++                        borderColor: "var(--border)",
++                        color: "var(--text)",
++                      }}
++                      value={termFont.extras.join(", ")}
++                      onChange={(e) => {
++                        const extras = e.target.value
++                          .split(",")
++                          .map((s) => s.trim())
++                          .filter(Boolean);
++                        const next = { ...termFont, extras, presetId: "custom" };
++                        setTermFont(next);
++                        saveTermFont(next);
++                      }}
++                    />
++                  </label>
+                   <label className="mt-2 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                     Size {termFont.fontSizePx}px
+                     <input
+diff --git a/apps/web/src/components/ProfileEditor.tsx b/apps/web/src/components/ProfileEditor.tsx
+index ee32264..09928b4 100644
+--- a/apps/web/src/components/ProfileEditor.tsx
++++ b/apps/web/src/components/ProfileEditor.tsx
+@@ -35,6 +35,7 @@ export function ProfileEditor({
+   const [password, setPassword] = useState(() =>
+     selected ? getProfilePassword(selected.id) ?? "" : "",
+   );
++  const [storePlain, setStorePlain] = useState(false);
+   const [err, setErr] = useState<string | null>(null);
+   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
+ 
+@@ -79,8 +80,12 @@ export function ProfileEditor({
+         next = profiles.map((x) => (x.id === selectedId ? p : x));
+       }
+       onChange(next);
+-      if (password) setProfilePassword(p.id, password);
+-      else clearProfileSecret(p.id);
++      if (password) {
++        if (!storePlain) {
++          throw new Error("opt-in required to store password in plaintext localStorage");
++        }
++        setProfilePassword(p.id, password);
++      } else clearProfileSecret(p.id);
+       onSelect(p.id);
+       setMode("view");
+       setErr(null);
+@@ -193,6 +198,18 @@ export function ProfileEditor({
+           autoComplete="off"
+         />
+       </label>
++      <label
++        className="flex items-start gap-2 text-[10px] leading-snug"
++        style={{ color: "var(--text-faint)" }}
++      >
++        <input
++          type="checkbox"
++          checked={storePlain}
++          onChange={(e) => setStorePlain(e.target.checked)}
++        />
++        I opt in to store this password in **plaintext localStorage** on this
++        device (not exported; proxy/MUD operators can still see it on the wire).
++      </label>
+       {err && (
+         <p className="text-[11px]" style={{ color: "var(--danger)" }}>
+           {err}
+diff --git a/apps/web/src/termFonts/trial.ts b/apps/web/src/termFonts/trial.ts
+index b07576d..4888673 100644
+--- a/apps/web/src/termFonts/trial.ts
++++ b/apps/web/src/termFonts/trial.ts
+@@ -11,7 +11,11 @@ export function isAlignScoreGood(score: number, tol = 0.3): boolean {
+   return Math.abs(score - 2) <= tol;
+ }
+ 
+-/** Detect missing CJK glyph via canvas (not document.fonts.check alone). */
++/**
++ * Detect missing CJK glyph via canvas (+ optional fonts.check).
++ * Compare against a known-absent family instead of monospace (browser fallback
++ * can make "missing" look like monospace CJK).
++ */
+ export function probeCjkGlyph(
+   fontFamily: string,
+   ch = "中",
+@@ -21,11 +25,23 @@ export function probeCjkGlyph(
+   const canvas = document.createElement("canvas");
+   const ctx = canvas.getContext("2d");
+   if (!ctx) return { ok: false, width: 0 };
+-  ctx.font = `500 ${sizePx}px ${fontFamily}`;
++  const stack = fontFamily;
++  ctx.font = `500 ${sizePx}px ${stack}`;
+   const w = ctx.measureText(ch).width;
+-  // tofu / missing often near 0 or matches .notdef narrow
+-  ctx.font = `500 ${sizePx}px monospace`;
+-  const wMono = ctx.measureText(ch).width;
+-  const ok = w > 0 && Math.abs(w - wMono) > 0.5;
++  // Control: measure with only an invented family so fallback is browser default
++  ctx.font = `500 ${sizePx}px "__AssmudMissingFont__"`;
++  const wMissing = ctx.measureText(ch).width;
++  let fontsCheck: boolean | null = null;
++  try {
++    const bare = fontFamily.replace(/^"|"$/g, "").split(",")[0]?.trim() ?? "";
++    if (bare && document.fonts?.check) {
++      fontsCheck = document.fonts.check(`${sizePx}px "${bare}"`);
++    }
++  } catch {
++    fontsCheck = null;
++  }
++  // Valid if width differs from pure-missing stack, or fonts.check true
++  const widthOk = w > 0 && Math.abs(w - wMissing) > 0.25;
++  const ok = fontsCheck === true || (fontsCheck !== false && widthOk);
+   return { ok, width: w };
+ }
+diff --git a/packages/profiles/src/index.ts b/packages/profiles/src/index.ts
+index dbedc54..cd74d78 100644
+--- a/packages/profiles/src/index.ts
++++ b/packages/profiles/src/index.ts
+@@ -91,8 +91,21 @@ export function loadProfiles(): MudProfile[] {
+   try {
+     const raw = localStorage.getItem(KEY);
+     if (!raw) return [...DEFAULT_PROFILES];
+-    const parsed = JSON.parse(raw) as MudProfile[];
+-    return parsed.length ? parsed : [...DEFAULT_PROFILES];
++    const parsed = JSON.parse(raw) as unknown;
++    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_PROFILES];
++    const out: MudProfile[] = [];
++    const seen = new Set<string>();
++    for (const item of parsed) {
++      try {
++        const p = validateProfile(item);
++        if (seen.has(p.id)) continue;
++        seen.add(p.id);
++        out.push(p);
++      } catch {
++        /* skip invalid entry */
++      }
++    }
++    return out.length ? out : [...DEFAULT_PROFILES];
+   } catch {
+     return [...DEFAULT_PROFILES];
+   }
+diff --git a/scripts/secret-scan.sh b/scripts/secret-scan.sh
+index ae17d98..6555732 100755
+--- a/scripts/secret-scan.sh
++++ b/scripts/secret-scan.sh
+@@ -12,7 +12,8 @@ fi
+ # Fallback: ripgrep-style patterns on tracked-ish paths (no node_modules)
+ PATTERN='(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]\s*['\''"][^'\''"]{16,}|ASSMUD_AUTH_TOKEN\s*=\s*["'\''][a-f0-9]{20,})'
+ if command -v rg >/dev/null 2>&1; then
+-  if rg -n --hidden -g '!node_modules' -g '!.git' -g '!*.out' -g '!docs/reviews/*' -g '!package-lock.json' "$PATTERN" . ; then
++  # Scan tracked sources; still skip node_modules / .git / lockfile
++  if rg -n --hidden -g '!node_modules' -g '!.git' -g '!package-lock.json' "$PATTERN" . ; then
+     echo "secret-scan: potential secrets found (see matches above)" >&2
+     exit 1
+   fi
+
+exec
+/usr/bin/zsh -lc "sed -n '500,580p' apps/web/src/App.tsx && rg -n \"injectCommand|onInjectConsumed\" apps/web/src/TerminalHost.tsx && sed -n '120,210p' apps/web/src/TerminalHost.tsx && sed -n '1,190p' apps/proxy/src/bridge.ts && rg -n \"2 MiB|16 MiB|64 MiB|inbound|outbound\" docs/plans/2026-07-21-* docs/reviews/2026-07-21-queue-impl-codex.out | tail -80" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+            }}
+            title={t("shell.newTab")}
+          >
+            +
+          </button>
+        </div>
+
+        <StatusPill status={tab.status} />
+
+        <LocaleSwitch compact className="hidden lg:inline-flex" />
+
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border hidden sm:inline-flex"
+          style={{
+            borderColor: "var(--border)",
+            background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text-dim)",
+          }}
+          onClick={() => setMapOpen((v) => !v)}
+        >
+          {t("shell.map")}
+        </button>
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border"
+          style={{
+            borderColor: drawerOpen ? "var(--accent)" : "var(--border)",
+            background: drawerOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text)",
+          }}
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label={t("shell.settings")}
+        >
+          ⚙
+        </button>
+      </header>
+
+      {/* Main stage */}
+      <div className="flex-1 min-h-0 flex relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 p-2 sm:p-3">
+            <div
+              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              style={{
+                borderColor: "var(--border)",
+                background: "#0a0b0e",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+              }}
+            >
+              {tab.connected ? (
+                <TerminalHost
+                  key={tabId}
+                  wsUrl={wsUrl}
+                  hello={hello}
+                  injectCommand={cmd}
+                  onInjectConsumed={() => setCmd("")}
+                  expandInput={onSendThroughEngine}
+                  onServerLine={handleServerLine}
+                  onStatus={handleStatus}
+                  onEchoMask={handleEchoMask}
+                  terminalFontStack={fontStack}
+                  fontSizePx={termFont.fontSizePx}
+                  cellWidthScale={termFont.cellWidthScale}
+                  lineHeightScale={termFont.lineHeightScale}
+                  widthMode={cellWidthMode}
+                />
+              ) : (
+                <div
+                  className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  <p className="font-mono text-sm">{t("shell.session.idle")}</p>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
+                    style={{
+                      background: "var(--accent)",
+                      color: "#0a0b0e",
+                    }}
+                    onClick={connectTab}
+19:  injectCommand?: string;
+20:  onInjectConsumed?: () => void;
+65:  injectCommand,
+66:  onInjectConsumed,
+101:  const onInjectConsumedRef = useRef(onInjectConsumed);
+102:  onInjectConsumedRef.current = onInjectConsumed;
+215:    if (!injectCommand) return;
+217:    const lines = expand ? expand(injectCommand) : [injectCommand];
+219:    onInjectConsumedRef.current?.();
+220:  }, [injectCommand]);
+          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+    } else {
+      text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
+    }
+    const ok = await writeClipboard(text);
+    setMenuMode(null);
+    flash(
+      ok
+        ? kind === "ansi"
+          ? "已複製（含色碼）"
+          : "已複製（純文字）"
+        : "複製失敗",
+    );
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    rendererRef.current.mount(canvas);
+    if (terminalFontStack) {
+      rendererRef.current.setTypography({
+        fontFamily: terminalFontStack,
+        fontSizePx,
+        cellWidthScale,
+        lineHeightScale,
+      });
+    }
+    redraw();
+    return () => rendererRef.current.dispose();
+  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+
+  useEffect(() => {
+    if (!terminalFontStack) return;
+    rendererRef.current.setTypography({
+      fontFamily: terminalFontStack,
+      fontSizePx,
+      cellWidthScale,
+      lineHeightScale,
+    });
+    redraw();
+  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+
+  // Charset / width mode change: clear buffer so cells never mix modes
+  useEffect(() => {
+    bufRef.current.setWidthMode(widthMode);
+    redraw();
+  }, [widthMode, redraw]);
+
+  useEffect(() => {
+    if (!wsUrl) return;
+
+    // Fresh session buffer with correct width mode
+    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+    decoderRef.current.reset();
+    lineAcc.current = "";
+
+    const sock = new MudSocket(wsUrl, () => helloRef.current);
+    socketRef.current = sock;
+
+    sock.setHandlers({
+      onBinary: (bytes) => {
+        const text = decoderRef.current.push(bytes);
+        if (!text) return;
+        bufRef.current.writeDecoded(text);
+        redraw();
+        lineAcc.current += text;
+        const parts = lineAcc.current.split(/\r?\n/);
+        lineAcc.current = parts.pop() ?? "";
+        for (const ln of parts) {
+          if (ln) onServerLineRef.current?.(ln);
+        }
+      },
+      onEchoMask: (mask) => {
+        onEchoMaskRef.current?.(mask);
+      },
+    });
+
+    const unsub = sock.subscribeStatus(() => {
+      onStatusRef.current?.(sock.getStatus());
+    });
+
+    sock.start();
+
+    return () => {
+      unsub();
+      sock.stop();
+      onEchoMaskRef.current?.(false);
+      if (socketRef.current === sock) socketRef.current = null;
+      decoderRef.current.reset();
+      lineAcc.current = "";
+import net from "node:net";
+import zlib from "node:zlib";
+import type WebSocket from "ws";
+import {
+  TelnetParser,
+  replyToNegotiation,
+  ttypeIs,
+  naws,
+  OPT,
+  type TelnetEvent,
+} from "@assmud/protocol";
+
+export type BridgeOptions = {
+  host: string;
+  port: number;
+  cols?: number;
+  rows?: number;
+  /** DO MCCP2 when server WILL (default true) */
+  mccp?: boolean;
+  maxInflatedPerWindow?: number;
+  maxInflatedSession?: number;
+  maxCompressedWireSession?: number;
+  windowMs?: number;
+};
+
+const MAX_PARSER_FEED = 60_000;
+
+function envInt(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
+function addCap(current: number, incoming: number, cap: number): number | null {
+  if (incoming > cap - current) return null;
+  return current + incoming;
+}
+
+/**
+ * Bridge one WebSocket client to one TCP MUD connection.
+ * Optional MCCP2: after IAC SB MCCP2 IAC SE, zlib-inflate wire then telnet-parse.
+ */
+export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
+  const parser = new TelnetParser();
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  const mccpEnabled =
+    opts.mccp ??
+    (() => {
+      const v = (process.env.ASSMUD_MCCP ?? "1").toLowerCase();
+      return !["0", "false", "off", "no"].includes(v);
+    })();
+
+  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
+  const MAX_INFLATED_PER_WINDOW =
+    opts.maxInflatedPerWindow ??
+    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
+  const MAX_INFLATED_SESSION =
+    opts.maxInflatedSession ??
+    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
+  const MAX_WIRE_SESSION =
+    opts.maxCompressedWireSession ??
+    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
+
+  let compressedMode = false;
+  let inflate: zlib.Inflate | null = null;
+  let inflatedSession = 0;
+  let inflatedWindow = 0;
+  let windowStart = Date.now();
+  let wireSession = 0;
+  let closed = false;
+  let finishing = false;
+  let errorSent = false;
+  /** Server ECHO option active → client should mask local input (password). */
+  let echoMask = false;
+
+  const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendJson = (obj: Record<string, unknown>) => {
+    if (closed || ws.readyState !== ws.OPEN) return;
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const setEchoMask = (mask: boolean) => {
+    if (echoMask === mask) return;
+    echoMask = mask;
+    sendJson({ type: "echo", mask });
+  };
+
+  const destroy = (reason: string) => {
+    if (closed) return;
+    closed = true;
+    try {
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    inflate = null;
+    if (ws.readyState === ws.OPEN) {
+      if (!errorSent) {
+        errorSent = true;
+        const msg = reason
+          .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+          .slice(0, 200);
+        try {
+          ws.send(JSON.stringify({ type: "error", message: msg || "mccp" }));
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        ws.close(1011, "bridge destroy");
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      sock.destroy();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const sendTcp = (buf: Uint8Array) => {
+    if (!sock.destroyed) sock.write(Buffer.from(buf));
+  };
+
+  const forwardData = (bytes: Uint8Array) => {
+    if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
+    ws.send(bytes);
+  };
+
+  const handleEvents = (events: TelnetEvent[]) => {
+    for (const ev of events) {
+      if (ev.type === "data") {
+        forwardData(ev.bytes);
+      } else if (ev.type === "will") {
+        const reply = replyToNegotiation("will", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "wont") {
+        const reply = replyToNegotiation("wont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
+      } else if (ev.type === "do") {
+        const reply = replyToNegotiation("do", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "dont") {
+        const reply = replyToNegotiation("dont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
+      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
+      }
+      // MCCP2 sb start is handled by pushUntilMccpStart boundary, not here
+    }
+  };
+
+  const feedDecompressed = (buf: Buffer) => {
+    if (closed) return;
+docs/reviews/2026-07-21-queue-impl-codex.out:1372:| Inbound bytes / conn / min | 2 MiB | 16 MiB |
+docs/reviews/2026-07-21-queue-impl-codex.out:1373:| Outbound bytes / conn / min | 16 MiB | 64 MiB |
+docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-queue-impl-codex.out:5395:Two requirement-level risks have emerged and I’m validating them against execution now: the proxy plan specifies per-connection inbound/outbound byte budgets that are not present in `limits.ts`, and the profile UI stores a password but appears not to consume it for auto-login. I’m also checking whether the CJK probe can distinguish a missing font from browser fallback rather than merely measuring fallback width.
+docs/reviews/2026-07-21-queue-impl-codex.out:7553:MUST_FIX: ["The specified 2/16 MiB inbound and 16/64 MiB outbound per-connection limits are not implemented.", "Trusted-proxy IP handling is absent, so reverse-proxied clients collapse onto the proxy’s address.", "Hello rate limiting cannot trigger because server.ts processes exactly one message before handing the connection to the bridge."]  
+docs/reviews/2026-07-21-queue-impl-codex.out:7581:MUST_FIX: ["The specified 2/16 MiB inbound and 16/64 MiB outbound per-connection limits are not implemented.", "Trusted-proxy IP handling is absent, so reverse-proxied clients collapse onto the proxy’s address.", "Hello rate limiting cannot trigger because server.ts processes exactly one message before handing the connection to the bridge."]  
+docs/plans/2026-07-21-proxy-abuse-limits.md:21:| Inbound bytes / conn / min | 2 MiB | 16 MiB |
+docs/plans/2026-07-21-proxy-abuse-limits.md:22:| Outbound bytes / conn / min | 16 MiB | 64 MiB |
+
+codex
+Two residual gaps are visible in the code review: the proxy budget is detached when the production bridge takes over (and no outbound budget exists), and the font probe still treats `document.fonts.check(...) === true` as proof that the chosen font contains the CJK glyph. I’m running the focused suites now to separate passing tests from requirement coverage.
+exec
+/usr/bin/zsh -lc 'npx vitest run apps/proxy/tests/mccp-e2e-golden.test.ts apps/proxy/tests/limits.test.ts apps/web/tests/fontTrial.test.ts apps/web/tests/profileEditor.test.ts packages/profiles/tests/validate.test.ts packages/profiles/tests/export-sanitize.test.ts && npm run secret-scan' in /home/cookys/projects/assmud
+ succeeded in 1480ms:
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ apps/proxy/tests/limits.test.ts (5 tests) 4ms
+ ✓ apps/web/tests/fontTrial.test.ts (6 tests) 4ms
+ ✓ apps/web/tests/profileEditor.test.ts (1 test) 3ms
+ ✓ packages/profiles/tests/export-sanitize.test.ts (1 test) 2ms
+ ✓ packages/profiles/tests/validate.test.ts (3 tests) 5ms
+ ✓ apps/proxy/tests/mccp-e2e-golden.test.ts (2 tests) 159ms
+
+ Test Files  6 passed (6)
+      Tests  18 passed (18)
+   Start at  00:23:11
+   Duration  799ms (transform 410ms, setup 0ms, collect 681ms, tests 179ms, environment 1ms, prepare 539ms)
+
+
+> assmud@0.1.0 secret-scan
+> bash scripts/secret-scan.sh
+
+secret-scan: ok (fallback patterns; install gitleaks for full coverage)
+
+exec
+/usr/bin/zsh -lc "sed -n '1,110p' docs/plans/2026-07-21-proxy-abuse-limits.md && sed -n '200,230p' apps/web/src/TerminalHost.tsx && sed -n '230,340p' apps/proxy/src/bridge.ts && sed -n '1,100p' apps/web/tests/fontTrial.test.ts" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Plan — Proxy abuse limits (hosted-ready)
+
+> **Status**: **SHIP**  
+> **Owner**: cookys  
+> **Seq**: **5** on roadmap  
+> **Backlog**: #11  
+> **Project**: `docs/projects/2026-07-21-proxy-abuse-limits/`  
+
+## Goal
+
+WS/auth 層精確限流。Origin allowlist 屬既有 `policy.ts`。MCCP inflate caps 屬 mccp2-stream。
+
+## Defaults
+
+| Limit | hosted | localhost-dev |
+|-------|--------|---------------|
+| Concurrent WS / IP | 8 | 64 |
+| Concurrent WS / token | 4 | 32 |
+| Upgrades / IP / min | 30 | 120 |
+| Hellos / conn / min | 20 | 60 |
+| Inbound bytes / conn / min | 2 MiB | 16 MiB |
+| Outbound bytes / conn / min | 16 MiB | 64 MiB |
+| Hello timeout | 10s | 30s |
+
+IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+
+## Phases
+
+| ID | Work | Acceptance |
+|----|------|------------|
+| A1 | Enforce table at upgrade + hello | unit tests |
+| A2 | Env + threat model section | md |
+| A3 | Optional metadata metrics | off default |
+
+## Review log
+
+- R0 · R2 multi-LLM fold  
+    });
+
+    sock.start();
+
+    return () => {
+      unsub();
+      sock.stop();
+      onEchoMaskRef.current?.(false);
+      if (socketRef.current === sock) socketRef.current = null;
+      decoderRef.current.reset();
+      lineAcc.current = "";
+    };
+  }, [wsUrl, redraw]);
+
+  useEffect(() => {
+    if (!injectCommand) return;
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(injectCommand) : [injectCommand];
+    for (const line of lines) socketRef.current?.send(line);
+    onInjectConsumedRef.current?.();
+  }, [injectCommand]);
+
+  // Keyboard: Ctrl/Cmd+C copies plain (or opens choice if shift)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+      // if page has other selection, don't steal
+      const native = window.getSelection()?.toString();
+      if (native && native.length > 0) return;
+      if (!selRef.current && !e.shiftKey) return;
+      e.preventDefault();
+      try {
+        inflate.write(Buffer.from(residual));
+      } catch {
+        destroy("mccp inflate write");
+      }
+    }
+  };
+
+  sock.on("data", (chunk: Buffer) => {
+    if (closed) return;
+    const u8 = new Uint8Array(chunk);
+
+    if (!compressedMode) {
+      const { events, mccpStarted, residual } = parser.pushUntilMccpStart(u8);
+      handleEvents(events);
+      if (mccpStarted) {
+        if (!mccpEnabled) {
+          destroy("mccp se while disabled");
+          return;
+        }
+        compressedMode = true;
+        startInflate(residual);
+      }
+      return;
+    }
+
+    // compressed mode — never TelnetParser on wire
+    const nextWire = addCap(wireSession, u8.length, MAX_WIRE_SESSION);
+    if (nextWire == null) {
+      destroy("mccp wire cap exceeded");
+      return;
+    }
+    wireSession = nextWire;
+    try {
+      inflate?.write(Buffer.from(u8));
+    } catch {
+      destroy("mccp inflate write");
+    }
+  });
+
+  sock.on("error", (err) => {
+    destroy(String(err.message) || "tcp error");
+  });
+
+  const finishInflateThenClose = () => {
+    if (closed || finishing) return;
+    finishing = true;
+    if (inflate && !inflate.destroyed) {
+      const z = inflate;
+      try {
+        z.end();
+      } catch {
+        destroy("mccp truncated");
+        return;
+      }
+      const okClose = () => {
+        if (closed) return;
+        closed = true;
+        if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+      };
+      z.once("end", okClose);
+      z.once("error", () => destroy("mccp truncated"));
+      // hung inflate ≠ success
+      setTimeout(() => {
+        if (!closed) destroy("mccp truncated");
+      }, 2000);
+      return;
+    }
+    closed = true;
+    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
+  };
+
+  sock.on("end", finishInflateThenClose);
+  sock.on("close", () => {
+    if (!closed && !finishing) finishInflateThenClose();
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (closed) return;
+    if (!isBinary) {
+      const s = String(data);
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r")
+          ? cleaned
+          : cleaned + "\r\n";
+      sendTcp(new TextEncoder().encode(line));
+      return;
+    }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
+  });
+
+  ws.on("close", () => {
+    closed = true;
+    try {
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    sock.destroy();
+  });
+}
+import { describe, it, expect } from "vitest";
+import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+import {
+  resolveFontStack,
+  resolveFontStackProbed,
+  DEFAULT_TERM_FONT,
+} from "../src/termFonts/catalog";
+
+describe("font trial", () => {
+  it("marks scores near 2.0 as good dual-width", () => {
+    expect(isAlignScoreGood(2.0)).toBe(true);
+    expect(isAlignScoreGood(1.85)).toBe(true);
+    expect(isAlignScoreGood(1.0)).toBe(false);
+    expect(isAlignScoreGood(0)).toBe(false);
+  });
+
+  it("trial fixture includes CJK + box drawing", () => {
+    expect(TRIAL_FIXTURE).toContain("中");
+    expect(TRIAL_FIXTURE).toContain("─");
+  });
+
+  it("resolveFontStack includes primary and monospace fallback", () => {
+    const s = resolveFontStack(DEFAULT_TERM_FONT, "zh-TW");
+    expect(s).toContain("Sarasa Term TC");
+    expect(s.toLowerCase()).toContain("monospace");
+  });
+
+  it("custom primary appears first in stack", () => {
+    const s = resolveFontStack(
+      { ...DEFAULT_TERM_FONT, primary: "MyFont", presetId: "custom" },
+      "zh-TW",
+    );
+    expect(s.startsWith("MyFont") || s.startsWith('"MyFont"')).toBe(true);
+  });
+
+  it("probeCjkGlyph is exported and returns structure", () => {
+    // node test env: no document → fail closed
+    const r = probeCjkGlyph("monospace");
+    expect(r).toHaveProperty("ok");
+    expect(r).toHaveProperty("width");
+    expect(typeof r.ok).toBe("boolean");
+  });
+
+  it("resolveFontStackProbed matches resolveFontStack in node", () => {
+    const a = resolveFontStack(DEFAULT_TERM_FONT, "zh-TW");
+    const b = resolveFontStackProbed(DEFAULT_TERM_FONT, "zh-TW");
+    expect(b).toBe(a);
+  });
+});
+
+exec
+/usr/bin/zsh -lc "rg -n \"class MudSocket|send\\(\" apps/web/src packages -g '*.ts' | head -30 && rg -n \"ASSMUD_TRUST_PROXY|trusted proxy|X-Forwarded\" docs apps/proxy/tests README.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+apps/web/src/lib/mudSocket.ts:76:export class MudSocket {
+apps/web/src/lib/mudSocket.ts:139:  send(line: string): void {
+apps/web/src/lib/mudSocket.ts:143:    ws.send(line);
+apps/web/src/lib/mudSocket.ts:230:        ws.send(JSON.stringify(this.getHello()));
+docs/plans/2026-07-21-proxy-abuse-limits.md:25:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-hetero-r3-codex.err:323:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-hetero-r3-pack.txt:310:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-queue-impl-codex.out:1376:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-hetero-r3-glm.out:24:| 9 | Codex | Abuse limits: auth/unauth keys, trusted-proxy, IPv4/6 norm, rate windows, atomic acquire, timeouts, byte limits, fail-closed | `proxy-abuse-limits.md` defaults table (per-IP, per-token, upgrades/min, hellos/min, in/out bytes/min, hello timeout); "IPv4/IPv6 normalize; trusted proxy; fail-closed; atomic acquire/release; no payload logs" | ✅ SATISFIED (backpressure/cleanup tests = nit) |
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:19:- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:298:./docs/reviews/2026-07-21-queue-impl-codex-r2.out:19:- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:393:./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:936: * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:943:    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:1959:+ * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:1966:+    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:2657:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:2718:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+
+exec
+/usr/bin/zsh -lc "sed -n '125,150p' apps/web/src/lib/mudSocket.ts && tail -80 docs/reviews/2026-07-21-queue-impl-codex-r2.out" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+    this.attempt = 0;
+    this.open();
+  }
+
+  stop(): void {
+    this.disposed = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    this.killSocket();
+    this.setStatus({ code: "disconnected" });
+  }
+
+  send(line: string): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (line.length > 4096) return;
+    ws.send(line);
+  }
+
+  private killSocket(): void {
+    const prev = this.ws;
+    this.ws = null;
+    // bump session so any late events from prev are ignored
+    this.session += 1;
+      inflate?.destroy();
+    } catch {
+      /* ignore */
+    }
+    sock.destroy();
+  });
+}
+import { describe, it, expect } from "vitest";
+import { isAlignScoreGood, probeCjkGlyph, TRIAL_FIXTURE } from "../src/termFonts/trial";
+import {
+  resolveFontStack,
+  resolveFontStackProbed,
+  DEFAULT_TERM_FONT,
+} from "../src/termFonts/catalog";
+
+describe("font trial", () => {
+  it("marks scores near 2.0 as good dual-width", () => {
+    expect(isAlignScoreGood(2.0)).toBe(true);
+    expect(isAlignScoreGood(1.85)).toBe(true);
+    expect(isAlignScoreGood(1.0)).toBe(false);
+    expect(isAlignScoreGood(0)).toBe(false);
+  });
+
+  it("trial fixture includes CJK + box drawing", () => {
+    expect(TRIAL_FIXTURE).toContain("中");
+    expect(TRIAL_FIXTURE).toContain("─");
+  });
+
+  it("resolveFontStack includes primary and monospace fallback", () => {
+    const s = resolveFontStack(DEFAULT_TERM_FONT, "zh-TW");
+    expect(s).toContain("Sarasa Term TC");
+    expect(s.toLowerCase()).toContain("monospace");
+  });
+
+  it("custom primary appears first in stack", () => {
+    const s = resolveFontStack(
+      { ...DEFAULT_TERM_FONT, primary: "MyFont", presetId: "custom" },
+      "zh-TW",
+    );
+    expect(s.startsWith("MyFont") || s.startsWith('"MyFont"')).toBe(true);
+  });
+
+  it("probeCjkGlyph is exported and returns structure", () => {
+    // node test env: no document → fail closed
+    const r = probeCjkGlyph("monospace");
+    expect(r).toHaveProperty("ok");
+    expect(r).toHaveProperty("width");
+    expect(typeof r.ok).toBe("boolean");
+  });
+
+  it("resolveFontStackProbed matches resolveFontStack in node", () => {
+    const a = resolveFontStack(DEFAULT_TERM_FONT, "zh-TW");
+    const b = resolveFontStackProbed(DEFAULT_TERM_FONT, "zh-TW");
+    expect(b).toBe(a);
+  });
+});
+
+exec
+/usr/bin/zsh -lc "rg -n \"class MudSocket|send\\(\" apps/web/src packages -g '*.ts' | head -30 && rg -n \"ASSMUD_TRUST_PROXY|trusted proxy|X-Forwarded\" docs apps/proxy/tests README.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+apps/web/src/lib/mudSocket.ts:76:export class MudSocket {
+apps/web/src/lib/mudSocket.ts:139:  send(line: string): void {
+apps/web/src/lib/mudSocket.ts:143:    ws.send(line);
+apps/web/src/lib/mudSocket.ts:230:        ws.send(JSON.stringify(this.getHello()));
+docs/plans/2026-07-21-proxy-abuse-limits.md:25:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-hetero-r3-codex.err:323:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-hetero-r3-pack.txt:310:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-queue-impl-codex.out:1376:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-hetero-r3-glm.out:24:| 9 | Codex | Abuse limits: auth/unauth keys, trusted-proxy, IPv4/6 norm, rate windows, atomic acquire, timeouts, byte limits, fail-closed | `proxy-abuse-limits.md` defaults table (per-IP, per-token, upgrades/min, hellos/min, in/out bytes/min, hello timeout); "IPv4/IPv6 normalize; trusted proxy; fail-closed; atomic acquire/release; no payload logs" | ✅ SATISFIED (backpressure/cleanup tests = nit) |
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:19:- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:298:./docs/reviews/2026-07-21-queue-impl-codex-r2.out:19:- clientIpFromRequest X-Forwarded-For; inbound byte budget; hello rate on messages until bridge
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:393:./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:936: * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:943:    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:1959:+ * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:1966:+    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:2657:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+docs/reviews/2026-07-21-queue-impl-codex-r2.out:2718:IPv4/IPv6 normalize; optional trusted proxy; fail-closed; atomic acquire/release; no payload logs.
+
+
+codex
+ci-e2e-quality  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+terminal-fonts-f2  
+VERDICT: BLOCK  
+MUST_FIX:
+
+- `probeCjkGlyph` still accepts `document.fonts.check(...) === true` as proof of CJK glyph availability. That API confirms font availability, not that the font contains `中`; a Latin-only font can still be incorrectly accepted while CJK comes from fallback.
+
+open-source-readiness  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+proxy-abuse-limits  
+VERDICT: BLOCK  
+MUST_FIX:
+
+- The required byte budgets remain incomplete. The inbound counter is removed with `onClientMessage` when bridging begins, so normal client→MUD traffic bypasses it. The required 16/64 MiB outbound-per-minute budget is absent entirely.
+
+profile-library  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+ALL_CLEAR: no
+
+Focused verification: 18/18 tests passed; `npm run secret-scan` passed using the fallback scanner. Scope was the previously reported Codex MUST_FIX items only.
+tokens used
+63,415
+ci-e2e-quality  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+terminal-fonts-f2  
+VERDICT: BLOCK  
+MUST_FIX:
+
+- `probeCjkGlyph` still accepts `document.fonts.check(...) === true` as proof of CJK glyph availability. That API confirms font availability, not that the font contains `中`; a Latin-only font can still be incorrectly accepted while CJK comes from fallback.
+
+open-source-readiness  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+proxy-abuse-limits  
+VERDICT: BLOCK  
+MUST_FIX:
+
+- The required byte budgets remain incomplete. The inbound counter is removed with `onClientMessage` when bridging begins, so normal client→MUD traffic bypasses it. The required 16/64 MiB outbound-per-minute budget is absent entirely.
+
+profile-library  
+VERDICT: APPROVE  
+MUST_FIX: []
+
+ALL_CLEAR: no
+
+Focused verification: 18/18 tests passed; `npm run secret-scan` passed using the fallback scanner. Scope was the previously reported Codex MUST_FIX items only.

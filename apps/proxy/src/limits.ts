@@ -49,6 +49,27 @@ export function normalizeIp(raw: string | undefined): string {
   return ip;
 }
 
+/**
+ * Client IP for limits. When ASSMUD_TRUST_PROXY=1, use first X-Forwarded-For hop.
+ */
+export function clientIpFromRequest(req: {
+  socket: { remoteAddress?: string };
+  headers: { [k: string]: string | string[] | undefined };
+}): string {
+  const trust = ["1", "true", "yes"].includes(
+    (process.env.ASSMUD_TRUST_PROXY ?? "").toLowerCase(),
+  );
+  if (trust) {
+    const xff = req.headers["x-forwarded-for"];
+    const raw = Array.isArray(xff) ? xff[0] : xff;
+    if (raw) {
+      const first = raw.split(",")[0]?.trim();
+      if (first) return normalizeIp(first);
+    }
+  }
+  return normalizeIp(req.socket.remoteAddress);
+}
+
 type Window = { count: number; resetAt: number };
 
 export class AbuseLimiter {
@@ -98,6 +119,54 @@ export class AbuseLimiter {
 
   tryHello(connId: string): boolean {
     return this.hitWindow(this.hellos, connId, this.cfg.hellosPerConnPerMin);
+  }
+
+  private inBytes = new Map<string, { bytes: number; resetAt: number }>();
+  private outBytes = new Map<string, { bytes: number; resetAt: number }>();
+
+  private hitBytes(
+    map: Map<string, { bytes: number; resetAt: number }>,
+    connId: string,
+    n: number,
+    maxBytes: number,
+  ): boolean {
+    if (n <= 0) return true;
+    const now = Date.now();
+    let w = map.get(connId);
+    if (!w || now >= w.resetAt) {
+      w = { bytes: 0, resetAt: now + 60_000 };
+      map.set(connId, w);
+    }
+    w.bytes += n;
+    return w.bytes <= maxBytes;
+  }
+
+  /** Per-connection inbound (client→proxy) byte budget, rolling minute. */
+  tryInboundBytes(connId: string, n: number, maxBytes: number): boolean {
+    return this.hitBytes(this.inBytes, connId, n, maxBytes);
+  }
+
+  /** Per-connection outbound (proxy→client) byte budget, rolling minute. */
+  tryOutboundBytes(connId: string, n: number, maxBytes: number): boolean {
+    return this.hitBytes(this.outBytes, connId, n, maxBytes);
+  }
+
+  /** Drop per-conn byte windows when connection ends. */
+  releaseConnBytes(connId: string): void {
+    this.inBytes.delete(connId);
+    this.outBytes.delete(connId);
+  }
+
+  inboundBudget(mode: "remote-prod" | "localhost-dev"): number {
+    const env = process.env.ASSMUD_LIMIT_IN_BYTES;
+    if (env && Number(env) > 0) return Number(env);
+    return mode === "remote-prod" ? 2 * 1024 * 1024 : 16 * 1024 * 1024;
+  }
+
+  outboundBudget(mode: "remote-prod" | "localhost-dev"): number {
+    const env = process.env.ASSMUD_LIMIT_OUT_BYTES;
+    if (env && Number(env) > 0) return Number(env);
+    return mode === "remote-prod" ? 16 * 1024 * 1024 : 64 * 1024 * 1024;
   }
 
   get helloTimeoutMs(): number {

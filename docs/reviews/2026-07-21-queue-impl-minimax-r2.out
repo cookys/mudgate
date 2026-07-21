@@ -1,0 +1,13 @@
+## Re-Review: Folded Ships After Codex MUST_FIX
+
+| Ship / Aspect | VERDICT | Notes |
+|---|---|---|
+| **MCCP e2e golden** (`bridgeWsToMud` + Big5 + multi-chunk + byte budget) | **ALL_CLEAR yes** | Multi-chunk deflate, residual boundary, `MAX_INFLATED_*`, `MAX_WIRE_SESSION` all correct. Minor: `binarySends` filter assumes no payload starts with `{` (0x7b) -- worth a comment. |
+| **Font probe** (`probeCjkGlyph` vs missing font) | **ALL_CLEAR yes** | Control-font `__AssmudMissingFont__` approach is sound for desktop. Known limitation: Android Noto-collision causes pessimistic probe results there (no security impact). |
+| **SARASA-TERM-TC docs** | **ALL_CLEAR yes** | Accurate. Correctly identifies TC variant, source, fallback chain requirement. |
+| **server.ts** (IP extraction, byte budget, hello rate) | **ALL_CLEAR yes** | `ASSMUD_TRUST_PROXY` default-deny; `X-Forwarded-For` takes first-hop only; rolling 60s inbound budget; hello rate scoped per conn until bridge. Dest port clamping solid. |
+| **ProfileEditor** (opt-in plaintext + `getProfilePassword` auto-login) | **ALL_CLEAR yes** | `storePlain` enforced at save; UI warning covers wire exposure; password structurally excluded from `sanitizeProfileForExport` (never in profile object). |
+| **profiles/index.ts** (`loadProfiles` + `validateProfile`) | **ALL_CLEAR yes** | Defensive parse, all edge cases handled (whitespace id, NaN port, invalid charset). Secrets stripped at sanitize boundary. Import silent-skip is UX gap, not security. |
+| **secret-scan.sh** (gitleaks + ripgrep fallback) | **ALL_CLEAR yes** | Gitleaks with `--no-git` catches uncommitted; fallback covers AWS AKIA, RSA/SSH PEM, API keys, auth tokens. Historical commit gap is a known limitation of lightweight CI scanning. |
+
+**No MUST_FIX issues remain.** The Codex addressed the core concerns across all ships.

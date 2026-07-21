@@ -8,6 +8,7 @@ import {
   exportProfilesJson,
   importProfilesJson,
   resolveWidthMode,
+  getProfilePassword,
 } from "@assmud/profiles";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
@@ -300,6 +301,11 @@ export function App() {
     setTabs((ts) =>
       ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
     );
+    // Optional auto-login: queue password after connect if secret stored (opt-in store)
+    const pw = getProfilePassword(profile.id);
+    if (pw) {
+      window.setTimeout(() => setCmd(pw), 800);
+    }
   };
 
   const disconnectTab = () => {
@@ -795,6 +801,27 @@ export function App() {
                           primary: e.target.value,
                           presetId: "custom",
                         };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                  </label>
+                  <label className="mt-2 block text-[11px]" style={{ color: "var(--text-dim)" }}>
+                    Extras (comma-separated families)
+                    <input
+                      className="mt-1 w-full rounded border px-2 py-1 font-mono text-xs"
+                      style={{
+                        background: "var(--bg-elevated)",
+                        borderColor: "var(--border)",
+                        color: "var(--text)",
+                      }}
+                      value={termFont.extras.join(", ")}
+                      onChange={(e) => {
+                        const extras = e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        const next = { ...termFont, extras, presetId: "custom" };
                         setTermFont(next);
                         saveTermFont(next);
                       }}

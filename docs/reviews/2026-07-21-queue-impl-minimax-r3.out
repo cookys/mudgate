@@ -1,0 +1,50 @@
+Verifying all Codex r2 MUST_FIX items against working tree:
+
+---
+
+**SHIP: terminal-fonts-f2 / probeCjkGlyph**
+- `trial.ts:51-52`: `widthOk = w > 0 && Math.abs(w - wMissing) > 0.25` — canvas delta required. `ok = widthOk && !fontsMissing` — fonts.check alone never accepts.
+- `trial.ts:50` comment explicitly: "never accept fonts.check===true alone".
+- `fontTrial.test.ts:46-73`: stubbed `fonts.check()→true` + same width → `ok: false`. Correct.
+- **VERDICT: APPROVE** | **NITS: []**
+
+---
+
+**SHIP: proxy-abuse-limits byte budgets**
+- `limits.ts:124-125`: both `inBytes`/`outBytes` maps present. NOT removed.
+- `limits.ts:145-152`: `tryInboundBytes`/`tryOutboundBytes` both implemented.
+- `limits.ts:160-170`: `inboundBudget` → 2/16 MiB; `outboundBudget` → 16/64 MiB.
+- `limits.ts:154-158`: `releaseConnBytes` drops both maps.
+- `bridge.ts:162-165`: `checkOutboundBytes` on `forwardData`; `bridge.ts:333-336`: `checkInboundBytes` on ws message.
+- `server.ts:83-88`: budgets captured; `checkIn`/`checkOut` passed into `bridgeWsToMud` (lines 176-177).
+- `server.ts:105`: hello-phase inbound also counted. `server.ts:166`: hello `ready` JSON also checked out.
+- `limits.test.ts:58-76`: budgets 2/16 MiB and 16/64 MiB asserted; releaseConnBytes reset verified.
+- **VERDICT: APPROVE** | **NITS: []**
+
+---
+
+**SHIP: ci-e2e-quality / mccp-e2e-golden**
+- `mccp-e2e-golden.test.ts`: same-chunk Big5 decode (line 71) + multi-chunk VT ANSI (line 101). Both via real `bridgeWsToMud`.
+- **VERDICT: APPROPROVE** | **NITS: []**
+
+---
+
+**SHIP: open-source-readiness / secret-scan**
+- `secret-scan.sh`: gitleaks primary; ripgrep fallback; pattern covers AKIA, RSA/OPENSSH keys, api keys, ASSMUD_AUTH_TOKEN ≥20 chars. `--exclude='*.out'` skips review outputs.
+- **VERDICT: APPROVE** | **NITS: []**
+
+---
+
+**SHIP: profile-library / ProfileEditor + getProfilePassword + storePlain**
+- `ProfileEditor.tsx:38`: `storePlain` state initialized `false`.
+- `ProfileEditor.tsx:84-86`: `save()` throws if `password && !storePlain`.
+- `ProfileEditor.tsx:201-212`: opt-in checkbox with clear plaintext warning.
+- `packages/profiles/src/secrets.ts`: `getProfilePassword` reads from separate `assmud.profileSecrets` key (not exported). `setProfilePassword`/`clearProfileSecret` manage it. `sanitizeProfileForExport` strips `password`/`token`/`secret` keys before export.
+- **VERDICT: APPROVE** | **NITS: []**
+
+---
+
+```
+ALL_SHIPS_CLEAR
+```
+MINIMAX_R3_DONE

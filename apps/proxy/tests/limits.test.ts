@@ -54,4 +54,24 @@ describe("AbuseLimiter", () => {
       defaultLimits("localhost-dev").concurrentWsPerIp,
     );
   });
+
+  it("enforces inbound and outbound byte budgets per conn", () => {
+    const lim = new AbuseLimiter(defaultLimits("remote-prod"));
+    const inMax = lim.inboundBudget("remote-prod");
+    const outMax = lim.outboundBudget("remote-prod");
+    expect(inMax).toBe(2 * 1024 * 1024);
+    expect(outMax).toBe(16 * 1024 * 1024);
+    expect(lim.inboundBudget("localhost-dev")).toBe(16 * 1024 * 1024);
+    expect(lim.outboundBudget("localhost-dev")).toBe(64 * 1024 * 1024);
+
+    expect(lim.tryInboundBytes("c1", inMax, inMax)).toBe(true);
+    expect(lim.tryInboundBytes("c1", 1, inMax)).toBe(false);
+
+    expect(lim.tryOutboundBytes("c1", outMax, outMax)).toBe(true);
+    expect(lim.tryOutboundBytes("c1", 1, outMax)).toBe(false);
+
+    lim.releaseConnBytes("c1");
+    expect(lim.tryInboundBytes("c1", 1, inMax)).toBe(true);
+    expect(lim.tryOutboundBytes("c1", 1, outMax)).toBe(true);
+  });
 });

@@ -35,6 +35,7 @@ export function ProfileEditor({
   const [password, setPassword] = useState(() =>
     selected ? getProfilePassword(selected.id) ?? "" : "",
   );
+  const [storePlain, setStorePlain] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
 
@@ -79,8 +80,12 @@ export function ProfileEditor({
         next = profiles.map((x) => (x.id === selectedId ? p : x));
       }
       onChange(next);
-      if (password) setProfilePassword(p.id, password);
-      else clearProfileSecret(p.id);
+      if (password) {
+        if (!storePlain) {
+          throw new Error("opt-in required to store password in plaintext localStorage");
+        }
+        setProfilePassword(p.id, password);
+      } else clearProfileSecret(p.id);
       onSelect(p.id);
       setMode("view");
       setErr(null);
@@ -192,6 +197,18 @@ export function ProfileEditor({
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="off"
         />
+      </label>
+      <label
+        className="flex items-start gap-2 text-[10px] leading-snug"
+        style={{ color: "var(--text-faint)" }}
+      >
+        <input
+          type="checkbox"
+          checked={storePlain}
+          onChange={(e) => setStorePlain(e.target.checked)}
+        />
+        I opt in to store this password in **plaintext localStorage** on this
+        device (not exported; proxy/MUD operators can still see it on the wire).
       </label>
       {err && (
         <p className="text-[11px]" style={{ color: "var(--danger)" }}>

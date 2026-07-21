@@ -1,0 +1,31 @@
+Re-review folded ships after Codex r2 MUST_FIX. Read current working tree files (not only prior commits).
+
+Previous Codex r2 BLOCK items that should now be fixed:
+
+1) terminal-fonts-f2 / probeCjkGlyph
+- MUST_FIX was: probeCjkGlyph accepted document.fonts.check===true as CJK proof.
+- Fold claim: ok requires canvas width delta vs __AssmudMissingFont__; fonts.check alone never accepts.
+- File: apps/web/src/termFonts/trial.ts
+- Test: apps/web/tests/fontTrial.test.ts (fonts.check true + same width → ok false)
+
+2) proxy-abuse-limits byte budgets
+- MUST_FIX was: inbound counter removed at bridge; outbound 16/64 MiB missing.
+- Fold claim:
+  - limits.ts: tryInboundBytes + tryOutboundBytes + inboundBudget (2/16 MiB) + outboundBudget (16/64 MiB) + releaseConnBytes
+  - bridge.ts: checkInboundBytes on every client message; checkOutboundBytes on forwardData/sendJson
+  - server.ts: same checkIn/checkOut for hello phase AND passed into bridgeWsToMud
+- Tests: apps/proxy/tests/limits.test.ts inbound/outbound budgets
+
+Also confirm (should still be APPROVE from r2):
+- ci-e2e-quality / mccp-e2e-golden (bridge + Big5 multi/same-chunk)
+- open-source-readiness secret-scan
+- profile-library ProfileEditor + getProfilePassword auto-login + storePlain opt-in
+
+Return EXACTLY for each ship:
+SHIP: <name>
+VERDICT: APPROVE|APPROVE_WITH_NITS|BLOCK
+MUST_FIX: []
+NITS: []
+
+Then overall:
+ALL_CLEAR: yes|no

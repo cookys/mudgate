@@ -1,0 +1,45 @@
+No secrets or credentials found. Here is the per-ship review:
+
+---
+
+**SHIP: ci-e2e-quality**
+**VERDICT: APPROVE**
+Tests (`tests/e2e/golden-streams.test.ts`) cover all required paths: Q1 mock TCP ping, Q2a TelnetParser+Big5 banner decode, Q2b same-chunk MCCP2 with residual, Q2b multi-chunk zlib halves stream inflate through to ScreenBuffer CJK cells. Correct wire format, correct inflate timing, correct decoder pairing.
+**MUST_FIX: []**
+**NITS: []**
+
+---
+
+**SHIP: terminal-fonts-f2**
+**VERDICT: APPROVE_WITH_NITS**
+`probeCjkGlyph` (trial.ts:15) correctly detects missing CJK via canvas width delta, fails closed in Node. `isAlignScoreGood` threshold of 0.3 around 2.0 is appropriate. `TRIAL_FIXTURE` contains CJK+box-drawing. `resolveFontStack` imports and uses probe. `lineHeightScale` wired end-to-end: trial slider → save → TerminalHost prop → renderer. Canvas at 96px is sufficient for 3-line fixture at 15px+spacing.
+**MUST_FIX: []**
+**NITS: [trial.ts:9 — `isAlignScoreGood` lacks JSDoc; name+tolerance are self-explanatory but a one-liner would close it]**
+
+---
+
+**SHIP: open-source-readiness**
+**VERDICT: APPROVE**
+MIT license is standard and correct. No secrets, credentials, or personal data found in changed web source files. `secrets.ts` stores only user profile passwords in localStorage — appropriate for the feature.
+**MUST_FIX: []**
+**NITS: []**
+
+---
+
+**SHIP: proxy-abuse-limits**
+**VERDICT: APPROVE**
+`limits.ts` implements fail-closed concurrent WS limits per-IP/per-token, upgrade rate-limit window, and hello rate-limit. `defaultLimits` correctly sets hosted defaults (8/4/30/20) tighter than localhost-dev (64/32/120/60). `server.ts` wires all three callbacks: `tryUpgrade` on HTTP upgrade, `tryHello` on first WS message, `tryAcquire` post-auth. IPv4-mapped IPv6 normalization is correct. Tests cover all enforcement paths plus hosted-vs-dev comparison.
+**MUST_FIX: []**
+**NITS: []**
+
+---
+
+**SHIP: profile-library**
+**VERDICT: APPROVE_WITH_NITS**
+`ProfileEditor` (new) implements full CRUD: create via `startCreate`, edit, save with `validateProfile`, delete with guard (`profiles.length <= 1`). Secrets stored separately via `secrets.ts` and excluded from `exportProfilesJson`. `ConnectGate` integration is correct — editor shown below profile select. Error handling via try/catch with local `err` state. Profile deletion correctly cascades `clearProfileSecret` and selects the next available profile.
+**MUST_FIX: []**
+**NITS: [ProfileEditor.tsx:182 — `type="password"` instead of `type="text"` on the password field; cosmetic but trivial to fix]**
+
+---
+
+**ALL_CLEAR: yes**

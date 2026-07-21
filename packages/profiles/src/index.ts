@@ -91,8 +91,21 @@ export function loadProfiles(): MudProfile[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [...DEFAULT_PROFILES];
-    const parsed = JSON.parse(raw) as MudProfile[];
-    return parsed.length ? parsed : [...DEFAULT_PROFILES];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_PROFILES];
+    const out: MudProfile[] = [];
+    const seen = new Set<string>();
+    for (const item of parsed) {
+      try {
+        const p = validateProfile(item);
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        out.push(p);
+      } catch {
+        /* skip invalid entry */
+      }
+    }
+    return out.length ? out : [...DEFAULT_PROFILES];
   } catch {
     return [...DEFAULT_PROFILES];
   }

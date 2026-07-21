@@ -39,6 +39,37 @@ describe("font trial", () => {
     expect(r).toHaveProperty("ok");
     expect(r).toHaveProperty("width");
     expect(typeof r.ok).toBe("boolean");
+    expect(r.ok).toBe(false);
+    expect(r.width).toBe(0);
+  });
+
+  it("probeCjkGlyph never treats fonts.check alone as CJK proof", () => {
+    // Minimal document stub: fonts.check always true (Latin-only trap), canvas
+    // measures same width for requested vs missing → must fail closed.
+    const g = globalThis as unknown as {
+      document?: {
+        createElement: (tag: string) => unknown;
+        fonts?: { check: (s: string) => boolean };
+      };
+    };
+    const prev = g.document;
+    g.document = {
+      fonts: { check: () => true },
+      createElement: () => ({
+        getContext: () => ({
+          font: "",
+          measureText: () => ({ width: 12 }),
+        }),
+      }),
+    };
+    try {
+      const r = probeCjkGlyph("LatinOnlyFace");
+      expect(r.ok).toBe(false);
+      expect(r.width).toBe(12);
+    } finally {
+      if (prev === undefined) delete g.document;
+      else g.document = prev;
+    }
   });
 
   it("resolveFontStackProbed matches resolveFontStack in node", () => {

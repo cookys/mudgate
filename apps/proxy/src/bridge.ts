@@ -21,6 +21,12 @@ export type BridgeOptions = {
   maxInflatedSession?: number;
   maxCompressedWireSession?: number;
   windowMs?: number;
+  /**
+   * Abuse budgets for the full session (not just hello).
+   * Return false to tear down the bridge.
+   */
+  checkInboundBytes?: (n: number) => boolean;
+  checkOutboundBytes?: (n: number) => boolean;
 };
 
 const MAX_PARSER_FEED = 60_000;
@@ -92,8 +98,16 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
 
   const sendJson = (obj: Record<string, unknown>) => {
     if (closed || ws.readyState !== ws.OPEN) return;
+    const payload = JSON.stringify(obj);
+    if (
+      opts.checkOutboundBytes &&
+      !opts.checkOutboundBytes(Buffer.byteLength(payload))
+    ) {
+      destroy("outbound byte limit");
+      return;
+    }
     try {
-      ws.send(JSON.stringify(obj));
+      ws.send(payload);
     } catch {
       /* ignore */
     }
@@ -145,6 +159,10 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
 
   const forwardData = (bytes: Uint8Array) => {
     if (closed || ws.readyState !== ws.OPEN || bytes.length === 0) return;
+    if (opts.checkOutboundBytes && !opts.checkOutboundBytes(bytes.length)) {
+      destroy("outbound byte limit");
+      return;
+    }
     ws.send(bytes);
   };
 
@@ -306,6 +324,16 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
 
   ws.on("message", (data, isBinary) => {
     if (closed) return;
+    const nbytes =
+      typeof data === "string"
+        ? Buffer.byteLength(data)
+        : Buffer.isBuffer(data)
+          ? data.length
+          : (data as ArrayBuffer).byteLength;
+    if (opts.checkInboundBytes && !opts.checkInboundBytes(nbytes)) {
+      destroy("inbound byte limit");
+      return;
+    }
     if (!isBinary) {
       const s = String(data);
       if (s.length > 16_384) return;
