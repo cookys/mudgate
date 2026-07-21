@@ -1,0 +1,17 @@
+Exploration confirms the plan's claims about existing proxy code are accurate (`ASSMUD_PROXY_MODE`/`AUTH_TOKEN`/`ORIGIN_ALLOWLIST` fail-closed, `/health`, `0.0.0.0:7788` all verified); all "missing" files are explicitly proposed D1/D2/U1 deliverables, not stale references.
+
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: []
+NITS:
+- §3.2 "allowlist 檔" implies an external file, but the seed (`mud.revivalworld.org`) is hardcoded in `apps/proxy/src/policy.ts:24,36`. Either plan the file-extraction refactor explicitly or align wording.
+- §6 #2 "二選一寫死" is a false choice: proxy must always fail-closed without token (current behavior), and install script must always generate — these are complementary, not either/or.
+- §4.3/U2 "token 與 profileSecrets 同策略：不進 export" depends on `profileSecrets`, which isn't implemented yet (planned in `docs/plans/2026-07-21-profile-library.md`). Token already lives in separate `localStorage` (`assmud_token`), so the practical goal is met; either drop U2 here or note the cross-plan dependency.
+- §5 R1 (CI `compose config` + shellcheck) marked "可 nit" — for a security-sensitive one-click path, compose validation belongs in core D1 ship, not deferrable.
+- §2 T1 cell "有 root 者（應=玩家）" — the "應=玩家" assumption breaks on a friend's/shared VPS; §3.5 mitigates but the T1 row could note "shared VPS → effectively T3, re-warn".
+
+§8 answers:
+1. **T0–T3 sufficient?** Yes. T0/T1 stay low-friction (clean recommended paths); only T3 gets the hell-warning modal. Calibrated correctly — doesn't scare legit self-host, blocks naïve custom-proxy connects.
+2. **D1–D2 honest about Oracle?** Yes. §3.4 explicitly "不自動完成 OCI 註冊；不承諾永遠 free", §1 G5 requires the "非 100% 免許冊" honest sentence. Boundary is clean.
+3. **Supply chain / token holes?** No showstopper. Digest-pinned image + checksum tarball + fail-closed token + empty-allowlist-rejects-prod all verified in code. Residual (token pasted to Discord) is UX-acknowledged in §7. One gap: §3.2 doesn't state the token file should be `chmod 600` (only "僅 owner 可讀") or rotation guidance.
+4. **U1 same ship as D1?** Yes, can co-ship. U1 (T3 warning) works for any custom URL independent of whether D1 exists. U2 is the one to split out (depends on profile-library, see nit).
+5. **Misleading "E2E safe" copy risk?** Low. §0 hard limits + §2 T2 "不暗示官方也看不到" are aggressively honest. Watch: verify the proxy runtime genuinely never logs password-bearing frames (threat-model says metadata-only; should be asserted in D3 + a runtime test), not just documented.

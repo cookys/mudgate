@@ -1,0 +1,24 @@
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: []
+NITS:
+1. §3.5 zMUD analogy: 考慮多數台灣 MUD 玩家可能沒用過 zMUD，補充一句「或把 MudClient 裝在室友電腦上」更直觀。
+2. §4.3 token 策略: "可與 profileSecrets 同策略" 是軟性描述，建議 §9 References 明確引用 profile-library 的具體章節，確保 U2 實際連動到位。
+3. §3.2 allowlist 目的地: 「RW + 可選 taiwanmud draft」若 taiwanmud IP/host 異動，誰負責更新 seed？是文件維護者責任還是需要機制？建議加一句 "seed 由文件維護者更新，玩家可視需自填"。
+4. §4.1 T2 UI: "若有配置 site config" 條件不夠明確；acceptance 應寫明「當 site config 提供 officialProxyUrl 時顯示 T2，否則隱藏」，避免 UI 行為飄移。
+
+---
+
+1. **T0–T3 是否足以處理「代架洩密」且不嚇跑正常自架？**  
+   足夠。T0/T1 乾淨無警告，T2 短說明，T3 模態阻擋——威懾「代架洩密」靠 T3 大紅警告與文案誠實；正常自架走 T1 文案無心理負擔。
+
+2. **D1–D2 一鍵範圍是否誠實（Oracle 非全自動）？**  
+   誠實。明確寫「不自動完成 OCI 註冊」「不承諾永遠 free」，一鍵邊界止於「VM 就緒後一行 install」。
+
+3. **供應鏈／token 預設有無洞？**  
+   主要洞已堵：首選 digest pull、次選 checksum tarball、禁止無 pin curl|bash。殘餘小洞：cosign 在 R2（下一刀），此 plan 靠 digest 勉強夠；建議 acceptance 加一條「install.sh pull image 必須帶 @sha256:」。
+
+4. **U1 是否可與 D1 同 ship、有無必須拆出？**  
+   可同 ship，無必須拆出理由。D1 產檔案、D1 改 trust-mode schema；U1 吃 schema 改 UI；兩者介面是 `localStorage` + `import.meta.env`，無 mutual dependency。唯一風險：若 U1 發現 schema 需要改，會卡 D1——建議 D1 schema freeze 先 review。
+
+5. **有無誤導「E2E 安全」的文案風險？**  
+   低。§0 硬限制寫死「不存在 E2E 解法」，§1 Non-goals 明確排除，§T2 official 說「政策上不 log」而非「技術上不可見」——文案方向正確。殘餘風險在：未來文件若提到「加密連線（WSS）」容易讓玩家聯想「加密 = 安全 = 密碼不被看」，建議加一條：在 T3 警告模態裡主動說「WSS 只保護傳輸過程，proxy 營運者仍可見明文」。

@@ -1,0 +1,284 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f845f-4e5e-71c1-891a-a13c4fc86b93
+--------
+user
+Review assmud plan docs/plans/2026-07-21-selfhost-proxy-trust.md
+Topics: one-click self-host proxy (Oracle/Docker), trust UX T0-T3, cleartext MUD password visible to proxy operator.
+Return EXACTLY:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+Then short answers to plan §8 five questions.
+
+
+PLAN:
+# Plan — 自架 proxy 一鍵部屬 + 連線信任／密碼 UX
+
+> **Status**: draft → hetero  
+> **Owner**: cookys  
+> **Why**: 台灣 MUD 多開靠 **出口 IP**；共用 hosted 易撞。自架（Oracle Always Free／任意 VPS／本機）是 **一等公民**。同時明文 telnet 下 **proxy 營運者必可見密碼**——必須用 UX／預設／一鍵安全預設處理，不能假裝 E2E。  
+> **North**: 玩家 **極簡** 起「只服務自己」的 proxy；產品 **極難** 把不知情玩家導向陌生人 proxy。  
+> **連動**: [`SELF-HOSTED-PROXY.md`](../deploy/SELF-HOSTED-PROXY.md)、[`hosted-proxy-threat-model.md`](../security/hosted-proxy-threat-model.md)、proxy-abuse、profile-library、cjk-cell-width §4  
+> **Hetero**: `docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md`  
+
+---
+
+## 0. Problem
+
+| 痛點 | 說明 |
+|------|------|
+| 共用 proxy IP | 熱門站同 IP 多開／限連 |
+| 自架門檻高 | 玩家不會配 Node／Caddy／token |
+| 惡意／不知情代架 | 他人 proxy 可讀 **明文 MUD 密碼**；無密碼學解法 |
+| 一鍵腳本供應鏈 | `curl \| bash` 被換包 → 直接偷密 |
+
+### 硬限制（寫死，禁止產品謊言）
+
+> 當 MUD hop 為 **cleartext telnet** 時，**任何**能執行 proxy 行程的人（root／惡意 image／惡意 fork）都能看到帳密與指令。  
+> **不存在**「第三方代跑 proxy 但密碼對他不可見」的乾淨解法。  
+> 對策 = **信任拓撲 + UX 誠實 + 預設安全**，不是假 E2E。
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+1. **G1 — 一鍵自架**：帳號／VPS 就緒後，**一條命令或 cloud-init** 起安全預設 proxy。  
+2. **G2 — 安全預設**：強制 token、Origin、allowlist、不 log payload、防火牆指引。  
+3. **G3 — 信任 UX**：連線模式分級；自訂 proxy **地獄級警告**；預設不連陌生人。  
+4. **G4 — 供應鏈**：官方 image digest／checksum；禁止無釘選的 raw pipe 當唯一路徑。  
+5. **G5 — 文件**：Oracle Always Free 逐步（含「非 100% 免註冊」誠實句）。  
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 保證 E2E 藏密碼（明文 MUD） | 物理不可能 |
+| 社區「公共 proxy 節點目錄」 | 密碼農場 |
+| 全自動開 Oracle 帳（無玩家介入） | OCI 合規／驗證 |
+| Colab／Workers 當正式 proxy | 不穩、IP 動態、ToS |
+| 住宅代理池 per-user IP | 濫用／站方敵視 |
+
+---
+
+## 2. 信任分級（產品 SSOT）
+
+| 等級 | 模式 | 出口 IP | 誰看得到密碼 | 預設 UX |
+|------|------|---------|--------------|---------|
+| **T0** | 本機 proxy（localhost-dev） | 玩家家用／公司 | 僅本機 | **桌面預設推薦** |
+| **T1** | **我的 VPS**（一鍵 Oracle／Docker） | 該 VPS IP | 有 root 者（應=玩家） | **進階推薦**（手機外網連自己的 VPS） |
+| **T2** | 官方 hosted | 官方出口 | **官方營運** | 明示「你信任 assmud」+ ToS；多開風險提示 |
+| **T3** | 自訂 `wss://` | 未知 | **該 URL 控制者** | **預設折疊／需二次確認**；大紅警告 |
+
+**禁止**：內建「隨機公共節點列表」當 T3 捷徑。
+
+### T3 自訂 proxy 強制流程
+
+1. 輸入 URL → 非本機且非官方 allowlist →  
+2. 全屏／模態警告（正體中文預設）：  
+   > **此伺服器的管理員可以看到你的 MUD 帳號與密碼**（遊戲為明文連線）。  
+   > 只在你 **完全信任** 架設者時繼續。  
+3. 勾選「我了解風險」→ 才能連。  
+4. （可選 v1.1）記住「已信任 proxy 主機指紋」；變更再警告。  
+
+### T2 官方
+
+- 首次連官方：短說明「密碼會經過 assmud 官方 proxy；我們不記錄密碼字串（見隱私／威脅模型）」。  
+- **不**暗示「官方也看不到」（技術上可看，政策上不 log）。
+
+---
+
+## 3. 一鍵部屬設計
+
+### 3.1 產物
+
+| 產物 | 路徑（建議） | 說明 |
+|------|--------------|------|
+| Docker 正式 compose | `deploy/docker-compose.proxy.yml` | 單服務 proxy；env 範本 |
+| 安裝腳本 | `scripts/deploy/install-proxy.sh` | 偵測 docker → 拉 image → 產 token → 起服務 → **印出 wss/ws URL + token 一次** |
+| cloud-init | `scripts/deploy/oracle-cloud-init.yaml` | OCI 開機自動跑 install |
+| 文件 | `docs/deploy/ORACLE-ALWAYS-FREE.md` | 註冊→開 VM→貼 cloud-init→安全組→連 web |
+| 擴充 | `docs/deploy/SELF-HOSTED-PROXY.md` | 連到本 plan；信任表摘要 |
+
+### 3.2 安全預設（install 必須）
+
+| 項 | 預設 |
+|----|------|
+| `ASSMUD_PROXY_MODE` | `remote-prod` |
+| `ASSMUD_AUTH_TOKEN` | `openssl rand -hex 24`（寫入僅 owner 可讀檔） |
+| `ASSMUD_ORIGIN_ALLOWLIST` | 安裝時詢問或 env；**空則拒絕啟動 prod** |
+| 目的地 | allowlist 檔（種子：RW + 可選 taiwanmud draft；**≠** 任意 host） |
+| 日誌 | metadata only；**禁止**預設 dump payload |
+| 綁定 | `0.0.0.0:7788` 僅在防火牆限制後；文件要求 **僅 443 對公網**（Caddy／nginx TLS） |
+| 健康檢查 | `/health` 或既有 ok endpoint |
+
+### 3.3 供應鏈
+
+| 規則 | |
+|------|--|
+| 首選 | `docker pull ghcr.io/.../assmud-proxy@sha256:…`（release 釘 digest） |
+| 次選 | 腳本內嵌 **checksum** 驗證 tarball |
+| 避免 | 無 pin 的 `curl \| bash` 當 **唯一** 官方路徑；若提供，須 checksum 與 HTTPS 固定 host |
+| 文件 | 「勿執行論壇來路不明的 install 腳本」 |
+
+### 3.4 Oracle Always Free 步驟（文件級 acceptance）
+
+1. 誠實：**需 Oracle 帳號／可能要付款驗證；Always Free 有額度與地區限制**。  
+2. 開 **Ampere/ARM 或 x86** 可跑 Docker 的 shape（文件寫目前建議 shape）。  
+3. 貼 cloud-init **或** SSH 後一行 install。  
+4. 安全組：22（可鎖自己 IP）、80/443。  
+5. （可選）Caddy 自動 HTTPS。  
+6. 玩家在 web 選 **T1**，貼 `wss://<ip或域名>/ws` + token（或掃 QR／複製區塊）。  
+
+**一鍵邊界**：不自動完成 OCI 註冊；不承諾永遠 free。
+
+### 3.5 與「密碼洩漏」的關係（一鍵文案）
+
+安裝成功畫面／README 固定段落：
+
+- 這台機器的 **root／能 docker 的人 = 能看你的 MUD 密碼**。  
+- **不要**把 VPS 帳密、ASSMUD token 給別人。  
+- **不要**多人共用一台「朋友的免費 proxy」。  
+- 與 zMUD 裝在別人電腦上 **同等信任模型**。
+
+---
+
+## 4. Web 連線信任 UI（P3）
+
+### 4.1 連線設定區
+
+```
+○ 本機／LAN 開發（T0）     [預設 dev]
+○ 我的自架 VPS（T1）       → 顯示 wss + token 欄；連到 deploy 文件
+○ assmud 官方（T2）        → 若有配置 site config
+○ 其他伺服器（T3）         → 警告模態後才解鎖欄位
+```
+
+### 4.2 狀態與 i18n
+
+- 新 keys：`trust.mode.*`、`trust.warn.custom`、`trust.warn.official`、`trust.selfhost.cta`  
+- zh-TW / zh-CN / en  
+
+### 4.3 技術
+
+| 層 | |
+|----|--|
+| 設定儲存 | `localStorage` 信任模式 + 自訂 URL（**token 可與 profileSecrets 同策略：不進 export**） |
+| MudSocket hello | 既有 `token` 欄 |
+| 官方 URL | `import.meta.env` / `__ASSMUD_SITE__` |
+| 本機偵測 | hostname 127.0.0.1 / localhost → 建議 T0 |
+
+### 4.4 Acceptance（UI）
+
+1. 全新 profile：**不能**無警告連到隨機 T3。  
+2. T3 未勾選「我了解」→ Connect disabled。  
+3. T1 文件連結可達（ORACLE 或 SELF-HOSTED）。  
+4. i18n 三語 keys 存在。  
+
+---
+
+## 5. Phases
+
+| ID | Work | Size | Ship? |
+|----|------|------|-------|
+| **D1** | `docker-compose.proxy.yml` + env 範本 + install-proxy.sh（安全預設） | S | **本 ship 核心** |
+| **D2** | `ORACLE-ALWAYS-FREE.md` + cloud-init 樣板；更新 SELF-HOSTED / deploy README | S | **本 ship 核心** |
+| **D3** | threat-model 增「自架信任／惡意 proxy」小節 | S | 本 ship |
+| **U1** | Web 信任模式 UI + i18n + T3 模態 | M | **本 ship 核心** |
+| **U2** | token 與 profileSecrets 對齊（不 export） | S | 本 ship 或 profile-library 連動 |
+| **R1** | CI：compose config 驗證；腳本 shellcheck（可選） | S | 可 nit |
+| **R2** | 官方 image 發布管線 + cosign（可延後） | M | **下一刀** |
+| **R3** | OCI Terraform stack 一鍵（可延後） | M | 下一刀 |
+
+**本 plan 預設 expand / ship**：**D1–D3 + U1（+U2 若小）**。  
+R2–R3 不擋 v1。
+
+---
+
+## 6. Acceptance（整體）
+
+1. 文件路徑齊：`ORACLE-ALWAYS-FREE.md`、compose、install 腳本。  
+2. install 在 **無 token 的 remote-prod** 會失敗或自動生成 token（二選一寫死；建議 **自動生成並顯示一次**）。  
+3. threat-model 明示 cleartext 與 T0–T3。  
+4. UI：T3 警告阻擋連線。  
+5. `npm test` + web build 綠。  
+6. **不**引入公共 proxy 目錄。  
+
+---
+
+## 7. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| 玩家把 token 貼 Discord | 文件 + UI「視同密碼」 |
+| 惡意重打包 install | digest／checksum；教育 |
+| Oracle 申請失敗 | 文件寫替代：任意 VPS／本機 |
+| T2 官方仍多開 | 文案誠實；導向 T1 |
+| 過度警告疲勞 | T0/T1 路徑乾淨；只虐 T3 |
+
+---
+
+## 8. Hetero 焦點
+
+```
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+```
+
+請回答：
+
+1. T0–T3 是否足以處理「代架洩密」且不嚇跑正常自架？  
+2. D1–D2 一鍵範圍是否誠實（Oracle 非全自動）？  
+3. 供應鏈／token 預設有無洞？  
+4. U1 是否可與 D1 同 ship、有無必須拆出？  
+5. 有無誤導「E2E 安全」的文案風險？  
+
+---
+
+## 9. References
+
+- Session：Oracle vs Colab vs free PaaS egress；密碼明文 hop  
+- `docs/deploy/SELF-HOSTED-PROXY.md`、`docs/security/hosted-proxy-threat-model.md`  
+- `apps/proxy` `ASSMUD_AUTH_TOKEN` / Origin allowlist  
+
+codex
+VERDICT: BLOCK
+MUST_FIX: ["Cloud-init／一行安裝的信任鏈必須具體釘選：固定 installer 版本與 SHA-256，再由 installer 拉固定 image digest；不可只寫原則。", "不得先將 7788 發布到 0.0.0.0 再靠文件提醒；compose／install 必須預設只綁 127.0.0.1:7788，由 TLS reverse proxy 對外提供 443。", "Token 不得出現在 URL、cloud-init log、shell trace 或安裝輸出紀錄；互動安裝可顯示一次，cloud-init 必須寫入 0600 root-owned 檔並提供明確的安全取回流程。", "Origin allowlist 的 cloud-init 非互動行為必須定義；空值須 fail closed，且文件需說明 Origin 只限制瀏覽器來源，不取代 token。", "T1 不能把 wss://<IP>/ws 描述成一般可行路徑；公開信任 TLS 通常需要可驗證域名，否則必須提供明確的憑證／私有 CA 流程。"]
+NITS: ["將『localhost-dev』與可日常使用的本機 proxy 分開命名，避免暗示 dev mode 適合正式帳密。", "T3 v1.1 的『主機指紋』需明確定義為 TLS 公鑰／憑證 pin；若只是 hostname，不應稱指紋。", "補充 token 輪替、撤銷與遺失後重生流程。", "U2 應列為本次必要範圍，而非『若小』；proxy token 應視同密碼且不得進 export。"]
+
+1. 分級本身足夠，T1 的低摩擦與 T3 的強警告也合理；但 T0 應區分正式本機模式與 dev mode，且 T3「已信任」不能只靠可變 hostname。
+
+2. 範圍誠實：已清楚排除自動註冊與永久免費承諾。不過「一鍵」應限定為 VM 建好、域名/DNS 條件就緒後的部署流程。
+
+3. 有洞：installer 與 image 必須形成完整 pin 鏈；cloud-init 不能洩漏 token；7788 必須預設 loopback；Origin 不是認證；還需 token 輪替與安全取回設計。
+
+4. U1 可與 D1 同 ship，而且最好同時上線，否則部署成功後缺少可信連線入口。U2 不應拆出；R2/cosign 可延後，前提是本版已有 digest/checksum 驗證。
+
+5. 核心文案沒有假稱 E2E，方向正確。仍應避免「安全 proxy」「不記錄所以看不到」及把 `wss` 等同端到端保密；`wss` 只保護瀏覽器到 proxy，proxy operator 仍能看到 cleartext MUD 帳密。
+tokens used
+22,527
+VERDICT: BLOCK
+MUST_FIX: ["Cloud-init／一行安裝的信任鏈必須具體釘選：固定 installer 版本與 SHA-256，再由 installer 拉固定 image digest；不可只寫原則。", "不得先將 7788 發布到 0.0.0.0 再靠文件提醒；compose／install 必須預設只綁 127.0.0.1:7788，由 TLS reverse proxy 對外提供 443。", "Token 不得出現在 URL、cloud-init log、shell trace 或安裝輸出紀錄；互動安裝可顯示一次，cloud-init 必須寫入 0600 root-owned 檔並提供明確的安全取回流程。", "Origin allowlist 的 cloud-init 非互動行為必須定義；空值須 fail closed，且文件需說明 Origin 只限制瀏覽器來源，不取代 token。", "T1 不能把 wss://<IP>/ws 描述成一般可行路徑；公開信任 TLS 通常需要可驗證域名，否則必須提供明確的憑證／私有 CA 流程。"]
+NITS: ["將『localhost-dev』與可日常使用的本機 proxy 分開命名，避免暗示 dev mode 適合正式帳密。", "T3 v1.1 的『主機指紋』需明確定義為 TLS 公鑰／憑證 pin；若只是 hostname，不應稱指紋。", "補充 token 輪替、撤銷與遺失後重生流程。", "U2 應列為本次必要範圍，而非『若小』；proxy token 應視同密碼且不得進 export。"]
+
+1. 分級本身足夠，T1 的低摩擦與 T3 的強警告也合理；但 T0 應區分正式本機模式與 dev mode，且 T3「已信任」不能只靠可變 hostname。
+
+2. 範圍誠實：已清楚排除自動註冊與永久免費承諾。不過「一鍵」應限定為 VM 建好、域名/DNS 條件就緒後的部署流程。
+
+3. 有洞：installer 與 image 必須形成完整 pin 鏈；cloud-init 不能洩漏 token；7788 必須預設 loopback；Origin 不是認證；還需 token 輪替與安全取回設計。
+
+4. U1 可與 D1 同 ship，而且最好同時上線，否則部署成功後缺少可信連線入口。U2 不應拆出；R2/cosign 可延後，前提是本版已有 digest/checksum 驗證。
+
+5. 核心文案沒有假稱 E2E，方向正確。仍應避免「安全 proxy」「不記錄所以看不到」及把 `wss` 等同端到端保密；`wss` 只保護瀏覽器到 proxy，proxy operator 仍能看到 cleartext MUD 帳密。
