@@ -18,11 +18,14 @@
 |------|--------|
 | Site | https://www.revivalworld.org |
 | MUD host | `mud.revivalworld.org` |
-| Ports | `4000`, `5000`, `6000` |
+| Ports | `4000`, `5000`, `6000` (all TCP OK) |
+| Wire | **TCP + Telnet IAC** — TTYPE, NAWS, MCCP2, MXP, MSSP |
+| Charset | **BIG5** (server-stated); optional GB switch at login |
 | Legacy web | http://java.revivalworld.org |
 | Telnet | `telnet://mud.revivalworld.org:4000` |
-| Lineage | LPMud / MudOS, custom mudlib (not stock ES2) |
+| Lineage | LPMud / MudOS-family (**Undine 1.5** banner), RWlib v1.1.0 |
 | Online tools | [who](https://www.revivalworld.org/rw/online/who), [2D map](https://www.revivalworld.org/online/rw/map.html) |
+| Probe | [docs/research/rw-probe-2026-07-21.md](../../research/rw-probe-2026-07-21.md) |
 
 ## Phases
 
@@ -52,3 +55,7 @@
 ## Learnings
 
 - Repo was empty greenfield: detector reported `package_manager: unknown`, no test/build commands yet. Re-run `project-detect.js` + update configs after stack scaffold.
+- **RW is still BIG5 on the wire** (2026-07-21 probe). UTF-8-first clients will mojibake the entire banner.
+- “走 TCP” is correct for MudOS; browser still needs a TCP-owning hop (proxy/native). Do not reframe the product as non-TCP.
+- Dual-color (雙色字) needs DBCS-aware cellization; stock xterm.js alone is a risky default.
+- `assmud` ⇒ WASM is a branding/perf escape hatch, not day-1 mandate.

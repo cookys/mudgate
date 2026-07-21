@@ -6,7 +6,9 @@
 | Keyword | Invoke |
 |---------|--------|
 | telnet / websocket / proxy / reconnect / binary frame | autopilot:debug |
-| ANSI / color / encoding / Big5 / UTF-8 / charset | autopilot:debug |
+| ANSI / color / encoding / Big5 / DBCS / 雙色字 / charset | autopilot:debug |
+| telnet IAC / MCCP / MXP / MSSP / GMCP / option negotiate | autopilot:debug |
+| wasm / webassembly / codec hot path | autopilot:profiling |
 | trigger / alias / macro / script engine / matcher | autopilot:debug |
 | mapper / automap / room graph / pathfind | autopilot:debug |
 | XSS / HTML escape / MUD output sanitize / injection | autopilot:reviewer |

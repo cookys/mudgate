@@ -20,10 +20,13 @@
 
 ## Target MUD (product constraint)
 - Host: `mud.revivalworld.org`
-- Ports: `4000`, `5000`, `6000`
+- Ports: `4000`, `5000`, `6000` — **raw TCP + Telnet** (not HTTP)
+- Charset: **BIG5** default (live-probed 2026-07-21); GB switch supported by server
+- Telnet options seen: TTYPE, NAWS, MCCP2, MXP, MSSP
 - Site: https://www.revivalworld.org
 - Existing web entry (legacy): http://java.revivalworld.org
-- Deep support for Revival World is a first-class requirement (encoding, ANSI, login/captcha, Chinese UI)
+- Deep support: Big5/DBCS, 雙色字, ANSI, login/captcha, Chinese UI
+- Probe notes: `docs/research/rw-probe-2026-07-21.md`
 
 ## Lint Notes
 - Lint is a no-op until toolchain is chosen.
