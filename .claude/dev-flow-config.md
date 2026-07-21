@@ -14,8 +14,9 @@
 - Index: `docs/projects/INDEX.md`
 
 ## Branch Rules
-- Default branch: main
-- Feature branches: `feat/<short-name>`
+- Default / integration branch: **develop**
+- Release / stable: `main` (merge from develop when cutting)
+- Feature branches: `feat/<short-name>` → merge into **develop**
 - Hotfix branches: `fix/<short-name>`
 
 ## Product north star

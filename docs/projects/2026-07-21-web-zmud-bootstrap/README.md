@@ -1,7 +1,7 @@
 # Web zMUD — bootstrap & tracking
 
-> **Status**: In progress · **Size**: L · **Branch**: `main`  
-> **Started**: 2026-07-21 · **Plan**: [R6](../../plans/2026-07-21-web-zmud-rw.md)
+> **Status**: In progress · **Size**: L · **Integration**: `develop`  
+> **Started**: 2026-07-21 · **Plan**: [approved](../../plans/2026-07-21-web-zmud-rw.md) · **Feature**: `feat/phase-1a-connect` merged
 
 ## OKR
 
@@ -32,7 +32,7 @@
 |-------|--------|
 | P0 onboard/docs/OSS | ✅ |
 | P0' design (ADR-001/002) | ✅ |
-| P1a auth proxy + Big5 banner | pending |
+| P1a auth proxy + Big5 banner | ✅ on `develop` (loop SHIP MiniMax/GLM/Qwen) |
 | P1b map_d VT buffer | pending |
 | P2 declarative automation | pending |
 | P3 RW deep support | pending |
