@@ -39,6 +39,10 @@ export function ProfileEditor({
   const [draft, setDraft] = useState<Partial<MudProfile>>(
     () => selected ?? emptyDraft(),
   );
+  /** Port as text while editing — Number() on each keystroke breaks input ("" → 0). */
+  const [portText, setPortText] = useState(() =>
+    String(selected?.port ?? emptyDraft().port ?? 4000),
+  );
   const [account, setAccount] = useState(() =>
     selected && isVaultUnlocked()
       ? (getProfileAccount(selected.id) ?? "")
@@ -73,7 +77,9 @@ export function ProfileEditor({
 
   const startCreate = () => {
     setMode("create");
-    setDraft(emptyDraft());
+    const d = emptyDraft();
+    setDraft(d);
+    setPortText(String(d.port ?? 4000));
     setAccount("");
     setPassword("");
     setAutoLogin(false);
@@ -84,6 +90,7 @@ export function ProfileEditor({
     if (!selected) return;
     setMode("edit");
     setDraft({ ...selected });
+    setPortText(String(selected.port));
     loadSecretsIntoForm(selected.id);
     setErr(null);
   };
@@ -93,6 +100,7 @@ export function ProfileEditor({
     setErr(null);
     if (selected) {
       setDraft({ ...selected });
+      setPortText(String(selected.port));
       loadSecretsIntoForm(selected.id);
     }
   };
@@ -101,8 +109,13 @@ export function ProfileEditor({
     setBusy(true);
     setErr(null);
     try {
+      const portNum = Number(portText.trim());
+      if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        throw new Error("port must be integer 1–65535");
+      }
       const p = validateProfile({
         ...draft,
+        port: portNum,
         id: draft.id || `p-${Date.now()}`,
         name: draft.name || draft.host || "unnamed",
       });
@@ -225,7 +238,6 @@ export function ProfileEditor({
           ["id", "id"],
           ["name", "name"],
           ["host", "host"],
-          ["port", "port"],
           ["charset", "charset"],
         ] as const
       ).map(([key, label]) => (
@@ -247,13 +259,34 @@ export function ProfileEditor({
             onChange={(e) =>
               setDraft((d) => ({
                 ...d,
-                [key]:
-                  key === "port" ? Number(e.target.value) : e.target.value,
+                [key]: e.target.value,
               }))
             }
           />
         </label>
       ))}
+      <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
+        port
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          className="mt-0.5 w-full rounded border px-2 py-1 font-mono text-xs"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text)",
+          }}
+          value={portText}
+          onChange={(e) => {
+            // digits only; allow empty while typing
+            const v = e.target.value.replace(/\D/g, "").slice(0, 5);
+            setPortText(v);
+          }}
+          placeholder="4000"
+          autoComplete="off"
+        />
+      </label>
 
       <label className="block text-[11px]" style={{ color: "var(--text-dim)" }}>
         帳號（自動登入，僅密碼庫）
