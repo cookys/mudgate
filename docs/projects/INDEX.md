@@ -7,8 +7,8 @@
 
 | Date | Project | Target | Branch | Status |
 |------|---------|--------|--------|--------|
-| 2026-07-21 | i18n locale + StatusEvent | Board frozen | next | 📋 plan only |
-| 2026-07-21 | terminal dual-width fonts | Spec ready | next | 📋 plan only |
+| 2026-07-21 | terminal fonts F2+ (trial A/B, webfont) | residual | next | 📋 after baseline |
+| 2026-07-21 | backlog → formal plans | triage | Board | 📋 `backlog-candidates.md` |
 
 ## 已完成 (Completed)
 
@@ -16,6 +16,7 @@
 |------|---------|---------|-------|------|
 | 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | 0.1 | develop | [web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) |
 | 2026-07-21 | UI shell + terminal copy UX | 0.1 | develop | [ui-shell-ship](../plans/2026-07-21-ui-shell-ship.md) |
+| 2026-07-21 | i18n + StatusEvent + font stack baseline | 0.1 | develop | [i18n-locale](../plans/2026-07-21-i18n-locale.md) + [terminal-fonts](../design/terminal-fonts.md) |
 
 ## 已封存 (Archived)
 

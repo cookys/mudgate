@@ -2,7 +2,8 @@
 
 > Linked from i18n+UI plans. **RW（重生）地圖、框線、全形符號極度依賴「半形 1 格、全形 2 格」**。  
 > Canvas renderer 必須用 **dual-width mono**（CJK advance ≈ 2 × ASCII advance），否則 map_d / 框線會歪。  
-> **Status**: approved spec · **next implement**（未在 2026-07-21 shell ship）
+> **Status**: **baseline SHIP**（catalog + TC chain + drawer preset + setTypography）· residual F2 試掘 A/B、系統 detect、on-demand webfont  
+
 
 ## 0. Board / UX decision — 試掘（trial）怎麼做最好？
 
