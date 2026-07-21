@@ -39,6 +39,16 @@
 - Release checklist：`digest pin verified`  
 - CF Access：禁止 world Bypass 寫進 acceptance  
 
+## Loop rule (cookys)
+
+```
+review → MUST_FIX? → fold into plan/code → re-review
+直到 每家 APPROVE* 且 MUST_FIX 空
+（NITS 也應 fold 後再跑一輪確認 ALL_CLEAR）
+```
+
+R2 後只 fold nits 未再審 → **不完整**；**R3 補齊 ALL_CLEAR: yes**。
+
 ## Next
 
 `/ship selfhost-proxy-trust` → expand **D1–D3 + D2b + U1 + U2 + R1**.
