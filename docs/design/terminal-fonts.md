@@ -1,7 +1,53 @@
 # Terminal fonts — Big5 / RW map alignment
 
 > Linked from i18n+UI plans. **RW（重生）地圖、框線、全形符號極度依賴「半形 1 格、全形 2 格」**。  
-> Canvas renderer 必須用 **dual-width mono**（CJK advance ≈ 2 × ASCII advance），否則 map_d / 框線會歪。
+> Canvas renderer 必須用 **dual-width mono**（CJK advance ≈ 2 × ASCII advance），否則 map_d / 框線會歪。  
+> **Status**: approved spec · **next implement**（未在 2026-07-21 shell ship）
+
+## 0. Board / UX decision — 試掘（trial）怎麼做最好？
+
+### 0.1 結論（寫進產品，不要只給 3 個推薦）
+
+| 做法 | 評價 | 採納 |
+|------|------|------|
+| 只內建 2–3 個「我們覺得最好」 | 省事，但 RW 玩家對細明／更紗／思源偏好差很大 | ❌ 當唯一路徑 |
+| **全列可選 catalog** + 標籤（對齊／授權／來源） | 透明、可自己挑 | ✅ **主路徑** |
+| **並排比較（A\|B 試掘）** 同一段 map sample | 最能「看出誰不歪」 | ✅ **預設開試掘面板** |
+| 自動 `document.fonts` / 系統已安裝探測 | 本機細明體、Sarasa 免下載也能出現 | ✅ catalog 動態合併 |
+| 一次 CDN 載入全部 CJK mono | 體積爆炸 | ❌ 僅 **on-demand** 載入選中的 webfont |
+
+**產品句**：  
+> 終端字體 = **可捲動的完整清單（bundled + 系統偵測 + 自訂）**，外加 **並排試掘** 與 **1:2 對齊分數**；預設推薦標在第一列，但不鎖定。
+
+### 0.2 試掘 UX（Drawer → Terminal type 或獨立「試掘」）
+
+```
+┌─ 終端字體試掘 ─────────────────────────────────────┐
+│ Sample: map_d 框線 + 中英混排 + Big5 標點（固定 fixture） │
+│ ┌──────────────┐  ┌──────────────┐                  │
+│ │ A: Sarasa    │  │ B: 細明體    │  ← 即時 canvas    │
+│ │ score 1.99   │  │ score 2.00   │                  │
+│ └──────────────┘  └──────────────┘                  │
+│ [套用 A] [套用 B]   字級 ─●─  字寬 ─●─  行高 ─●─      │
+│ ───────────────────────────────────────────────── │
+│ Catalog（正體 mono 優先）                            │
+│ ★ Sarasa Term TC     dual-width · OFL · bundled?  │
+│   Sarasa Mono TC     …                              │
+│   Source Han Mono TW …                              │
+│   Noto Sans Mono CJK TC                             │
+│   MingLiU / PMingLiU （系統）  detected ✓            │
+│   …                                                 │
+│   + 自訂 CSS font-family…                           │
+└─────────────────────────────────────────────────────┘
+```
+
+Acceptance（試掘）：
+
+1. 切 catalog 任一列 → sample **&lt;100ms** 重繪（已載入字）或顯示 loading 再繪。  
+2. 每列顯示 **alignScore** = `measureText('中')/measureText('M')`（綠 ≈2.0、黃、紅）。  
+3. 可 **A/B 釘選** 兩個 preset 並排。  
+4. 「套用」才寫 `localStorage.assmud.termFont`；取消不污染。  
+5. 未安裝 / 未 bundle 的 webfont：列上標 **需載入**，點選才 fetch。
 
 ## 1. 為什麼一般「等寬英文字」不夠
 
@@ -18,53 +64,68 @@ width(ASCII) ≈ cellW
 width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
 ```
 
-## 2. 推薦字體（開源、適合 MUD / Big5 符號）
+## 2. Catalog — 正體中文可用 mono（盡量列全，給 user 自選）
 
-排序：**地圖對齊優先 → 觀感 → 體積 / 授權**。
+> **原則**：catalog **全列**；「★ 推薦」只是排序權重與預設，不是唯一選項。  
+> 實作資料：`apps/web/src/termFonts/catalog.ts`（id / family / region / source / license / tags）。
 
-### A. 首選 — 更紗等寬（Sarasa Mono）★
+### 2.1 開源 · 可 self-host / 可下載（正體或 CJK 含 TC）
 
-| | |
-|--|--|
-| **專案** | [Sarasa Gothic / 更紗黑體](https://github.com/be5invis/Sarasa-Gothic)（Iosevka + Source Han） |
-| **變體** | **`Sarasa Mono TC`**（台灣正體）／ **`Sarasa Mono HC`**（香港）／ `Sarasa Mono SC`（簡體）／ `Sarasa Term *`（終端、少連字） |
-| **為何適合 RW** | 專為「中文寬 = 英文 2 倍」的程式／終端場景；框線、半形標點、混排穩定 |
-| **授權** | SIL OFL |
-| **注意** | 完整家族大；web 建議 **subset 或 self-host 單一 weight（Regular/Medium）**，不要整包 Google 拉 |
+| id | 顯示名 | CSS `font-family` 候選 | 區域 | 1:2 | 授權 | 備註 |
+|----|--------|------------------------|------|-----|------|------|
+| `sarasa-term-tc` | ★ Sarasa Term TC | `Sarasa Term TC` | TW | 優 | OFL | **預設推薦**；終端、少連字 |
+| `sarasa-mono-tc` | ★ Sarasa Mono TC | `Sarasa Mono TC` | TW | 優 | OFL | 程式感；map 通常穩 |
+| `sarasa-term-hc` | Sarasa Term HC | `Sarasa Term HC` | HK | 優 | OFL | 港字形；可給 HK 玩家 |
+| `sarasa-mono-hc` | Sarasa Mono HC | `Sarasa Mono HC` | HK | 優 | OFL | |
+| `sarasa-ui-tc` | Sarasa UI TC | `Sarasa UI TC` | TW | 中 | OFL | UI 向；終端次選 |
+| `source-han-mono-tw` | Source Han Mono TW | `Source Han Mono TW` | TW | 優–中 | OFL | 思源等寬；檔大 |
+| `source-han-mono-hc` | Source Han Mono HC | `Source Han Mono HC` | HK | 優–中 | OFL | |
+| `noto-sans-mono-cjk-tc` | Noto Sans Mono CJK TC | `Noto Sans Mono CJK TC` | TW | 中 | OFL | CDN 友好 |
+| `maple-mono-nl` | Maple Mono NL | `Maple Mono NL` / `Maple Mono` | SC 主、可排 CJK | 優* | OFL | *靠加寬中文；**關 ligature** |
+| `iosevka-term-ss*` | Iosevka Term + CJK fallback | `Iosevka Term` | — | 視 fallback | OFL | 西文美；**必須**配 CJK dual-width |
+| `unifont` | GNU Unifont | `Unifont` | 全 | 方塊穩 | GPL/OFL-ish | 醜但覆蓋廣；除錯用 |
 
-**推薦預設（繁中玩家）**: `Sarasa Mono TC` 或 `Sarasa Term TC`（Term 較不易被連字搞亂 map）。
+\* Maple 的 1:2 機制與 Sarasa 不同（見 feeshy 文）；仍列入 catalog，試掘分數說話。
 
-### B. 次選 — 思源等寬（Source Han Mono）
+### 2.2 系統字（執行時 `document.fonts.check` / canvas 探測；有才顯示「已安裝」）
 
-| | |
-|--|--|
-| **專案** | [source-han-mono](https://github.com/adobe-fonts/source-han-mono) 思源等寬 |
-| **變體** | TW / HC / CN 區域 |
-| **觀感** | 較「正式印刷」；西文來自 Source Code Pro 加寬思路 |
-| **授權** | OFL |
-| **注意** | 體積大；web 同樣要 subset |
+| id | 顯示名 | 典型 family 名 | 平台 | 1:2 | 備註 |
+|----|--------|----------------|------|-----|------|
+| `mingliu` | 細明體 MingLiU | `MingLiU`, `細明體` | Win | 優（傳統 BBS） | RW 老玩家常愛 |
+| `pmingliu` | 新細明體 PMingLiU | `PMingLiU`, `新細明體` | Win | 優 | |
+| `mingliu-extb` | MingLiU-ExtB | `MingLiU-ExtB` | Win | 視字 | 擴展區 |
+| `mingliu_hkscs` | 細明體_HKSCS | `MingLiU_HKSCS` | Win | 優 | HKSCS |
+| `lihei-pro` | 儷黑 Pro | `LiHei Pro` | macOS 舊 | 中 | 探測到再列 |
+| `pingfang-tc-mono-fallback` | （勿當主字） | — | — | 差 | **不進可選主列表**；僅警告 |
+| `noto-sans-mono-cjk-tc-sys` | 系統 Noto Mono CJK | 同名 | 各 | 中 | Linux 包常見 |
+| `wenquanyi-microhei-mono` | 文泉驛微米黑等寬 | `WenQuanYi Micro Hei Mono` | Linux | 中 | |
+| `droid-sans-fallback` | Droid Sans Fallback | … | Android | 差–中 | 通常非真 mono |
 
-### C. 觀感向 — Maple Mono CN
+### 2.3 簡體側（zh-CN 預設用；正體 UI 仍可選）
 
-| | |
-|--|--|
-| **專案** | [Maple Mono](https://github.com/subframe7536/maple-font) |
-| **特點** | 圓角、可讀性高；**中英 2:1 對齊**（以加寬中文間距達成） |
-| **授權** | OFL |
-| **注意** | 連字（ligature）**預設應關** 給 MUD map；選 **NL（no ligature）** 或 Term 變體 |
+| id | 名 | 備註 |
+|----|-----|------|
+| `sarasa-term-sc` / `sarasa-mono-sc` | Sarasa SC | |
+| `source-han-mono-cn` | 思源等寬 CN | |
+| `maple-mono-cn` | Maple Mono CN | |
 
-### D. 後備 / 系統
+### 2.4 明確 **不** 當終端主字（catalog 可「進階顯示」但預設隱藏 + 紅燈）
 
-| 字體 | 場景 |
-|------|------|
-| **Noto Sans Mono CJK TC** | CDN 方便，對齊通常可用但不如 Sarasa 專精 terminal |
-| **MingLiU / 細明體、新細明體**（Windows） | 傳統 BBS/MUD 玩家熟悉的「對齊感」；符號老派但 map 穩 |
-| **蘋方／冬青** 等比例字 | **不要**當終端主字 — 會毀對齊 |
+- JetBrains Mono / Fira Code / Cascadia / Consolas **單獨**使用（無 dual-width CJK）  
+- 蘋方、思源黑體 **比例** 家族當 canvas 主字  
+- 霞鶩文楷等楷體主導（框線易飄）  
 
-### E. 不建議當唯一終端字
+### 2.5 預設與排序權重（仍「全列」）
 
-- 純西文 mono + 任意 CJK fallback（現況 JetBrains + Noto 混用風險）  
-- 手寫／楷體主導（霞鶩文楷等）：好看但 **地圖框線** 常不如 Gothic mono  
+```
+sort = 
+  recommended first (sarasa-term-tc, sarasa-mono-tc, mingliu if detected)
+  then dual-width OFL bundled
+  then system-detected
+  then others by name
+```
+
+**zh-TW 冷啟動預設**：`sarasa-term-tc`（若未 bundle 且系統有 `MingLiU` → 可暫用細明並提示「建議載入更紗」）。
 
 ## 3. Web 載入策略（實作約束）
 
@@ -81,13 +142,14 @@ width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
 
 | Key | 型別 | 說明 |
 |-----|------|------|
-| `preset` | id | `sarasa-tc` \| `sarasa-term-tc` \| `source-han-mono-tw` \| `maple-nl` \| `noto-mono-cjk` \| `system-ming` \| `custom` |
-| `fontFamily` | string | custom 時的 CSS family |
+| `preset` | id | **catalog 任一 id** 或 `custom`（見 §2，勿鎖死少數 enum） |
+| `fontFamily` | string | custom 或解析後的 CSS stack |
 | `fontSizePx` | number | 預設 14–16；影響 `cellH` |
 | `cellWidthScale` | number | 0.85–1.25，乘在測得的半形寬 |
 | `lineHeightScale` | number | 1.0–1.4，`cellH = fontSize * scale` |
 | `letterSpacingPx` | number | 額外半形字距（**小心**：過大破壞 1:2） |
 | `ligatures` | boolean | **預設 false**（MUD） |
+| `compareA` / `compareB` | id? | 試掘釘選（可選持久化） |
 
 ### 4.2 Renderer 契約（`Canvas2DRenderer`）
 
@@ -98,11 +160,29 @@ width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
 4. `cellH = fontSize * lineHeightScale`  
 5. 全形字元繪製時 **水平佔 2 cell**（與 buffer 雙寬模型一致；若 buffer 已處理 WCWidth 則 follow buffer）
 
-### 4.3 UX 放置
+### 4.3 UX 放置（與 §0 一致）
 
-- Drawer → **Terminal display** 區塊：字體 preset 下拉、字級 slider、行高、字寬微調、重設預設  
-- 即時預覽：小 ASCII art / 框線 sample（`┌─┐│ └─` + `中英AB`）  
+| 入口 | 內容 |
+|------|------|
+| Drawer → **終端顯示** | 目前套用 preset 摘要 +「開啟試掘」 |
+| **試掘面板**（modal 或全高 sheet） | catalog 全列 + A/B 並排 + 對齊分數 + 套用 |
+| 快捷 | 設定內搜尋字體名（filter catalog） |
+
+- 即時預覽 fixture：框線 `┌─┐│└─` + `中英AB` + 一截 synthetic map（可重用 `tests/fixtures`）  
 - **不需要** 為換字體重連 MUD  
+
+### 4.4 系統字探測
+
+```ts
+// pseudo
+async function detectSystemMono(): Promise<CatalogEntry[]> {
+  const candidates = SYSTEM_TC_MONO_CANDIDATES; // §2.2
+  return candidates.filter((e) => document.fonts.check(`16px "${e.family}"`)
+    || measureCanvasHasGlyph(e.family, "中"));
+}
+```
+
+Catalog = **static bundled list** ∪ **detected system** ∪ **user custom**（去重 by id）。
 
 ## 5. 與語系的關係
 
@@ -118,14 +198,31 @@ width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
 
 | Phase | Work |
 |-------|------|
-| F0 | 凍結 preset 列表 + 授權/self-host 策略 |
-| F1 | Renderer typography API + measure 警告 |
-| F2 | Drawer 控制 + localStorage |
-| F3 | Self-host Sarasa Term TC subset（或文件化「請本機安裝」dev 路徑） |
+| **F0** | Catalog 資料結構 + §2 列表進 `catalog.ts`；授權/self-host 策略 |
+| **F1** | Renderer `setTypography` + `alignScore` measure |
+| **F2** | **試掘 UX**：全列 catalog + A/B 並排 + 套用；系統字探測 |
+| **F3** | on-demand webfont（Sarasa Term TC subset 優先 self-host） |
+| **F4** | 字級/字寬/行高 sliders + 重設；與 locale 建議連動（不強制） |
 
-## 7. 參考
+**SHIP 字體的條件**：F0–F2 必達（可選字、可試掘、有分數）；F3 可「未 bundle 則引導本機安裝」。
+
+## 7. 這份有沒有在「目前 plan」裡？
+
+| 文件 | 有無試掘／全列 |
+|------|----------------|
+| `docs/design/terminal-fonts.md`（本檔） | ✅ **規格本體**（2026-07-21 補 §0 試掘 + §2 全 catalog） |
+| `docs/plans/2026-07-21-ui-redesign.md` U+fonts | 🔗 連到本檔；先前只寫「可切換 + Sarasa」 |
+| `docs/plans/2026-07-21-i18n-locale.md` | 🔗 字體與語系分離；**不**含 catalog 細節 |
+| `docs/plans/2026-07-21-ui-shell-ship.md` | ❌ 明確 **未 ship** 字體 UI |
+| 程式碼 | ❌ 尚無試掘／catalog（canvas 僅 fallback 字串） |
+
+**答 user**：先前 plan **有**「可切字體 + 幾個推薦 preset + measure 警告」，**沒有**寫死「全列正體 mono + 並排試掘」；**現在已補進本 spec**，實作以 F2 為主。
+
+## 8. 參考
 
 - Sarasa: https://github.com/be5invis/Sarasa-Gothic  
 - Source Han Mono: https://github.com/adobe-fonts/source-han-mono  
 - Maple Mono: https://github.com/subframe7536/maple-font  
+- Noto CJK: https://github.com/notofonts/noto-cjk  
 - 中英 1:2 對齊整理: https://feeshy.github.io/lists/monospace-fonts-width  
+

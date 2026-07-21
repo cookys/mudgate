@@ -207,11 +207,14 @@ Canvas ANSI 色可對齊 token（`#0a0b0e` 底 + 柔和 16 色，非 Windows 刺
 
 ### Phase U+fonts — Terminal typeface (RW map)
 
-> **Spec**: [`docs/design/terminal-fonts.md`](../design/terminal-fonts.md)
+> **Spec**: [`docs/design/terminal-fonts.md`](../design/terminal-fonts.md)（含 **§0 試掘 UX** + **§2 正體 mono 全 catalog**）
 
-- Dual-width mono 可切換（推薦 Sarasa Mono TC / Term）  
-- 字級、字寬 scale、行高、letter-spacing；ligature 預設關  
-- Canvas `measureText` 校正 cellW；1:2 警告  
+- **全列 catalog**（bundled OFL + 系統偵測 + 自訂），非只 3 個推薦  
+- **並排試掘 A/B** + alignScore（1:2）；on-demand 載入 webfont  
+- 預設權重 ★ Sarasa Term TC；系統有細明體則標 detected  
+- 字級、字寬 scale、行高；ligature 預設關  
+- Canvas `setTypography` + measure；F0–F2 才可稱 fonts SHIP  
+
 
 
 ---
