@@ -117,13 +117,15 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 | T08 | 雙色全形格 | 視版本 | 高 | partial | P1 | dual-color cell API 有 |
 | T09 | 選取複製純文字 | ✅ | 高 | done | P0 | |
 | T10 | 選取複製含 ANSI | ✅ | 中 | done | P1 | |
-| T11 | 捲動回看 scrollback | ✅ | 高 | partial | P1 | buffer 有 scrollback；UI 有限 |
+| T11 | 捲動回看 scrollback | ✅ | 高 | done | P1 | 滾輪/PageUp + 複製歷史 |
+| T11b | 指令列 focus / ↑↓ 歷史 / Echo commands | ✅ | 高 | done | P1 | 見 `zmud-input-ux.md` |
 | T12 | 字體選擇 | ✅ | 高 | partial | P1 | catalog + TC chain baseline |
 | T13 | 字級／字距 | ✅ | 高 | partial | P2 | setTypography；試掘 UI residual |
 | T14 | 等寬 1:2 對齊 | 系統字 | **必須** | done* | P1 | *cell width cjk/western（charset-aware）；字型 glyph 仍 fonts-f2 |
 | T15 | 多輸出窗／分頁 | ✅ | 中 | partial | P2 | multi-tab session 有；非 split |
 | T16 | 狀態列／gauge | ✅ | 中 | todo | P2 | 無 GMCP 則靠 trigger |
 | T17 | 按鍵宏 toolbar | ✅ | 高 | partial | P2 | thumb pad n/s/e/w |
+| T18 | Numpad 方向熱鍵（focus 在指令列也行） | ✅ | 高 | done | P1 | `numpadDirs` + `onUserCommand`；詳 input-ux |
 
 ---
 

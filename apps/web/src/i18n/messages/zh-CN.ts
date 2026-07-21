@@ -66,6 +66,8 @@ export const zhCN = {
   "drawer.import": "导入",
   "drawer.emptyLog": "（空 log）",
   "drawer.closeSettings": "关闭设置",
+  "drawer.echoCommands": "回显送出的指令",
+  "drawer.echoCommands.hint": "zMUD Echo commands：送出后在终端显示 › 行（密码永不回显）",
   "accent.mint": "薄荷绿",
   "accent.blue": "蓝",
   "locale.label": "语言",

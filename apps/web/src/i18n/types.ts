@@ -63,6 +63,8 @@ export type MessageKey =
   | "drawer.import"
   | "drawer.emptyLog"
   | "drawer.closeSettings"
+  | "drawer.echoCommands"
+  | "drawer.echoCommands.hint"
   | "accent.mint"
   | "accent.blue"
   | "locale.label"

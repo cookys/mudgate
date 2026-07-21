@@ -66,6 +66,8 @@ export const zhTW = {
   "drawer.import": "匯入",
   "drawer.emptyLog": "（空白 log）",
   "drawer.closeSettings": "關閉設定",
+  "drawer.echoCommands": "回顯送出的指令",
+  "drawer.echoCommands.hint": "zMUD Echo commands：送出後在終端顯示 › 行（密碼永不回顯）",
   "accent.mint": "薄荷綠",
   "accent.blue": "藍",
   "locale.label": "語系",

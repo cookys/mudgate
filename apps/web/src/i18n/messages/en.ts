@@ -66,6 +66,9 @@ export const en = {
   "drawer.import": "Import",
   "drawer.emptyLog": "(empty log)",
   "drawer.closeSettings": "Close settings",
+  "drawer.echoCommands": "Echo commands",
+  "drawer.echoCommands.hint":
+    "zMUD-style: show › line in terminal after send (never echo passwords)",
   "accent.mint": "Mint",
   "accent.blue": "Blue",
   "locale.label": "Language",

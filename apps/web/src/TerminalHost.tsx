@@ -22,6 +22,16 @@ type Props = {
   onInjectConsumed?: () => void;
   expandInput?: (line: string) => string[];
   onServerLine?: (line: string) => void;
+  /**
+   * zMUD-style user command path (history + echo + inject).
+   * Numpad / hotkeys should use this so echo/history stay consistent.
+   */
+  onUserCommand?: (line: string) => void;
+  /** Click terminal → focus command line (zMUD). */
+  onRequestFocusCmd?: () => void;
+  /** Local echo of a sent command (never passwords). */
+  localEcho?: string;
+  onLocalEchoConsumed?: () => void;
   /** Full CSS font-family stack (primary + TC fallbacks) */
   terminalFontStack?: string;
   fontSizePx?: number;
@@ -68,6 +78,10 @@ export function TerminalHost({
   onInjectConsumed,
   expandInput,
   onServerLine,
+  onUserCommand,
+  onRequestFocusCmd,
+  localEcho,
+  onLocalEchoConsumed,
   terminalFontStack,
   fontSizePx = 15,
   cellWidthScale = 1,
@@ -116,6 +130,12 @@ export function TerminalHost({
   expandInputRef.current = expandInput;
   const onInjectConsumedRef = useRef(onInjectConsumed);
   onInjectConsumedRef.current = onInjectConsumed;
+  const onUserCommandRef = useRef(onUserCommand);
+  onUserCommandRef.current = onUserCommand;
+  const onRequestFocusCmdRef = useRef(onRequestFocusCmd);
+  onRequestFocusCmdRef.current = onRequestFocusCmd;
+  const onLocalEchoConsumedRef = useRef(onLocalEchoConsumed);
+  onLocalEchoConsumedRef.current = onLocalEchoConsumed;
 
   const redraw = useCallback(() => {
     rendererRef.current.draw(
@@ -348,6 +368,16 @@ export function TerminalHost({
     onInjectConsumedRef.current?.();
   }, [injectCommand]);
 
+  // zMUD Echo commands: paint a dim › line into the live buffer (not server)
+  useEffect(() => {
+    if (!localEcho) return;
+    const safe = localEcho.replace(/\r|\n/g, " ").slice(0, 400);
+    bufRef.current.writeDecoded(`\x1b[2;36m› ${safe}\x1b[0m\r\n`);
+    if (scrollOffsetRef.current === 0) redraw();
+    else setViewOffset(0);
+    onLocalEchoConsumedRef.current?.();
+  }, [localEcho, redraw, setViewOffset]);
+
   // Keyboard: copy shortcuts, PageUp/Down scrollback, zMUD numpad dirs
   useEffect(() => {
     const isMudCommandField = (el: EventTarget | null): boolean => {
@@ -424,7 +454,11 @@ export function TerminalHost({
       e.preventDefault();
       // If reading history, snap to live when moving
       if (scrollOffsetRef.current > 0) setViewOffset(0);
-      socketRef.current.send(dir);
+      if (onUserCommandRef.current) {
+        onUserCommandRef.current(dir);
+      } else {
+        socketRef.current.send(dir);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -459,12 +493,13 @@ export function TerminalHost({
     selecting.current = false;
     const sel = selRef.current;
     if (!sel) return;
-    // click without drag → clear selection
+    // click without drag → clear selection + zMUD focus command line
     if (sel.r0 === sel.r1 && sel.c0 === sel.c1) {
       selRef.current = null;
       setSelection(null);
       setMenuMode(null);
       redraw();
+      onRequestFocusCmdRef.current?.();
       return;
     }
     // float copy bar above command input (bottom of terminal stage)

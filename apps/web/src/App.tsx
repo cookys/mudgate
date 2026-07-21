@@ -45,6 +45,12 @@ import {
   saveTermFont,
   type TermFontConfig,
 } from "./termFonts/catalog";
+import {
+  CommandHistory,
+  loadEchoCommands,
+  saveEchoCommands,
+} from "./lib/commandHistory";
+import { numpadDirection } from "./lib/numpadDirs";
 
 function newTabId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -117,8 +123,15 @@ export function App() {
   const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
   const [cmd, setCmd] = useState("");
   const [inputDraft, setInputDraft] = useState("");
+  /** Local echo line painted into terminal (zMUD Echo commands). */
+  const [localEcho, setLocalEcho] = useState("");
   /** Telnet ECHO password-mode — only while server WILL ECHO. */
   const [echoMask, setEchoMask] = useState(false);
+  const [echoCommands, setEchoCommands] = useState(() => loadEchoCommands());
+  const cmdInputRef = useRef<HTMLInputElement>(null);
+  const cmdHistoryRef = useRef(new CommandHistory());
+  const echoMaskRef = useRef(false);
+  echoMaskRef.current = echoMask;
   const [mapAscii, setMapAscii] = useState("(move n/s/e/w to map)");
   const [showLog, setShowLog] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -298,6 +311,12 @@ export function App() {
     saveProfiles(list);
   };
 
+  const focusCmd = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      cmdInputRef.current?.focus();
+    });
+  }, []);
+
   const connectTab = () => {
     setTabs((ts) =>
       ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
@@ -307,6 +326,8 @@ export function App() {
     if (pw) {
       window.setTimeout(() => setCmd(pw), 800);
     }
+    // zMUD: focus command line after connect
+    window.setTimeout(() => focusCmd(), 50);
   };
 
   const disconnectTab = () => {
@@ -315,14 +336,55 @@ export function App() {
         x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
       ),
     );
+    setEchoMask(false);
   };
 
-  const submitCmd = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    setCmd(trimmed);
-    setInputDraft("");
-  };
+  /**
+   * zMUD-style send: history + optional local echo + inject to proxy.
+   * Passwords (echoMask) are sent but never stored in history or echoed.
+   */
+  const submitCmd = useCallback(
+    (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (!echoMaskRef.current) {
+        cmdHistoryRef.current.push(trimmed);
+        if (echoCommands) setLocalEcho(trimmed);
+      }
+      setCmd(trimmed);
+      setInputDraft("");
+      focusCmd();
+    },
+    [echoCommands, focusCmd],
+  );
+
+  // Type-anywhere → command line (printable keys when not in a form field)
+  useEffect(() => {
+    if (!tab.connected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (echoMaskRef.current) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.length !== 1) return;
+      // Numpad is movement hotkey — don't insert digits into draft
+      if (e.code.startsWith("Numpad") || numpadDirection(e)) return;
+      const el = e.target as HTMLElement | null;
+      if (!el) return;
+      const tag = el.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      focusCmd();
+      setInputDraft((d) => d + e.key);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab.connected, focusCmd]);
 
   // ── Connect gate (pre-session) ─────────────────────────────────────
   if (!anyConnected) {
@@ -559,6 +621,10 @@ export function App() {
                   onServerLine={handleServerLine}
                   onStatus={handleStatus}
                   onEchoMask={handleEchoMask}
+                  onUserCommand={submitCmd}
+                  onRequestFocusCmd={focusCmd}
+                  localEcho={localEcho}
+                  onLocalEchoConsumed={() => setLocalEcho("")}
                   terminalFontStack={fontStack}
                   fontSizePx={termFont.fontSizePx}
                   cellWidthScale={termFont.cellWidthScale}
@@ -743,6 +809,31 @@ export function App() {
                     ))}
                   </div>
                 </div>
+                <label
+                  className="flex items-start gap-2 text-xs cursor-pointer"
+                  style={{ color: "var(--text)" }}
+                  title={t("drawer.echoCommands.hint")}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={echoCommands}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setEchoCommands(on);
+                      saveEchoCommands(on);
+                    }}
+                  />
+                  <span>
+                    <span className="font-medium">{t("drawer.echoCommands")}</span>
+                    <span
+                      className="block text-[11px] mt-0.5"
+                      style={{ color: "var(--text-faint)" }}
+                    >
+                      {t("drawer.echoCommands.hint")}
+                    </span>
+                  </span>
+                </label>
                 <div>
                   <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
                     Terminal font
@@ -1005,8 +1096,23 @@ export function App() {
             ›
           </span>
           <input
+            ref={cmdInputRef}
             value={inputDraft}
             onChange={(e) => setInputDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // zMUD: ↑↓ command history (not movement — movement is numpad)
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                const next = cmdHistoryRef.current.up(inputDraft);
+                if (next != null) setInputDraft(next);
+                return;
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                const next = cmdHistoryRef.current.down();
+                if (next != null) setInputDraft(next);
+              }
+            }}
             type={echoMask ? "password" : "text"}
             autoComplete="off"
             autoCorrect="off"
