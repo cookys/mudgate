@@ -1,11 +1,14 @@
 import type { MapFrameCells } from "@assmud/terminal";
 import {
   MAX_FRAMES_PER_PROFILE,
+  type Journey,
+  type JourneyStep,
   type MapFrame,
   type MapPin,
   type PersistResult,
 } from "./types.js";
 import { newId } from "./id.js";
+import { computeFingerprint } from "./fingerprint.js";
 
 /**
  * In-memory nav store — unit tests + Node; mirrors IDB policy (§2.3.2).
@@ -14,6 +17,7 @@ import { newId } from "./id.js";
 export class MemoryNavStore {
   frames = new Map<string, MapFrame>();
   pins = new Map<string, MapPin>();
+  journeys = new Map<string, Journey>();
 
   async putFrame(input: {
     cells: MapFrameCells;
@@ -42,15 +46,21 @@ export class MemoryNavStore {
     }
 
     const id = input.id ?? newId("frm-");
+    const cells = input.cells.cells.map((c) => ({ ...c }));
     const frame: MapFrame = {
       v: 1,
       id,
       capturedAt: input.capturedAt ?? Date.now(),
       cols: input.cells.cols,
       rows: input.cells.rows,
-      cells: input.cells.cells.map((c) => ({ ...c })),
+      cells,
       widthMode: input.cells.widthMode,
-      fingerprint: "",
+      fingerprint: computeFingerprint({
+        cols: input.cells.cols,
+        rows: input.cells.rows,
+        widthMode: input.cells.widthMode,
+        cells,
+      }),
       source: input.source,
       confidence: input.confidence,
       profileKey,
@@ -99,6 +109,106 @@ export class MemoryNavStore {
     }
     for (const [id, p] of this.pins) {
       if (p.profileKey === profileKey) this.pins.delete(id);
+    }
+    for (const [id, j] of this.journeys) {
+      if (j.profileKey === profileKey) this.journeys.delete(id);
+    }
+  }
+
+  async putJourney(input: {
+    name: string;
+    profileKey: string;
+    steps?: JourneyStep[];
+    id?: string;
+  }): Promise<Journey> {
+    const now = Date.now();
+    const id = input.id ?? newId("jny-");
+    const existing = this.journeys.get(id);
+    const j: Journey = {
+      v: 1,
+      id,
+      name: input.name.trim() || "untitled",
+      profileKey: input.profileKey,
+      steps: input.steps ? input.steps.map((s) => ({ ...s })) : existing?.steps ?? [],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.journeys.set(id, j);
+    return { ...j, steps: j.steps.map((s) => ({ ...s })) };
+  }
+
+  async appendJourneyStep(
+    id: string,
+    step: JourneyStep,
+  ): Promise<Journey | null> {
+    const j = this.journeys.get(id);
+    if (!j) return null;
+    j.steps.push({ ...step });
+    j.updatedAt = Date.now();
+    return { ...j, steps: j.steps.map((s) => ({ ...s })) };
+  }
+
+  async getJourney(id: string): Promise<Journey | undefined> {
+    const j = this.journeys.get(id);
+    return j ? { ...j, steps: j.steps.map((s) => ({ ...s })) } : undefined;
+  }
+
+  async listJourneys(profileKey: string): Promise<Journey[]> {
+    return [...this.journeys.values()]
+      .filter((j) => j.profileKey === profileKey)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((j) => ({ ...j, steps: j.steps.map((s) => ({ ...s })) }));
+  }
+
+  async deleteJourney(id: string): Promise<boolean> {
+    return this.journeys.delete(id);
+  }
+
+  /** Export journey JSON (no secrets). */
+  exportJourneyJson(j: Journey): string {
+    return JSON.stringify(
+      {
+        v: 1,
+        name: j.name,
+        steps: j.steps.map((s) => ({
+          cmd: s.cmd,
+          at: s.at,
+          frameId: s.frameId,
+          titleHint: s.titleHint,
+        })),
+      },
+      null,
+      2,
+    );
+  }
+
+  async importJourneyJson(
+    profileKey: string,
+    raw: string,
+  ): Promise<Journey | null> {
+    try {
+      const o = JSON.parse(raw) as {
+        name?: string;
+        steps?: JourneyStep[];
+      };
+      if (!o || typeof o !== "object") return null;
+      const steps = Array.isArray(o.steps)
+        ? o.steps
+            .filter((s) => s && typeof s.cmd === "string")
+            .map((s) => ({
+              cmd: String(s.cmd).slice(0, 200),
+              at: typeof s.at === "number" ? s.at : Date.now(),
+              frameId: s.frameId,
+              titleHint: s.titleHint,
+            }))
+        : [];
+      return await this.putJourney({
+        name: (o.name ?? "imported").trim() || "imported",
+        profileKey,
+        steps,
+      });
+    } catch {
+      return null;
     }
   }
 

@@ -14,7 +14,14 @@ import {
   getProfileAutoLogin,
   isVaultUnlocked,
 } from "@assmud/profiles";
-import { BurstDetector, getNavStore } from "@assmud/nav-memory";
+import {
+  BurstDetector,
+  getNavStore,
+  createStitchState,
+  placeStitchTile,
+  type StitchDir,
+  type StitchState,
+} from "@assmud/nav-memory";
 import type { VtCaptureEvent } from "@assmud/terminal";
 import { ProfileManager } from "./components/ProfileManager";
 import { ScriptEngine } from "@assmud/script-engine";
@@ -22,6 +29,7 @@ import { RW_STARTER_PACK } from "@assmud/rw-pack";
 import { RoomTracker, parseMoveCommand } from "@assmud/mapper";
 import { MapNavPanel, type MapPanelMode } from "./components/MapNavPanel";
 import { MapCompanion } from "./components/MapCompanion";
+import { JourneyPanel } from "./components/JourneyPanel";
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
@@ -170,6 +178,19 @@ export function App() {
   const [navToast, setNavToast] = useState<string | null>(null);
   const captureApiRef = useRef<TerminalCaptureApi | null>(null);
   const navStore = useMemo(() => getNavStore(), []);
+  const [journeyRecordingId, setJourneyRecordingId] = useState<string | null>(
+    null,
+  );
+  const journeyRecordingIdRef = useRef<string | null>(null);
+  journeyRecordingIdRef.current = journeyRecordingId;
+  const [journeyReplay, setJourneyReplay] = useState<{
+    journeyId: string;
+    step: number;
+  } | null>(null);
+  const [stitchState, setStitchState] = useState<StitchState>(() =>
+    createStitchState(),
+  );
+  const lastMoveDirRef = useRef<StitchDir | null>(null);
   const burstRef = useRef<BurstDetector | null>(null);
   const profileKeyRef = useRef("");
   const tabIdRef = useRef(tabId);
@@ -227,6 +248,22 @@ export function App() {
       },
       onCaptured: (id) => {
         setLastMapForTab(id);
+        // C1 stitch: place tile when experimental enabled
+        setStitchState((prev) => {
+          if (!prev.enabled) return prev;
+          const api = captureApiRef.current;
+          if (!api) return prev;
+          const cells = api.snapshotCells();
+          const next = placeStitchTile(prev, {
+            id,
+            cols: cells.cols,
+            rows: cells.rows,
+            cells: cells.cells,
+            dir: lastMoveDirRef.current,
+          });
+          lastMoveDirRef.current = null;
+          return next;
+        });
       },
     });
     burstRef.current = det;
@@ -422,12 +459,35 @@ export function App() {
     [bumpMap],
   );
 
+  const noteJourneyStep = useCallback(
+    (cmd: string) => {
+      const rid = journeyRecordingIdRef.current;
+      if (!rid) return;
+      const title = roomTracker.nearby().title ?? undefined;
+      void navStore.appendJourneyStep(rid, {
+        cmd,
+        at: Date.now(),
+        frameId: lastMapByTabRef.current.get(tabIdRef.current) ?? undefined,
+        titleHint: title,
+      });
+    },
+    [navStore],
+  );
+
   /** Pad click — send only; noteOutbound runs once inside expandInput. */
-  const walkDir = useCallback((cmd: string) => {
-    if (mudSendRef.current?.(cmd)) return;
-    injectIdRef.current += 1;
-    setInjectPayload({ id: injectIdRef.current, line: cmd });
-  }, []);
+  const walkDir = useCallback(
+    (cmd: string) => {
+      const d = cmd.trim().toLowerCase();
+      if (d === "n" || d === "s" || d === "e" || d === "w") {
+        lastMoveDirRef.current = d;
+      }
+      noteJourneyStep(cmd);
+      if (mudSendRef.current?.(cmd)) return;
+      injectIdRef.current += 1;
+      setInjectPayload({ id: injectIdRef.current, line: cmd });
+    },
+    [noteJourneyStep],
+  );
 
   const downloadLog = () => {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
@@ -526,9 +586,16 @@ export function App() {
    */
   const submitCmd = useCallback(
     (line: string) => {
+      if (!echoMaskRef.current) {
+        const d = line.trim().toLowerCase();
+        if (d === "n" || d === "s" || d === "e" || d === "w") {
+          lastMoveDirRef.current = d;
+        }
+        noteJourneyStep(line);
+      }
       fireInject(line, { secret: echoMaskRef.current });
     },
-    [fireInject],
+    [fireInject, noteJourneyStep],
   );
 
   // Auto-login: requires vault unlocked (A1). NOT text "Password:" trigger.
@@ -929,47 +996,95 @@ export function App() {
             confidenceGuessed={t("map.conf.guessed")}
             confidenceUnknown={t("map.conf.unknown")}
             companion={
-              <MapCompanion
-                store={navStore}
-                profileKey={profile.id}
-                tabId={tabId}
-                lastMapFrameId={lastMapFrameId}
-                onLastMapFrameId={setLastMapForTab}
-                captureApiRef={captureApiRef}
-                captureEpoch={captureEpoch}
-                autoDetectEnabled={autoMapDetect}
-                onAutoDetectChange={setAutoMapDetect}
-                autoDetectLabel={t("map.companion.autoDetect")}
-                onToast={(msg) => setNavToast(msg)}
-                labels={{
-                  empty: t("map.companion.empty"),
-                  storageFull: t("map.companion.storageFull"),
-                  frameDeleted: t("map.companion.frameDeleted"),
-                  frameGone: t("map.companion.frameGone"),
-                  badgeAuto: t("map.companion.badgeAuto"),
-                  badgeManual: t("map.companion.badgeManual"),
-                  badgeFrozen: t("map.companion.badgeFrozen"),
-                  live: t("map.companion.live"),
-                  freeze: t("map.companion.freeze"),
-                  unfreeze: t("map.companion.unfreeze"),
-                  pinTerminal: t("map.companion.pinTerminal"),
-                  pinTerminalHint: t("map.companion.pinTerminalHint"),
-                  clearData: t("map.companion.clearData"),
-                  clearDataConfirm: t("map.companion.clearDataConfirm"),
-                  clearDataTitle: t("map.companion.clearDataTitle"),
-                  privacy: t("map.companion.privacy"),
-                  pinPlaceholder: t("map.companion.pinPlaceholder"),
-                  pinSave: t("map.companion.pinSave"),
-                  pinCancel: t("map.companion.pinCancel"),
-                  pinDelete: t("map.companion.pinDelete"),
-                  pinEditTitle: t("map.companion.pinEditTitle"),
-                  pinNewTitle: t("map.companion.pinNewTitle"),
-                  zoom1x: t("map.companion.zoom1x"),
-                  zoom2x: t("map.companion.zoom2x"),
-                  confirm: t("map.companion.confirm"),
-                  cancel: t("map.companion.cancel"),
-                }}
-              />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <MapCompanion
+                  store={navStore}
+                  profileKey={profile.id}
+                  tabId={tabId}
+                  lastMapFrameId={lastMapFrameId}
+                  onLastMapFrameId={setLastMapForTab}
+                  captureApiRef={captureApiRef}
+                  captureEpoch={captureEpoch}
+                  autoDetectEnabled={autoMapDetect}
+                  onAutoDetectChange={setAutoMapDetect}
+                  autoDetectLabel={t("map.companion.autoDetect")}
+                  onToast={(msg) => setNavToast(msg)}
+                  stitchEnabled={stitchState.enabled}
+                  onStitchEnabled={(en) =>
+                    setStitchState((s) => ({
+                      ...s,
+                      enabled: en,
+                      tiles: en ? s.tiles : [],
+                      cursorC: en ? s.cursorC : 0,
+                      cursorR: en ? s.cursorR : 0,
+                    }))
+                  }
+                  stitchTileCount={stitchState.tiles.length}
+                  onStitchClear={() =>
+                    setStitchState((s) => ({
+                      ...s,
+                      tiles: [],
+                      cursorC: 0,
+                      cursorR: 0,
+                    }))
+                  }
+                  labels={{
+                    empty: t("map.companion.empty"),
+                    storageFull: t("map.companion.storageFull"),
+                    frameDeleted: t("map.companion.frameDeleted"),
+                    frameGone: t("map.companion.frameGone"),
+                    badgeAuto: t("map.companion.badgeAuto"),
+                    badgeManual: t("map.companion.badgeManual"),
+                    badgeFrozen: t("map.companion.badgeFrozen"),
+                    live: t("map.companion.live"),
+                    freeze: t("map.companion.freeze"),
+                    unfreeze: t("map.companion.unfreeze"),
+                    pinTerminal: t("map.companion.pinTerminal"),
+                    pinTerminalHint: t("map.companion.pinTerminalHint"),
+                    clearData: t("map.companion.clearData"),
+                    clearDataConfirm: t("map.companion.clearDataConfirm"),
+                    clearDataTitle: t("map.companion.clearDataTitle"),
+                    privacy: t("map.companion.privacy"),
+                    pinPlaceholder: t("map.companion.pinPlaceholder"),
+                    pinSave: t("map.companion.pinSave"),
+                    pinCancel: t("map.companion.pinCancel"),
+                    pinDelete: t("map.companion.pinDelete"),
+                    pinEditTitle: t("map.companion.pinEditTitle"),
+                    pinNewTitle: t("map.companion.pinNewTitle"),
+                    zoom1x: t("map.companion.zoom1x"),
+                    zoom2x: t("map.companion.zoom2x"),
+                    confirm: t("map.companion.confirm"),
+                    cancel: t("map.companion.cancel"),
+                    search: t("map.companion.search"),
+                    stitch: t("map.companion.stitch"),
+                    stitchClear: t("map.companion.stitchClear"),
+                    stitchExp: t("map.companion.stitchExp"),
+                    reattach: t("map.companion.reattach"),
+                  }}
+                />
+                <JourneyPanel
+                  store={navStore}
+                  profileKey={profile.id}
+                  recordingId={journeyRecordingId}
+                  onRecordingId={setJourneyRecordingId}
+                  replay={journeyReplay}
+                  onReplay={setJourneyReplay}
+                  onSendStep={(cmd) => walkDir(cmd)}
+                  labels={{
+                    title: t("map.journey.title"),
+                    record: t("map.journey.record"),
+                    stop: t("map.journey.stop"),
+                    play: t("map.journey.play"),
+                    next: t("map.journey.next"),
+                    stopPlay: t("map.journey.stopPlay"),
+                    del: t("map.journey.del"),
+                    export: t("map.journey.export"),
+                    import: t("map.journey.import"),
+                    empty: t("map.journey.empty"),
+                    experimental: t("map.journey.experimental"),
+                  }}
+                />
+              </div>
             }
           />
         )}

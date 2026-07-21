@@ -111,6 +111,22 @@ export type MessageKey =
   | "map.companion.autoDetect"
   | "map.companion.confirm"
   | "map.companion.cancel"
+  | "map.companion.search"
+  | "map.companion.stitch"
+  | "map.companion.stitchClear"
+  | "map.companion.stitchExp"
+  | "map.companion.reattach"
+  | "map.journey.title"
+  | "map.journey.record"
+  | "map.journey.stop"
+  | "map.journey.play"
+  | "map.journey.next"
+  | "map.journey.stopPlay"
+  | "map.journey.del"
+  | "map.journey.export"
+  | "map.journey.import"
+  | "map.journey.empty"
+  | "map.journey.experimental"
   | "modal.dismiss";
 
 export type MessageVars = Record<string, string | number>;

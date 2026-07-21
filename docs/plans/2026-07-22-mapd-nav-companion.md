@@ -1,6 +1,6 @@
 # Plan — map_d Nav Companion（導航副駕）
 
-> **Status**: **SHIP C0** (2026-07-22) · unit+build+pre-smoke PASS · plan-hetero ALL_CLEAR R4
+> **Status**: **SHIP C0+C1** (2026-07-22) · C2 deferred · plan-hetero ALL_CLEAR R4
 
 
 
@@ -586,5 +586,6 @@ C2 expedition + diff alert
 | **approved** | **R4 ALL_CLEAR** (2026-07-22) |
 | **impl C0** | **done** (code + unit/e2e; 2026-07-22) |
 | **SHIP C0** | **done** (pre-smoke RESULT=PASS + dual `npm test` + web build + LAN entry probes; optional human map_d UX) |
-| **impl C1/C2** | after C0 SHIP or parallel if capacity |
+| **SHIP C1** | **done** 2026-07-22 — journey/search/fingerprint/stitch prototype |
+| **impl C2** | deferred (expedition/moonshot) |
 

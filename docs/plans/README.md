@@ -34,10 +34,10 @@ Impl hetero: **[queue-impl-hetero-all-clear](../reviews/2026-07-21-queue-impl-he
 | 5 | [proxy-abuse-limits](./2026-07-21-proxy-abuse-limits.md) | [project](../projects/2026-07-21-proxy-abuse-limits/) | **SHIP** |
 | 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) | **SHIP** |
 | 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) | **SHIP** docs |
-| 8 | [profile-secrets-vault](./2026-07-22-profile-secrets-vault.md) | (expand next) | **APPROVED** plan · ALL_CLEAR R6 · not impl |
+| 8 | [profile-secrets-vault](./2026-07-22-profile-secrets-vault.md) | — | **SHIP** vault on develop |
 | 9 | [automap-nav-shell](./2026-07-22-automap-nav-shell.md) | — | **SHIP** P1 HUD/trail |
-| 10 | [mapd-nav-companion](./2026-07-22-mapd-nav-companion.md) | (next) | **APPROVED** · plan-hetero **ALL_CLEAR R4** · impl C0 next |
-| 11 | [t1-site-proxy-and-core-daemon](./2026-07-22-t1-site-proxy-and-core-daemon.md) | (next) | **APPROVED** · T1-site + D1 arch · ALL_CLEAR R2 |
+| 10 | [mapd-nav-companion](./2026-07-22-mapd-nav-companion.md) | — | **SHIP C0+C1** · C2 deferred · ALL_CLEAR R4 |
+| 11 | [t1-site-proxy-and-core-daemon](./2026-07-22-t1-site-proxy-and-core-daemon.md) | — | **SHIP S0–S3** (S3 docs ADR) · ALL_CLEAR R2 |
 
 ## Research / triage
 

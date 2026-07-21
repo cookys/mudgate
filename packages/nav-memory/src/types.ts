@@ -32,6 +32,23 @@ export type MapPin = {
   profileKey: string;
 };
 
+export type JourneyStep = {
+  cmd: string;
+  at: number;
+  frameId?: string;
+  titleHint?: string;
+};
+
+export type Journey = {
+  v: 1;
+  id: string;
+  name: string;
+  profileKey: string;
+  steps: JourneyStep[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type PersistResult =
   | {
       ok: true;
@@ -43,4 +60,5 @@ export type PersistResult =
 
 export const MAX_FRAMES_PER_PROFILE = 30;
 export const NAV_DB_NAME = "assmud-nav";
-export const NAV_DB_VERSION = 1;
+/** v2 adds journeys object store (C1) */
+export const NAV_DB_VERSION = 2;

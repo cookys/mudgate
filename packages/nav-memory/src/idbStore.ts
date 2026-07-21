@@ -3,11 +3,14 @@ import {
   MAX_FRAMES_PER_PROFILE,
   NAV_DB_NAME,
   NAV_DB_VERSION,
+  type Journey,
+  type JourneyStep,
   type MapFrame,
   type MapPin,
   type PersistResult,
 } from "./types.js";
 import { newId } from "./id.js";
+import { computeFingerprint } from "./fingerprint.js";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,6 +35,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("journeys")) {
+        const journeys = db.createObjectStore("journeys", { keyPath: "id" });
+        journeys.createIndex("byProfile", "profileKey", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -141,15 +148,21 @@ export class IdNavStore {
     }
 
     const id = input.id ?? newId("frm-");
+    const cells = input.cells.cells.map((c) => ({ ...c }));
     const frame: MapFrame = {
       v: 1,
       id,
       capturedAt: input.capturedAt ?? Date.now(),
       cols: input.cells.cols,
       rows: input.cells.rows,
-      cells: input.cells.cells.map((c) => ({ ...c })),
+      cells,
       widthMode: input.cells.widthMode,
-      fingerprint: "",
+      fingerprint: computeFingerprint({
+        cols: input.cells.cols,
+        rows: input.cells.rows,
+        widthMode: input.cells.widthMode,
+        cells,
+      }),
       source: input.source,
       confidence: input.confidence,
       profileKey: input.profileKey,
@@ -235,7 +248,10 @@ export class IdNavStore {
 
   async clearProfile(profileKey: string): Promise<void> {
     const db = await this.db();
-    const tx = db.transaction(["frames", "pins"], "readwrite");
+    const storeNames = ["frames", "pins", "journeys"].filter((n) =>
+      db.objectStoreNames.contains(n),
+    );
+    const tx = db.transaction(storeNames, "readwrite");
     const frames = (await reqToPromise(
       tx.objectStore("frames").index("byProfile").getAll(IDBKeyRange.only(profileKey)),
     )) as MapFrame[];
@@ -244,6 +260,12 @@ export class IdNavStore {
       tx.objectStore("pins").index("byProfile").getAll(IDBKeyRange.only(profileKey)),
     )) as MapPin[];
     for (const p of pinList) tx.objectStore("pins").delete(p.id);
+    if (db.objectStoreNames.contains("journeys")) {
+      const jList = (await reqToPromise(
+        tx.objectStore("journeys").index("byProfile").getAll(IDBKeyRange.only(profileKey)),
+      )) as Journey[];
+      for (const j of jList) tx.objectStore("journeys").delete(j.id);
+    }
     await txDone(tx);
   }
 
@@ -353,6 +375,139 @@ export class IdNavStore {
     )) as MapPin[];
     await txDone(tx);
     return list;
+  }
+
+  async putJourney(input: {
+    name: string;
+    profileKey: string;
+    steps?: JourneyStep[];
+    id?: string;
+  }): Promise<Journey> {
+    const db = await this.db();
+    const now = Date.now();
+    const id = input.id ?? newId("jny-");
+    let existing: Journey | undefined;
+    if (input.id) {
+      const tx0 = db.transaction("journeys", "readonly");
+      existing = (await reqToPromise(
+        tx0.objectStore("journeys").get(id),
+      )) as Journey | undefined;
+      await txDone(tx0);
+    }
+    const j: Journey = {
+      v: 1,
+      id,
+      name: input.name.trim() || "untitled",
+      profileKey: input.profileKey,
+      steps: input.steps
+        ? input.steps.map((s) => ({ ...s }))
+        : existing?.steps ?? [],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const tx = db.transaction("journeys", "readwrite");
+    tx.objectStore("journeys").put(j);
+    await txDone(tx);
+    return { ...j, steps: j.steps.map((s) => ({ ...s })) };
+  }
+
+  async appendJourneyStep(
+    id: string,
+    step: JourneyStep,
+  ): Promise<Journey | null> {
+    const db = await this.db();
+    const tx = db.transaction("journeys", "readwrite");
+    const j = (await reqToPromise(tx.objectStore("journeys").get(id))) as
+      | Journey
+      | undefined;
+    if (!j) {
+      tx.abort();
+      return null;
+    }
+    j.steps.push({ ...step });
+    j.updatedAt = Date.now();
+    tx.objectStore("journeys").put(j);
+    await txDone(tx);
+    return { ...j, steps: j.steps.map((s) => ({ ...s })) };
+  }
+
+  async getJourney(id: string): Promise<Journey | undefined> {
+    const db = await this.db();
+    const tx = db.transaction("journeys", "readonly");
+    const j = (await reqToPromise(tx.objectStore("journeys").get(id))) as
+      | Journey
+      | undefined;
+    await txDone(tx);
+    return j ? { ...j, steps: j.steps.map((s) => ({ ...s })) } : undefined;
+  }
+
+  async listJourneys(profileKey: string): Promise<Journey[]> {
+    const db = await this.db();
+    const tx = db.transaction("journeys", "readonly");
+    const list = (await reqToPromise(
+      tx.objectStore("journeys").index("byProfile").getAll(IDBKeyRange.only(profileKey)),
+    )) as Journey[];
+    await txDone(tx);
+    return list
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((j) => ({ ...j, steps: j.steps.map((s) => ({ ...s })) }));
+  }
+
+  async deleteJourney(id: string): Promise<boolean> {
+    const db = await this.db();
+    const tx = db.transaction("journeys", "readwrite");
+    const existing = await reqToPromise(tx.objectStore("journeys").get(id));
+    if (!existing) {
+      tx.abort();
+      return false;
+    }
+    tx.objectStore("journeys").delete(id);
+    await txDone(tx);
+    return true;
+  }
+
+  exportJourneyJson(j: Journey): string {
+    return JSON.stringify(
+      {
+        v: 1,
+        name: j.name,
+        steps: j.steps.map((s) => ({
+          cmd: s.cmd,
+          at: s.at,
+          frameId: s.frameId,
+          titleHint: s.titleHint,
+        })),
+      },
+      null,
+      2,
+    );
+  }
+
+  async importJourneyJson(
+    profileKey: string,
+    raw: string,
+  ): Promise<Journey | null> {
+    try {
+      const o = JSON.parse(raw) as { name?: string; steps?: JourneyStep[] };
+      if (!o || typeof o !== "object") return null;
+      const steps = Array.isArray(o.steps)
+        ? o.steps
+            .filter((s) => s && typeof s.cmd === "string")
+            .map((s) => ({
+              cmd: String(s.cmd).slice(0, 200),
+              at: typeof s.at === "number" ? s.at : Date.now(),
+              frameId: s.frameId,
+              titleHint: s.titleHint,
+            }))
+        : [];
+      return await this.putJourney({
+        name: (o.name ?? "imported").trim() || "imported",
+        profileKey,
+        steps,
+      });
+    } catch {
+      return null;
+    }
   }
 }
 

@@ -10,7 +10,15 @@ import {
   colorForAttrs,
   type MapFrameCells,
 } from "@assmud/terminal";
-import type { MapFrame, MapPin, NavStore } from "@assmud/nav-memory";
+import {
+  computeFingerprint,
+  rankFingerprintMatches,
+  searchNavMemory,
+  type MapFrame,
+  type MapPin,
+  type NavStore,
+  type SearchHit,
+} from "@assmud/nav-memory";
 import type { TerminalCaptureApi } from "../TerminalHost";
 
 export type CompanionLabels = {
@@ -40,6 +48,11 @@ export type CompanionLabels = {
   zoom2x: string;
   confirm: string;
   cancel: string;
+  search: string;
+  stitch: string;
+  stitchClear: string;
+  stitchExp: string;
+  reattach: string;
 };
 
 type Props = {
@@ -58,6 +71,10 @@ type Props = {
   autoDetectEnabled: boolean;
   onAutoDetectChange: (v: boolean) => void;
   autoDetectLabel: string;
+  stitchEnabled?: boolean;
+  onStitchEnabled?: (v: boolean) => void;
+  stitchTileCount?: number;
+  onStitchClear?: () => void;
 };
 
 type ViewMode = "live" | "frozen";
@@ -79,6 +96,10 @@ export function MapCompanion({
   autoDetectEnabled,
   onAutoDetectChange,
   autoDetectLabel,
+  stitchEnabled = false,
+  onStitchEnabled,
+  stitchTileCount = 0,
+  onStitchClear,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -87,6 +108,11 @@ export function MapCompanion({
   const [frame, setFrame] = useState<MapFrame | null>(null);
   const [frameMissing, setFrameMissing] = useState(false);
   const [pins, setPins] = useState<MapPin[]>([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  const [fpCandidates, setFpCandidates] = useState<
+    Array<{ frameId: string; score: number }>
+  >([]);
   const [zoom, setZoom] = useState<1 | 2>(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{
@@ -193,6 +219,36 @@ export function MapCompanion({
     setViewMode("live");
     setFrozenId(null);
   }, []);
+
+  const runSearch = useCallback(async () => {
+    const frames = await store.listFrames(profileKey);
+    const allPins = await store.listPins(profileKey);
+    const journeys = await store.listJourneys(profileKey);
+    setSearchHits(searchNavMemory(searchQ, { frames, pins: allPins, journeys }));
+  }, [store, profileKey, searchQ]);
+
+  const runReattach = useCallback(async () => {
+    const api = captureApiRef.current;
+    if (!api) return;
+    const cells = api.snapshotCells();
+    const liveFp = computeFingerprint({
+      cols: cells.cols,
+      rows: cells.rows,
+      widthMode: cells.widthMode,
+      cells: cells.cells,
+    });
+    const frames = await store.listFrames(profileKey);
+    const ranked = rankFingerprintMatches(
+      liveFp,
+      frames.map((f) => ({ id: f.id, fingerprint: f.fingerprint })),
+      3,
+    );
+    setFpCandidates(ranked.map((r) => ({ frameId: r.frameId, score: r.score })));
+    // Low confidence: do not auto-switch; only exact score=1 auto optional
+    if (ranked[0]?.score === 1) {
+      onLastMapFrameId(ranked[0].frameId);
+    }
+  }, [captureApiRef, store, profileKey, onLastMapFrameId]);
 
   const clearProfileData = useCallback(async () => {
     await store.clearProfile(profileKey);
@@ -411,7 +467,96 @@ export function MapCompanion({
           />
           {autoDetectLabel}
         </label>
+        <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-faint)" }} title={labels.stitchExp}>
+          <input
+            type="checkbox"
+            checked={stitchEnabled}
+            onChange={(e) => onStitchEnabled?.(e.target.checked)}
+          />
+          {labels.stitch}
+          {stitchTileCount > 0 ? ` (${stitchTileCount})` : ""}
+        </label>
+        {stitchEnabled && (
+          <button
+            type="button"
+            className="px-1 py-0.5 rounded border text-[10px]"
+            style={{ borderColor: "var(--border)" }}
+            onClick={() => onStitchClear?.()}
+          >
+            {labels.stitchClear}
+          </button>
+        )}
+        <button
+          type="button"
+          className="px-1 py-0.5 rounded border text-[10px]"
+          style={{ borderColor: "var(--border)" }}
+          onClick={() => void runReattach()}
+        >
+          {labels.reattach}
+        </button>
       </div>
+
+      <div className="flex gap-1 px-2 py-1 border-b" style={{ borderColor: "var(--border)" }}>
+        <input
+          className="flex-1 min-w-0 rounded border px-1 py-0.5 text-[10px] bg-transparent"
+          style={{ borderColor: "var(--border)", color: "var(--text)" }}
+          value={searchQ}
+          placeholder={labels.search}
+          onChange={(e) => setSearchQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void runSearch();
+          }}
+        />
+        <button
+          type="button"
+          className="px-1.5 rounded border text-[10px]"
+          style={{ borderColor: "var(--border)" }}
+          onClick={() => void runSearch()}
+        >
+          {labels.search}
+        </button>
+      </div>
+      {searchHits.length > 0 && (
+        <ul className="max-h-16 overflow-auto px-2 py-0.5 text-[10px] border-b" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+          {searchHits.slice(0, 8).map((h, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                className="text-left truncate w-full"
+                onClick={() => {
+                  if (h.kind === "pin" || h.kind === "frame") {
+                    onLastMapFrameId(h.kind === "pin" ? h.frameId : h.frameId);
+                    setViewMode("live");
+                  }
+                }}
+              >
+                {h.kind === "pin"
+                  ? `pin: ${h.pin.text}`
+                  : h.kind === "frame"
+                    ? `frame: ${h.label ?? h.frameId}`
+                    : `journey: ${h.titleHint}`}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {fpCandidates.length > 0 && (
+        <ul className="max-h-12 overflow-auto px-2 py-0.5 text-[10px] border-b" style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}>
+          {fpCandidates.map((c) => (
+            <li key={c.frameId}>
+              <button
+                type="button"
+                onClick={() => {
+                  onLastMapFrameId(c.frameId);
+                  setViewMode("live");
+                }}
+              >
+                {labels.reattach} {c.frameId.slice(0, 8)}… {(c.score * 100).toFixed(0)}%
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {badge && (
         <div

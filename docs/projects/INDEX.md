@@ -25,6 +25,8 @@
 
 | Date | Project | Version | Merge | Plan |
 |------|---------|---------|-------|------|
+| 2026-07-22 | map_d companion C0+C1 | 0.1 | develop | [mapd-nav-companion](../plans/2026-07-22-mapd-nav-companion.md) |
+| 2026-07-22 | site mode S0–S2 + S3 ADR | 0.1 | develop | [t1-site-proxy](../plans/2026-07-22-t1-site-proxy-and-core-daemon.md) |
 | 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | 0.1 | develop | [web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) |
 | 2026-07-21 | UI shell + terminal copy UX | 0.1 | develop | [ui-shell-ship](../plans/2026-07-21-ui-shell-ship.md) |
 | 2026-07-21 | i18n + StatusEvent + font stack baseline | 0.1 | develop | [i18n-locale](../plans/2026-07-21-i18n-locale.md) + fonts baseline |

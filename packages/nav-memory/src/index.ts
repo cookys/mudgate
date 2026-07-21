@@ -2,6 +2,8 @@ export type {
   FrameConfidence,
   MapFrame,
   MapPin,
+  Journey,
+  JourneyStep,
   PersistResult,
 } from "./types.js";
 export {
@@ -17,6 +19,23 @@ export {
 } from "./memoryStore.js";
 export { IdNavStore, getIdNavStore } from "./idbStore.js";
 export { newId } from "./id.js";
+export {
+  computeFingerprint,
+  rankFingerprintMatches,
+  searchNavMemory,
+  type FingerprintMatch,
+  type SearchHit,
+} from "./fingerprint.js";
+export {
+  createStitchState,
+  placeStitchTile,
+  clearStitch,
+  stitchToAscii,
+  dirOffset,
+  type StitchState,
+  type StitchDir,
+  type StitchTile,
+} from "./stitch.js";
 
 import { getIdNavStore, type IdNavStore } from "./idbStore.js";
 import {

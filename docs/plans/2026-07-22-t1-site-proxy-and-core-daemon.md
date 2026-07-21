@@ -1,6 +1,6 @@
 # Plan — **site mode** / **player mode** · 出口 IP · daemon 方向
 
-> **Status**: **APPROVED · S0–S2 SHIP** (2026-07-22) · plan-hetero ALL_CLEAR R2 + naming lock site/player mode
+> **Status**: **APPROVED · S0–S3 SHIP** (2026-07-22) · plan-hetero ALL_CLEAR R2 + naming lock site/player mode
 > **Owner**: cookys  
 > **Date**: 2026-07-22  
 > **Extends**: [`2026-07-21-selfhost-proxy-trust.md`](./2026-07-21-selfhost-proxy-trust.md)  
@@ -428,5 +428,5 @@ SITE MODE (目標形態 = 今日強化)
 | approved | plan-hetero ALL_CLEAR R2 |
 | S0–S1 impl / SHIP | **done** 2026-07-22 — SITE_MODE fail-fast、effectiveClientAddr、audit、docs |
 | S2 PROXY v1 | **done** 2026-07-22 — `ASSMUD_PROXY_PROTOCOL` 預設 0；=1 連上後寫 v1 首行 |
-| S3 | player daemon ADR / Session Protocol spike（未做） |
+| S3 | **done** 2026-07-22 — ADR-003 + `docs/design/session-protocol-v0.md`（daemon 本體 deferred） |
 
