@@ -21,6 +21,19 @@ import {
   statusEventsEqual,
   type StatusEvent,
 } from "./lib/mudSocket";
+import {
+  loadCustomAck,
+  loadCustomWs,
+  loadProxyToken,
+  loadTrustMode,
+  readOfficialProxyUrl,
+  resolveWsUrl,
+  saveCustomAck,
+  saveCustomWs,
+  saveProxyToken,
+  saveTrustMode,
+  type TrustMode,
+} from "./lib/trustMode";
 import { useLocale, useT } from "./i18n";
 import {
   STATIC_CATALOG,
@@ -78,9 +91,10 @@ export function App() {
     () => resolveFontStack(termFont, locale),
     [termFont, locale],
   );
-  const [token, setToken] = useState(
-    () => localStorage.getItem("assmud_token") ?? "",
-  );
+  const [token, setToken] = useState(() => loadProxyToken());
+  const [trustMode, setTrustMode] = useState<TrustMode>(() => loadTrustMode());
+  const [customWs, setCustomWs] = useState(() => loadCustomWs());
+  const [customAck, setCustomAck] = useState(() => loadCustomAck());
   const [accent, setAccent] = useState<AccentId>(() => loadAccent());
   const [activeProfile, setActiveProfile] = useState(
     profiles[0]?.id ?? "rw-4000",
@@ -216,17 +230,20 @@ export function App() {
     );
   }, []);
 
-  // Prefer loopback WS when page is loopback (avoids LAN hairpin / fd storms).
   const wsUrl = useMemo(() => {
     if (!tab?.connected) return null;
-    if (typeof window !== "undefined") {
+    if (trustMode === "local" && typeof window !== "undefined") {
       const h = window.location.hostname;
       if (h === "127.0.0.1" || h === "localhost") {
         return "ws://127.0.0.1:7788/ws";
       }
     }
-    return DEFAULT_WS;
-  }, [tab?.connected]);
+    return resolveWsUrl(trustMode, {
+      envDefault: DEFAULT_WS,
+      customWs,
+      officialUrl: readOfficialProxyUrl(),
+    });
+  }, [tab?.connected, trustMode, customWs]);
 
   const hello: HelloMsg = useMemo(
     () => ({
@@ -306,6 +323,9 @@ export function App() {
         profileId={tab.profileId}
         token={token}
         accent={accent}
+        trustMode={trustMode}
+        customWs={customWs}
+        customAck={customAck}
         onProfile={(id) => {
           setActiveProfile(id);
           setTabs((ts) =>
@@ -314,7 +334,25 @@ export function App() {
         }}
         onToken={(tok) => {
           setToken(tok);
-          localStorage.setItem("assmud_token", tok);
+          saveProxyToken(tok);
+        }}
+        onTrustMode={(m) => {
+          setTrustMode(m);
+          saveTrustMode(m);
+          if (m !== "custom") {
+            setCustomAck(false);
+            saveCustomAck(false);
+          }
+        }}
+        onCustomWs={(u) => {
+          setCustomWs(u);
+          saveCustomWs(u);
+          // URL change clears ack inside saveCustomWs
+          setCustomAck(false);
+        }}
+        onCustomAck={(ok) => {
+          setCustomAck(ok);
+          saveCustomAck(ok);
         }}
         onAccent={(a) => {
           setAccent(a);
@@ -638,7 +676,7 @@ export function App() {
                     disabled={tab.connected}
                     onChange={(e) => {
                       setToken(e.target.value);
-                      localStorage.setItem("assmud_token", e.target.value);
+                      saveProxyToken(e.target.value);
                     }}
                   />
                 </div>

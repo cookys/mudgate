@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createProxyServer } from "./server.js";
-import { defaultConfig } from "./policy.js";
+import { assertProdConfig, defaultConfig } from "./policy.js";
 
 const mode = (process.env.ASSMUD_PROXY_MODE ?? "localhost-dev") as
   | "remote-prod"
@@ -13,12 +13,9 @@ if (process.env.ASSMUD_ORIGIN_ALLOWLIST) {
     .map((s) => s.trim())
     .filter(Boolean);
 }
-if (mode === "remote-prod" && !cfg.authToken) {
-  console.error("ASSMUD_AUTH_TOKEN required for remote-prod");
-  process.exit(1);
-}
-if (mode === "remote-prod" && !cfg.originAllowlist.length) {
-  console.error("ASSMUD_ORIGIN_ALLOWLIST required for remote-prod");
+const prodErr = assertProdConfig(cfg);
+if (prodErr) {
+  console.error(prodErr);
   process.exit(1);
 }
 

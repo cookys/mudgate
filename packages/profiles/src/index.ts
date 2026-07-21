@@ -55,12 +55,39 @@ export function saveProfiles(list: MudProfile[]): void {
   localStorage.setItem(KEY, JSON.stringify(list));
 }
 
+const SECRET_KEYS = new Set([
+  "proxyToken",
+  "assmud_token",
+  "password",
+  "token",
+  "secret",
+]);
+
+/** Strip secret-like keys; never re-export imported credentials. */
+export function sanitizeProfileForExport(
+  p: MudProfile & Record<string, unknown>,
+): MudProfile {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (SECRET_KEYS.has(k)) continue;
+    out[k] = v;
+  }
+  return out as unknown as MudProfile;
+}
+
 export function exportProfilesJson(list: MudProfile[]): string {
-  return JSON.stringify(list, null, 2);
+  const clean = list.map((p) =>
+    sanitizeProfileForExport(p as MudProfile & Record<string, unknown>),
+  );
+  return JSON.stringify(clean, null, 2);
 }
 
 export function importProfilesJson(json: string): MudProfile[] {
   const list = JSON.parse(json) as MudProfile[];
   if (!Array.isArray(list)) throw new Error("invalid profiles");
-  return list.filter((p) => p.id && p.host && p.port);
+  return list
+    .filter((p) => p.id && p.host && p.port)
+    .map((p) =>
+      sanitizeProfileForExport(p as MudProfile & Record<string, unknown>),
+    );
 }

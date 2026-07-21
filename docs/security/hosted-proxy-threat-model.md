@@ -54,6 +54,18 @@
 5. TLS (WSS) only on public endpoints.
 6. ToS + kill-switch (ban user_id / revoke sessions).
 
+## Self-host / malicious proxy
+
+| Threat | Control |
+|--------|---------|
+| Stranger-operated `wss://` steals MUD passwords | Product trust UI (T3 hell warning); no public node directory |
+| Self-host publish 7788 open | Default bind **127.0.0.1**; TLS/tunnel only on 443 |
+| Token in URL/logs | remote-prod: Bearer/cookie only; install writes **0600** file |
+| Empty Origin allowlist | remote-prod **fail-closed** |
+| Cloudflare Tunnel misuse | Ingress only; Access no world Bypass; egress remains home/VPS IP |
+
+**WSS ≠ E2E password privacy.** Cleartext telnet to MUD is always visible to the process that holds the upstream TCP socket.
+
 ## Explicit non-goals
 
 - Guaranteeing E2E encryption when the target MUD is cleartext telnet.

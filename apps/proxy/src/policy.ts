@@ -30,7 +30,8 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
   }
   return {
     mode,
-    bindHost: "0.0.0.0",
+    // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
+    bindHost: process.env.ASSMUD_BIND_HOST ?? "127.0.0.1",
     bindPort: Number(process.env.PORT ?? 7788),
     authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
     allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
@@ -40,6 +41,15 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       .map((s) => s.trim())
       .filter(Boolean),
   };
+}
+
+/** Fail-closed gate for remote-prod before listen. */
+export function assertProdConfig(cfg: ProxyConfig): string | null {
+  if (cfg.mode !== "remote-prod") return null;
+  if (!cfg.authToken) return "ASSMUD_AUTH_TOKEN required for remote-prod";
+  if (!cfg.originAllowlist.length)
+    return "ASSMUD_ORIGIN_ALLOWLIST required for remote-prod (empty fail-closed)";
+  return null;
 }
 
 export function isPrivateOrBlockedIp(ip: string): boolean {

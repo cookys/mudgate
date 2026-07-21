@@ -1,0 +1,5282 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8568-8d55-7d81-8b7e-ece34b98e045
+--------
+user
+Review IMPL of selfhost-proxy-trust: remote-prod bind 127.0.0.1 default, assertProdConfig, deploy/docker-compose.proxy.yml, install-proxy.sh pin image, trustMode T0-T3 custom ack, token not in export tests. Return VERDICT MUST_FIX NITS only.
+codex
+I’m using the quality-pipeline skill because this is an implementation review. I’ll inspect the relevant diff and tests, then return only `VERDICT`, `MUST_FIX`, and `NITS`.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc "git status --short && git branch --show-current && git diff --stat && git diff --cached --stat && sed -n '1,260p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md && printf '\\nPROJECT CONFIG\\n' && sed -n '1,240p' .claude/quality-gate-config.md 2>/dev/null && sed -n '1,240p' .claude/dispatch-config.md 2>/dev/null" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+ M apps/proxy/src/cli.ts
+ M apps/proxy/src/policy.ts
+ M apps/proxy/tests/policy.test.ts
+ M apps/web/src/App.tsx
+ M apps/web/src/components/ConnectGate.tsx
+ M apps/web/src/i18n/messages/en.ts
+ M apps/web/src/i18n/messages/zh-CN.ts
+ M apps/web/src/i18n/messages/zh-TW.ts
+ M apps/web/src/i18n/types.ts
+ M docs/deploy/SELF-HOSTED-PROXY.md
+ M docs/plans/2026-07-21-selfhost-proxy-trust.md
+ M docs/security/hosted-proxy-threat-model.md
+?? apps/web/src/lib/trustMode.ts
+?? apps/web/tests/trustMode.test.ts
+?? deploy/
+?? docs/deploy/HOME-CLOUDFLARE-TUNNEL.md
+?? docs/deploy/ORACLE-ALWAYS-FREE.md
+?? docs/projects/2026-07-21-selfhost-proxy-trust/
+?? docs/reviews/2026-07-21-selfhost-impl-codex.out
+?? docs/reviews/2026-07-21-selfhost-impl-minimax.out
+?? scripts/
+feat/selfhost-proxy-trust
+ apps/proxy/src/cli.ts                         |  11 +-
+ apps/proxy/src/policy.ts                      |  12 ++-
+ apps/proxy/tests/policy.test.ts               |  30 ++++++
+ apps/web/src/App.tsx                          |  52 ++++++++--
+ apps/web/src/components/ConnectGate.tsx       | 144 ++++++++++++++++++++++++--
+ apps/web/src/i18n/messages/en.ts              |  15 +++
+ apps/web/src/i18n/messages/zh-CN.ts           |  15 +++
+ apps/web/src/i18n/messages/zh-TW.ts           |  15 +++
+ apps/web/src/i18n/types.ts                    |  13 +++
+ docs/deploy/SELF-HOSTED-PROXY.md              |  15 ++-
+ docs/plans/2026-07-21-selfhost-proxy-trust.md |   2 +-
+ docs/security/hosted-proxy-threat-model.md    |  12 +++
+ 12 files changed, 312 insertions(+), 24 deletions(-)
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+**Re-review scope:** After each fix round, re-review the **entire diff**, not just the fix. Fixes can introduce new issues.
+
+**Re-review checkpoint (dispatcher-only)**: Before round 1, `scripts/diff-since-last-round.sh mark` snapshots HEAD; between rounds `scripts/diff-since-last-round.sh stat` → JSON `{changed_files, insertions, deletions, doc_only}`. If `doc_only=true` and `changed_files` trivially small, dispatcher MAY short-circuit. Decision + data stay **in the dispatcher only** — never pass delta to the reviewer (leaks round-cycle meta-signal per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md)). Loop closed → `scripts/diff-since-last-round.sh clear`.
+
+**Re-review dispatch is blind** — round 2+ re-dispatch of `autopilot:reviewer` (or chain pick) MUST strip prior-round findings. Pre-flight: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); `scripts/check-redispatch-prompt.sh <prompt-file>` — exit 1 ⇒ strip and re-check. Prior finding stays in dispatcher memory; fixer is NOT blind (gets full finding). Skipping the linter self-bypasses the gate. Holds at any nesting depth — neither reviewer nor fixer dispatches the next round's review ([`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § Nested dispatch).
+
+## Suggestion / Minor Processing
+
+**Suggestion/Minor ≠ "ignore."** Analyze each before merge:
+
+```
+For each Suggestion/Minor finding:
+    ↓
+Dispatch Explore agent to analyze impact and effort
+    ↓
+Classify into one of four outcomes:
+├── S-size fix (< 5 min) → fix now, treat as Major
+├── False positive / by-design → close with written rationale
+├── Independent task needing more analysis → create next task with context
+└── Has clear trigger condition → add to docs/BACKLOG.md with trigger
+```
+
+### Example Processing Table
+
+| # | Issue | Severity | Analysis | Size | Disposition |
+|---|-------|----------|----------|------|-------------|
+| 1 | Null deref in error path | Critical | Crash when DB returns empty | S | Fix now + re-review |
+| 2 | Missing mutex on shared map | Major | Race condition under load | S | Fix now + re-review |
+| 3 | Could use string_view instead of string copy | Suggestion | 2% fewer allocations in hot path | S | Fix now (upgrade to Major) |
+| 4 | Function name `doIt()` unclear | Minor | Rename to `processMatchResult()` | S | Fix now (upgrade to Major) |
+| 5 | Consider caching DB query result | Suggestion | Would help at 10K+ users, not current scale | M | Backlog (trigger: when optimizing for 10K+) |
+| 6 | "Magic number 42" | Minor | Actually `MAX_TILES` constant, used consistently | - | Close (by-design) |
+
+### Backlog Entry Format
+
+Every backlog entry **must** include a trigger:
+
+```markdown
+- [ ] [Suggestion] Cache rank table query results
+
+PROJECT CONFIG
+# Quality Gate — Project Config (generated by autopilot:onboard; edit freely)
+
+## Test Command
+- not detected (repo is pre-scaffold; update after package manager / test runner lands)
+
+## Scan Command
+- Completeness scan (no stubs/TODO/mock): autopilot `scripts/completeness-scan.sh` over `apps/` `packages/` `src/` when present
+
+## Code Review
+- autopilot:reviewer
+
+## Security-critical surfaces
+Always full review (never fast-path) when a change touches:
+
+| Surface | Why |
+|---------|-----|
+| WebSocket / TCP proxy bridge | trust boundary between browser and MUD; injection / SSRF / open-relay risk |
+| Credential & session storage | player passwords / tokens must not leak to logs, localStorage XSS, or analytics |
+| Terminal HTML/ANSI render | MUD output is untrusted; XSS via escape sequences or raw HTML |
+| User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
+| CSP / CORS / origin checks | browser client security posture |
+| Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
+
+# Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
+# Dispatch — Project Config (generated by autopilot:onboard; edit freely)
+
+# Superpowers is not installed. Edit this file to add superpowers preference chains.
+## Parallel Dispatch
+- native
+
+## Code Review
+- autopilot:reviewer
+
+## Debugging
+- autopilot:debug
+
+## Testing
+- autopilot:test-strategy
+
+## Profiling
+- autopilot:profiling
+
+## Team
+- autopilot:team
+
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' docs/plans/2026-07-21-selfhost-proxy-trust.md && printf '\\n--- cli.ts ---\\n' && sed -n '1,280p' apps/proxy/src/cli.ts && printf '\\n--- policy.ts ---\\n' && sed -n '1,320p' apps/proxy/src/policy.ts && printf '\\n--- policy test ---\\n' && sed -n '1,360p' apps/proxy/tests/policy.test.ts && printf '\\n--- trustMode ---\\n' && sed -n '1,300p' apps/web/src/lib/trustMode.ts && printf '\\n--- trust tests ---\\n' && sed -n '1,360p' apps/web/tests/trustMode.test.ts" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Plan — 自架 proxy 一鍵部屬 + 連線信任／密碼 UX
+
+> **Status**: **SHIP**（feat/selfhost-proxy-trust → develop）  
+> **Owner**: cookys  
+> **Why**: 台灣 MUD 多開靠 **出口 IP**；共用 hosted 易撞。自架（Oracle／任意 VPS／**家用 + Cloudflare Tunnel·Zero Trust**／本機）是 **一等公民**。明文 telnet 下 **proxy 營運者必可見密碼**——用 UX／預設／一鍵安全預設處理，不能假裝 E2E。  
+> **North**: 玩家 **極簡** 起「只服務自己」的 proxy；產品 **極難** 把不知情玩家導向陌生人 proxy。  
+> **連動**: [`SELF-HOSTED-PROXY.md`](../deploy/SELF-HOSTED-PROXY.md)、[`hosted-proxy-threat-model.md`](../security/hosted-proxy-threat-model.md)、proxy-abuse、profile-library、cjk-cell-width §4  
+> **Hetero**: `docs/reviews/2026-07-21-selfhost-proxy-trust-hetero.md`  
+
+---
+
+## 0. Problem
+
+| 痛點 | 說明 |
+|------|------|
+| 共用 proxy IP | 熱門站同 IP 多開／限連 |
+| 自架門檻高 | 玩家不會配 Node／Caddy／token |
+| 惡意／不知情代架 | 他人 proxy 可讀 **明文 MUD 密碼**；無密碼學解法 |
+| 一鍵腳本供應鏈 | `curl \| bash` 被換包 → 直接偷密 |
+| 家用外網 | 不想開埠；可用 **Cloudflare Tunnel + Zero Trust** |
+
+### 硬限制（寫死，禁止產品謊言）
+
+> 當 MUD hop 為 **cleartext telnet** 時，**任何**能執行 proxy 行程的人（root／惡意 image／惡意 fork）都能看到帳密與指令。  
+> **不存在**「第三方代跑 proxy 但密碼對他不可見」的乾淨解法。  
+> **`wss://` 只保護瀏覽器↔proxy 傳輸**；**不**等於密碼對 proxy 營運者不可見。  
+> 對策 = **信任拓撲 + UX 誠實 + 預設安全**，不是假 E2E。
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+1. **G1 — 一鍵自架**：VM／機器就緒且（對外時）域名就緒後，**釘選版 installer + digest image** 起安全預設 proxy。  
+2. **G2 — 安全預設**：loopback 綁定、token、Origin fail-closed、allowlist、不 log payload。  
+3. **G3 — 信任 UX**：T0–T3；T3 地獄警告；預設不連陌生人。  
+4. **G4 — 供應鏈**：installer SHA-256 → image digest 完整 pin 鏈。  
+5. **G5 — 文件**：Oracle Always Free；**家用 Cloudflare Tunnel / Zero Trust**；誠實邊界。  
+6. **G6 — Token 不當密碼洩漏**：不進 URL／export；輪替與取回流程。  
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 保證 E2E 藏密碼（明文 MUD） | 物理不可能 |
+| 社區「公共 proxy 節點目錄」 | 密碼農場 |
+| 全自動開 Oracle 帳 | OCI 合規 |
+| Colab／Workers 當正式 proxy | 不穩／ToS |
+| 住宅代理池 | 濫用 |
+| 用 CF 改變 MUD 看到的出口 IP | Tunnel 只管入口；出口仍是家用／VPS ISP |
+
+---
+
+## 2. 信任分級（產品 SSOT）
+
+| 等級 | 模式 | 出口 IP（MUD 看到） | 誰看得到密碼 | 預設 UX |
+|------|------|---------------------|--------------|---------|
+| **T0a** | **本機日常**（正式本機 proxy，非 dev 命名） | 家用／公司 ISP | 僅本機 | **桌面預設推薦** |
+| **T0b** | 開發用 localhost-dev | 同上 | 僅本機 | 僅開發文件；**勿暗示**拿來當唯一正式路徑文案 |
+| **T1a** | **我的 VPS**（Oracle／Docker 一鍵） | 該 VPS IP | 有 root 者；**共用 VPS≈T3 風險** | 進階；需 **域名 + 公開 TLS**（見 §3.4） |
+| **T1b** | **我家 + Cloudflare Tunnel／Zero Trust** | **家用 ISP IP**（多開友善） | 本機 root | 外出連自己的家；**不必開埠** |
+| **T2** | 官方 hosted | 官方出口 | **官方營運** | 明示信任 assmud；多開風險；**不**說「技術上看不到密碼」 |
+| **T3** | 自訂 `wss://` | 未知 | **該 URL 控制者** | 預設折疊；模態 + 勾選後才連 |
+
+**禁止**：內建「隨機公共節點列表」。
+
+### T3 強制流程
+
+1. 非本機、非官方 → 模態：  
+   > **此伺服器的管理員可以看到你的 MUD 帳號與密碼**（遊戲多為明文）。  
+   > **WSS 只加密到 proxy，不代表 proxy 看不到密碼。**  
+   > 只在你完全信任架設者時繼續。  
+2. 勾選「我了解」→ 才能 Connect。  
+3. v1.1（可選）：記住 **TLS 憑證／公鑰 pin**（不是 hostname 字串）；變更再警告。  
+
+### T2 官方
+
+- 「密碼會經過 assmud 官方 proxy；**政策上不記錄密碼字串**（見威脅模型）。」  
+- **禁止**：「端到端加密」「官方也看不到」。  
+
+---
+
+## 3. 一鍵部屬設計
+
+### 3.1 產物
+
+| 產物 | 路徑 | 說明 |
+|------|------|------|
+| Compose | `deploy/docker-compose.proxy.yml` | proxy **預設 `127.0.0.1:7788`** |
+| Caddy 範例 | `deploy/Caddyfile.proxy.example` | 公網 **僅 443** → reverse_proxy 到 loopback |
+| Installer | `scripts/deploy/install-proxy.sh` | **版本釘選**；見 §3.3 |
+| cloud-init | `scripts/deploy/oracle-cloud-init.yaml` | 調用 **固定 URL + SHA-256** 的 installer |
+| 文件 | `ORACLE-ALWAYS-FREE.md`、`HOME-CLOUDFLARE-TUNNEL.md`、更新 `SELF-HOSTED-PROXY.md` |
+
+### 3.2 安全預設（強制）
+
+| 項 | 預設 |
+|----|------|
+| 綁定 | **`127.0.0.1:7788` only**（compose / install **不得**預設 `0.0.0.0:7788`） |
+| 對外 | **僅** Caddy／nginx／**cloudflared**  terminat TLS 後轉 loopback |
+| Mode | `remote-prod`（自架對外）或本機日常模式（另名，見 T0a） |
+| Token | `openssl rand -hex 24` → 檔案 **`0600` root-owned**（如 `/etc/assmud/auth_token`） |
+| Token 顯示 | **互動 install**：先 `set +o history`（**必須**）→ 終端顯示 **一次** → 提示勿複製進聊天 |
+| cloud-init | **禁止**把 token echo 到 console log；只寫 0600 檔；文件寫 **SSH 後 `sudo cat` 安全取回** |
+| Token 禁出現 | **URL query、cloud-init userdata 明文、CI log、install 持久 log 檔** |
+| Origin | **空 → fail closed 拒啟動 prod**；cloud-init 非互動：必須用 user-data 注入 `ASSMUD_ORIGIN_ALLOWLIST`（如 `https://mud.example.com`），缺則服務 **不 start** |
+| Origin 語意 | **只限制瀏覽器 Origin，不取代 token**（文件雙寫） |
+| 目的地 | allowlist（種子 RW；taiwanmud 可選 draft；**文件維護者更新 seed，玩家可自填**）；與 proxy `policy.ts` 對齊或抽出檔案（D1 寫明） |
+| 日誌 | metadata only |
+
+### 3.3 供應鏈 pin 鏈（Codex MUST — 具體）
+
+```
+1. 文件／release 公佈：
+   INSTALLER_VERSION=vX.Y.Z
+   INSTALLER_URL=https://github.com/.../releases/download/.../install-proxy.sh
+   INSTALLER_SHA256=<hex>
+
+2. 使用者或 cloud-init：
+   curl -fsSL "$INSTALLER_URL" -o install-proxy.sh
+   echo "$INSTALLER_SHA256  install-proxy.sh" | sha256sum -c -
+   sudo bash install-proxy.sh
+
+3. installer 內部：
+   docker pull ghcr.io/OWNER/assmud-proxy@sha256:DEADBEEF...   # 同 release 鎖定
+   # 禁止 :latest 當 prod 預設
+```
+
+- R2 cosign 可延後；**本版至少 digest + installer SHA-256**。  
+- **Release checklist 必有一欄**：`digest pin verified`（人工或 CI 勾選，在 cosign 前也要）。  
+- 禁止「無 pin 的 curl|bash」當唯一官方路徑。  
+
+### 3.4 TLS／域名（T1a）
+
+| 路徑 | 要求 |
+|------|------|
+| **推薦** | 域名 → Caddy/Let's Encrypt → `wss://mud.example.com/ws` |
+| **不推薦當預設** | `wss://<raw-ip>/ws`（無公開信任憑證；瀏覽器報錯） |
+| 若堅持 IP | 文件必須：**私有 CA／mkcert** 或「僅同網測試」；**不得**寫成一般可行公開路徑 |
+
+### 3.5 Token 生命週期
+
+| 事件 | 行為 |
+|------|------|
+| 安裝 | 生成 → 0600 檔；互動可顯示一次 |
+| 輪替 | `assmud-proxy-rotate-token` 或文件步驟：重生、重啟、更新 web |
+| 遺失 | SSH 讀檔或 rotate；**無「email 找回」** |
+| 撤銷 | 等同輪替；舊 token 立即失效 |
+
+### 3.6 Oracle Always Free
+
+1. 誠實：需帳號／可能驗證；額度與地區限制；**非全自動註冊**。  
+2. 「一鍵」= **VM + 域名（若對外）就緒後** 的 deploy。  
+3. cloud-init：pin installer；寫 token 0600；Origin 來自 user-data；**loopback + Caddy**。  
+
+### 3.7 家用 + Cloudflare Tunnel / Zero Trust（T1b）
+
+> 玩家問題：在家配合 Zero Trust 是否可行？**可以，且建議作為 T1 家用主路徑之一。**
+
+```
+手機/外網 ──WSS──► Cloudflare Edge (Access 政策)
+                      │ Tunnel
+                      ▼
+              家裡 cloudflared ──► 127.0.0.1:7788 assmud-proxy
+                      │
+                      ▼ Telnet（出口 = 家用 ISP IP）
+                    台灣 MUD
+```
+
+| 層 | 誰做 | 說明 |
+|----|------|------|
+| **入口** | CF Tunnel + Zero Trust Access | 不開家用埠；僅允許自己的 IdP／email |
+| **出口** | 家用 ISP | MUD 看到 **你家 IP**（多開友善）；**不是** CF 出口 IP |
+| **密碼** | 本機 proxy | 信任自己；CF 終止 TLS 屬 Cloudflare 信任域（文件一句帶過） |
+| **Origin allowlist** | `https://你的域名` | 與 Access 應用 hostname 一致 |
+| **Token** | 仍要 | Access ≠ 取代 ASSMUD_AUTH_TOKEN |
+
+**文件產物**：`docs/deploy/HOME-CLOUDFLARE-TUNNEL.md`（cloudflared 安裝、Public Hostname → `localhost:7788`、Access 政策、Web 選 T1b）。
+
+**不要**：把 Tunnel 講成「換出口 IP 躲多開」——那是錯的。
+
+### 3.8 密碼文案（安裝成功）
+
+- root／docker 可看 MUD 密碼。  
+- 勿分享 VPS／token；勿用朋友「免費公共 proxy」。  
+- 類比：zMUD／MudClient 裝在室友電腦。  
+- 共用 VPS → **當 T3 風險** 再警告。  
+
+---
+
+## 4. Web 連線信任 UI（U1 + U2）
+
+### 4.1 連線設定
+
+```
+○ 本機（T0a）              預設桌面
+○ 我的自架（T1）           子選：VPS 文件 | 家用 Cloudflare 文件
+○ assmud 官方（T2）        僅當 site config 有 officialProxyUrl，否則隱藏
+○ 其他伺服器（T3）         警告後解鎖
+```
+
+### 4.2 i18n
+
+`trust.mode.*`、`trust.warn.custom`（含 WSS≠E2E 句）、`trust.warn.official`、`trust.selfhost.cta`、`trust.home.cf` — zh-TW / zh-CN / en。
+
+### 4.3 Token 儲存（U2 = **本 ship 必要**）
+
+| 規則 | |
+|------|--|
+| 與連線設定分開儲存 | 如 `assmud_proxy_token`（既有可沿用） |
+| **禁止**進 profile export JSON | 與 profile-library secrets 同原則；profile-library 未完成前先 **硬排除 token 欄** |
+| UI 標示 | 「視同密碼」 |
+
+### 4.4 Acceptance（UI）
+
+1. 新安裝：**無警告不可連 T3**。  
+2. T3 未勾選 → Connect disabled。  
+3. T2 僅 `officialProxyUrl` 存在時顯示。  
+4. T1 連到 ORACLE + HOME-CLOUDFLARE 文件。  
+5. Export profile **不含** proxy token。  
+
+---
+
+## 5. Phases
+
+| ID | Work | Size | Ship |
+|----|------|------|------|
+| **D1** | compose **127.0.0.1**、Caddy 例、install-proxy.sh（SHA 文件位）、env 範本、allowlist 對齊 | S | **是** |
+| **D2** | ORACLE-ALWAYS-FREE.md + cloud-init（pin + 0600 token + Origin fail-closed） | S | **是** |
+| **D2b** | HOME-CLOUDFLARE-TUNNEL.md + SELF-HOSTED 更新（T1a/T1b） | S | **是** |
+| **D3** | threat-model：自架／惡意 proxy／WSS≠E2E／CF 入口 | S | **是** |
+| **U1** | 信任模式 UI + T3 模態 + i18n | M | **是** |
+| **U2** | token 不進 export + 視同密碼 | S | **是（必要）** |
+| **R1** | CI：`docker compose config`；installer 存在性 | S | **是（D1 附帶）** |
+| **R2** | cosign／image 發布管線 | M | 下一刀 |
+| **R3** | OCI Terraform | M | 下一刀 |
+
+**本 ship**：**D1–D3 + D2b + U1 + U2 + R1**。
+
+---
+
+## 6. Acceptance（整體）
+
+1. 文件齊：Oracle、Home CF Tunnel、compose、installer pin 說明。  
+2. Prod：**無 token 或無 Origin → 不起服務**。  
+3. 預設 **不** 監聽 `0.0.0.0:7788`。  
+4. Installer／image pin 鏈寫進 release 檢查清單。  
+5. UI T3 阻擋；export 無 token。  
+6. threat-model 含硬限制與 CF 入口／家用出口說明。  
+7. `npm test` + web build 綠。  
+8. **無**公共 proxy 目錄。  
+9. HOME-CF 文件明示：**Access 禁止 world Bypass**；範例政策 = 僅自己的 email／IdP。  
+10. Release checklist 含 **digest pin verified**。  
+
+---
+
+## 7. Risks
+
+| 風險 | 緩解 |
+
+--- cli.ts ---
+#!/usr/bin/env node
+import { createProxyServer } from "./server.js";
+import { assertProdConfig, defaultConfig } from "./policy.js";
+
+const mode = (process.env.ASSMUD_PROXY_MODE ?? "localhost-dev") as
+  | "remote-prod"
+  | "localhost-dev";
+const cfg = defaultConfig(mode);
+if (process.env.ASSMUD_BIND_HOST) cfg.bindHost = process.env.ASSMUD_BIND_HOST;
+if (process.env.PORT) cfg.bindPort = Number(process.env.PORT);
+if (process.env.ASSMUD_ORIGIN_ALLOWLIST) {
+  cfg.originAllowlist = process.env.ASSMUD_ORIGIN_ALLOWLIST.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+const prodErr = assertProdConfig(cfg);
+if (prodErr) {
+  console.error(prodErr);
+  process.exit(1);
+}
+
+const server = createProxyServer(cfg);
+server.listen(cfg.bindPort, cfg.bindHost, () => {
+  console.log(
+    `assmud-proxy mode=${cfg.mode} listening ws://${cfg.bindHost}:${cfg.bindPort}/ws`,
+  );
+});
+
+--- policy.ts ---
+import { isIP } from "node:net";
+import { lookup } from "node:dns/promises";
+
+export type ProxyConfig = {
+  mode: "remote-prod" | "localhost-dev";
+  bindHost: string;
+  bindPort: number;
+  /** Required in remote-prod */
+  authToken: string | null;
+  allowlist: Array<{ host: string; ports: number[] }>;
+  /** If true (dev), allow any non-private host:port when not on allowlist */
+  relaxAllowlist: boolean;
+  originAllowlist: string[];
+};
+
+export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
+  if (mode === "localhost-dev") {
+    return {
+      mode,
+      bindHost: "127.0.0.1",
+      bindPort: 7788,
+      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+      allowlist: [
+        { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
+        { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
+      ],
+      relaxAllowlist: true,
+      originAllowlist: ["http://127.0.0.1:5173", "http://localhost:5173"],
+    };
+  }
+  return {
+    mode,
+    // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
+    bindHost: process.env.ASSMUD_BIND_HOST ?? "127.0.0.1",
+    bindPort: Number(process.env.PORT ?? 7788),
+    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+    allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
+    relaxAllowlist: false,
+    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
+/** Fail-closed gate for remote-prod before listen. */
+export function assertProdConfig(cfg: ProxyConfig): string | null {
+  if (cfg.mode !== "remote-prod") return null;
+  if (!cfg.authToken) return "ASSMUD_AUTH_TOKEN required for remote-prod";
+  if (!cfg.originAllowlist.length)
+    return "ASSMUD_ORIGIN_ALLOWLIST required for remote-prod (empty fail-closed)";
+  return null;
+}
+
+export function isPrivateOrBlockedIp(ip: string): boolean {
+  // IPv4-mapped IPv6
+  if (ip.startsWith("::ffff:")) {
+    return isPrivateOrBlockedIp(ip.slice(7));
+  }
+  if (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "0.0.0.0" ||
+    ip === "::" ||
+    ip === "::0" ||
+    ip === "0:0:0:0:0:0:0:0"
+  ) {
+    return true;
+  }
+  // IPv6 ULA / link-local
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:")) {
+    return true;
+  }
+  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("169.254.")) return true;
+  // CGNAT 100.64.0.0/10
+  const cgn = /^100\.(\d+)\./.exec(ip);
+  if (cgn) {
+    const n = Number(cgn[1]);
+    if (n >= 64 && n <= 127) return true;
+  }
+  const m = /^172\.(\d+)\./.exec(ip);
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 16 && n <= 31) return true;
+  }
+  return false;
+}
+
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
+  if (!origin) {
+    return cfg.mode === "localhost-dev";
+  }
+  if (cfg.mode === "localhost-dev") {
+    return cfg.originAllowlist.includes(origin) || isLocalDevOrigin(origin);
+  }
+  if (!cfg.originAllowlist.length) return false;
+  return cfg.originAllowlist.includes(origin);
+}
+
+/** Constant-time string compare for tokens (equal length after pad). */
+export function safeEqual(a: string, b: string): boolean {
+  const max = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < max; i++) {
+    const ca = i < a.length ? a.charCodeAt(i) : 0;
+    const cb = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= ca ^ cb;
+  }
+  return diff === 0;
+}
+
+export function checkAuth(
+  url: URL,
+  cfg: ProxyConfig,
+  cookieHeader?: string,
+  authorization?: string,
+): boolean {
+  if (cfg.mode === "localhost-dev" && !cfg.authToken) return true;
+  const token = cfg.authToken;
+  if (!token) return false;
+
+  // Prefer Authorization: Bearer (not logged in query string)
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    const t = authorization.slice(7).trim();
+    if (safeEqual(t, token)) return true;
+  }
+
+  if (cookieHeader) {
+    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
+    if (m) {
+      try {
+        if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // Query token: localhost-dev only (avoids access-log leakage in prod)
+  if (cfg.mode === "localhost-dev") {
+    const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
+    if (q && safeEqual(q, token)) return true;
+  }
+  return false;
+}
+
+export async function assertDestinationAllowed(
+  host: string,
+  port: number,
+  cfg: ProxyConfig,
+): Promise<{ ok: true; address: string } | { ok: false; reason: string }> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { ok: false, reason: "invalid port" };
+  }
+
+  const onList = cfg.allowlist.some(
+    (e) => e.host.toLowerCase() === host.toLowerCase() && e.ports.includes(port),
+  );
+
+  if (!onList && !cfg.relaxAllowlist) {
+    return { ok: false, reason: "host not on allowlist" };
+  }
+
+  let address: string;
+  if (isIP(host)) {
+    address = host;
+  } else {
+    try {
+      const r = await lookup(host, { family: 4 });
+      address = r.address;
+    } catch {
+      return { ok: false, reason: "dns failed" };
+    }
+  }
+
+  // Always block cloud metadata
+  if (address === "169.254.169.254") {
+    return { ok: false, reason: "blocked metadata ip" };
+  }
+
+  const loopbackAllow =
+    onList && (host === "127.0.0.1" || host === "localhost") && cfg.mode === "localhost-dev";
+
+  if (isPrivateOrBlockedIp(address) && !loopbackAllow) {
+    return { ok: false, reason: "private or blocked ip" };
+  }
+
+  // re-check allowlist for non-relaxed
+  if (!onList && cfg.relaxAllowlist) {
+    // public hosts OK in dev relax mode
+    if (isPrivateOrBlockedIp(address)) {
+      return { ok: false, reason: "private or blocked ip" };
+    }
+  }
+
+  return { ok: true, address };
+}
+
+--- policy test ---
+import { describe, it, expect } from "vitest";
+import {
+  assertDestinationAllowed,
+  assertProdConfig,
+  checkAuth,
+  checkOrigin,
+  defaultConfig,
+  isPrivateOrBlockedIp,
+} from "../src/policy.js";
+
+describe("policy", () => {
+  const dev = defaultConfig("localhost-dev");
+  const prod = {
+    ...defaultConfig("remote-prod"),
+    authToken: "secret",
+    originAllowlist: ["https://mud.example.com"],
+  };
+
+  it("blocks private IPs", () => {
+    expect(isPrivateOrBlockedIp("10.0.0.1")).toBe(true);
+    expect(isPrivateOrBlockedIp("192.168.1.1")).toBe(true);
+    expect(isPrivateOrBlockedIp("169.254.169.254")).toBe(true);
+    expect(isPrivateOrBlockedIp("8.8.8.8")).toBe(false);
+  });
+
+  it("denies unauth in prod; query token not accepted in remote-prod", () => {
+    const url = new URL("http://x/ws?host=mud.revivalworld.org&port=4000");
+    expect(checkAuth(url, prod)).toBe(false);
+    const q = new URL("http://x/ws?token=secret");
+    expect(checkAuth(q, prod)).toBe(false);
+    expect(checkAuth(url, prod, undefined, "Bearer secret")).toBe(true);
+    expect(checkAuth(url, prod, undefined, "Bearer wrong")).toBe(false);
+  });
+
+  it("requires Origin in prod", () => {
+    expect(checkOrigin(undefined, prod)).toBe(false);
+    expect(checkOrigin("https://evil.com", prod)).toBe(false);
+    expect(checkOrigin("https://mud.example.com", prod)).toBe(true);
+  });
+
+  it("does not accept origin prefix tricks in dev", () => {
+    expect(checkOrigin("http://127.0.0.1.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://localhost.evil.com", dev)).toBe(false);
+    expect(checkOrigin("http://127.0.0.1:5173", dev)).toBe(true);
+  });
+
+  it("denies non-allowlisted host in prod", async () => {
+    const r = await assertDestinationAllowed("example.com", 22, prod);
+    expect(r.ok).toBe(false);
+  });
+
+  it("allows RW on allowlist", async () => {
+    const r = await assertDestinationAllowed("mud.revivalworld.org", 4000, prod);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+  });
+
+  it("dev still blocks random private IPs even with relax", async () => {
+    const r = await assertDestinationAllowed("10.1.2.3", 4000, dev);
+    expect(r.ok).toBe(false);
+  });
+
+  it("remote-prod defaults to loopback bind", () => {
+    const p = defaultConfig("remote-prod");
+    expect(p.bindHost).toBe("127.0.0.1");
+  });
+
+  it("assertProdConfig fails closed without token or origin", () => {
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: null,
+        originAllowlist: ["https://x.example"],
+      }),
+    ).toMatch(/TOKEN/);
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: "x",
+        originAllowlist: [],
+      }),
+    ).toMatch(/ORIGIN/);
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: "x",
+        originAllowlist: ["https://mud.example.com"],
+      }),
+    ).toBeNull();
+  });
+});
+
+--- trustMode ---
+/** Connection trust modes (selfhost-proxy-trust plan). */
+
+export type TrustMode = "local" | "selfhost" | "official" | "custom";
+
+const MODE_KEY = "assmud_trust_mode";
+const CUSTOM_WS_KEY = "assmud_custom_ws";
+const TOKEN_KEY = "assmud_token";
+const CUSTOM_ACK_KEY = "assmud_trust_custom_ack";
+
+export type SiteConfig = {
+  officialProxyUrl?: string;
+};
+
+export function loadTrustMode(): TrustMode {
+  const m = localStorage.getItem(MODE_KEY);
+  if (m === "local" || m === "selfhost" || m === "official" || m === "custom")
+    return m;
+  return "local";
+}
+
+export function saveTrustMode(m: TrustMode): void {
+  localStorage.setItem(MODE_KEY, m);
+}
+
+export function loadCustomWs(): string {
+  return localStorage.getItem(CUSTOM_WS_KEY) ?? "";
+}
+
+export function saveCustomWs(url: string): void {
+  localStorage.setItem(CUSTOM_WS_KEY, url);
+}
+
+export function loadProxyToken(): string {
+  return localStorage.getItem(TOKEN_KEY) ?? "";
+}
+
+export function saveProxyToken(t: string): void {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Token must never appear in profile export JSON. */
+export function assertExportOmitsToken(exportedJson: string): boolean {
+  try {
+    const data = JSON.parse(exportedJson) as unknown;
+    const s = JSON.stringify(data);
+    // exported profiles should not embed assmud_token field
+    return !/"assmud_token"\s*:/.test(s) && !/"proxyToken"\s*:/.test(s);
+  } catch {
+    return false;
+  }
+}
+
+export function loadCustomAck(): boolean {
+  return localStorage.getItem(CUSTOM_ACK_KEY) === "1";
+}
+
+export function saveCustomAck(ok: boolean): void {
+  if (ok) localStorage.setItem(CUSTOM_ACK_KEY, "1");
+  else localStorage.removeItem(CUSTOM_ACK_KEY);
+}
+
+export function resolveWsUrl(
+  mode: TrustMode,
+  opts: {
+    envDefault: string;
+    customWs: string;
+    officialUrl?: string;
+  },
+): string | null {
+  switch (mode) {
+    case "local":
+      return opts.envDefault || "ws://127.0.0.1:7788/ws";
+    case "selfhost":
+    case "custom":
+      return opts.customWs.trim() || null;
+    case "official":
+      return opts.officialUrl?.trim() || null;
+    default:
+      return null;
+  }
+}
+
+/** Connect allowed for custom only after explicit risk ack. */
+export function canConnect(mode: TrustMode, customAck: boolean): boolean {
+  if (mode === "custom") return customAck;
+  return true;
+}
+
+export function readOfficialProxyUrl(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const w = window as unknown as { __ASSMUD_SITE__?: SiteConfig };
+  return w.__ASSMUD_SITE__?.officialProxyUrl;
+}
+
+--- trust tests ---
+import { describe, it, expect } from "vitest";
+import {
+  assertExportOmitsToken,
+  canConnect,
+  resolveWsUrl,
+} from "../src/lib/trustMode";
+
+describe("trustMode", () => {
+  it("custom requires ack", () => {
+    expect(canConnect("custom", false)).toBe(false);
+    expect(canConnect("custom", true)).toBe(true);
+    expect(canConnect("local", false)).toBe(true);
+  });
+
+  it("resolveWsUrl by mode", () => {
+    expect(
+      resolveWsUrl("local", {
+        envDefault: "ws://127.0.0.1:7788/ws",
+        customWs: "",
+      }),
+    ).toBe("ws://127.0.0.1:7788/ws");
+    expect(
+      resolveWsUrl("selfhost", {
+        envDefault: "ws://x",
+        customWs: "wss://mine.example/ws",
+      }),
+    ).toBe("wss://mine.example/ws");
+    expect(
+      resolveWsUrl("official", {
+        envDefault: "ws://x",
+        customWs: "",
+        officialUrl: "wss://official.example/ws",
+      }),
+    ).toBe("wss://official.example/ws");
+    expect(
+      resolveWsUrl("official", {
+        envDefault: "ws://x",
+        customWs: "",
+      }),
+    ).toBeNull();
+  });
+
+  it("export must omit proxy token fields", () => {
+    const clean = JSON.stringify([{ id: "a", host: "h", port: 1 }]);
+    expect(assertExportOmitsToken(clean)).toBe(true);
+    expect(
+      assertExportOmitsToken(JSON.stringify({ proxyToken: "secret" })),
+    ).toBe(false);
+  });
+});
+
+exec
+/usr/bin/zsh -lc "find deploy scripts/deploy -maxdepth 2 -type f -print -exec sed -n '1,300p' {} \\; 2>/dev/null && printf '\\n--- App diff ---\\n' && git diff -- apps/web/src/App.tsx apps/web/src/components/ConnectGate.tsx apps/web/src/i18n/types.ts && printf '\\n--- package scripts ---\\n' && find . -maxdepth 3 -name package.json -print -exec sed -n '1,220p' {} \\;" in /home/cookys/projects/assmud
+ succeeded in 205ms:
+{
+  "name": "cac",
+  "version": "6.7.14",
+  "description": "Simple yet powerful framework for building command-line apps.",
+  "repository": {
+    "url": "egoist/cac",
+    "type": "git"
+  },
+  "main": "index-compat.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./index-compat.js"
+    },
+    "./package.json": "./package.json",
+    "./*": "./*"
+  },
+  "files": [
+    "dist",
+    "!**/__test__/**",
+    "/mod.js",
+    "/mod.ts",
+    "/deno",
+    "/index-compat.js"
+  ],
+  "scripts": {
+    "test": "jest",
+    "test:cov": "jest --coverage",
+    "build:deno": "node -r sucrase/register scripts/build-deno.ts",
+    "build:node": "rollup -c",
+    "build": "yarn build:deno && yarn build:node",
+    "toc": "markdown-toc -i README.md",
+    "prepublishOnly": "npm run build && cp mod.js mod.mjs",
+    "docs:api": "typedoc --out api-doc --readme none --exclude \"**/__test__/**\" --theme minimal"
+  },
+  "author": "egoist <0x142857@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.12.10",
+    "@babel/plugin-syntax-typescript": "^7.12.1",
+    "@rollup/plugin-commonjs": "^17.0.0",
+    "@rollup/plugin-node-resolve": "^11.0.0",
+    "@types/fs-extra": "^9.0.5",
+    "@types/jest": "^26.0.19",
+    "@types/mri": "^1.1.0",
+    "cz-conventional-changelog": "^2.1.0",
+    "esbuild": "^0.8.21",
+    "eslint-config-rem": "^3.0.0",
+    "execa": "^5.0.0",
+    "fs-extra": "^9.0.1",
+    "globby": "^11.0.1",
+    "husky": "^1.2.0",
+    "jest": "^24.9.0",
+    "lint-staged": "^8.1.0",
+    "markdown-toc": "^1.2.0",
+    "mri": "^1.1.6",
+    "prettier": "^2.2.1",
+    "rollup": "^2.34.2",
+    "rollup-plugin-dts": "^2.0.1",
+    "rollup-plugin-esbuild": "^2.6.1",
+    "semantic-release": "^17.3.0",
+    "sucrase": "^3.16.0",
+    "ts-jest": "^26.4.4",
+    "ts-node": "^9.1.1",
+    "typedoc": "^0.19.2",
+    "typescript": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=8"
+  },
+  "release": {
+    "branch": "master"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "lint-staged": {
+    "linters": {
+      "*.{js,json,ts}": [
+        "prettier --write",
+        "git add"
+      ],
+      "*.md": [
+        "markdown-toc -i",
+        "prettier --write",
+        "git add"
+      ]
+    },
+    "ignore": [
+      "dist/**",
+      "mod.js"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm t && lint-staged"
+    }
+  }
+}
+./node_modules/pathval/package.json
+{
+  "name": "pathval",
+  "description": "Object value retrieval given a string path",
+  "homepage": "https://github.com/chaijs/pathval",
+  "version": "2.0.1",
+  "keywords": [
+    "pathval",
+    "value retrieval",
+    "chai util"
+  ],
+  "license": "MIT",
+  "author": "Veselin Todorov <hi@vesln.com>",
+  "files": [
+    "index.js"
+  ],
+  "main": "./index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/chaijs/pathval.git"
+  },
+  "scripts": {
+    "lint": "eslint --ignore-path .gitignore .",
+    "lint:fix": "npm run lint -- --fix",
+    "semantic-release": "semantic-release pre && npm publish && semantic-release post",
+    "pretest": "npm run lint",
+    "test": "npm run test:node && npm run test:browser",
+    "test:browser": "web-test-runner test/index.js --node-resolve",
+    "test:node": "mocha",
+    "prepare": "husky"
+  },
+  "eslintConfig": {
+    "extends": [
+      "strict/es6"
+    ],
+    "parserOptions": {
+      "sourceType": "module"
+    },
+    "env": {
+      "es6": true
+    },
+    "globals": {
+      "HTMLElement": false
+    },
+    "rules": {
+      "complexity": 0,
+      "max-statements": 0
+    }
+  },
+  "devDependencies": {
+    "@web/test-runner": "^0.17.0",
+    "eslint": "^7.13.0",
+    "eslint-config-strict": "^14.0.1",
+    "eslint-plugin-filenames": "^1.3.2",
+    "husky": "^9.1.7",
+    "mocha": "^8.2.1",
+    "semantic-release": "^17.2.2",
+    "simple-assert": "^2.0.0",
+    "validate-commit-msg": "^2.14.0"
+  },
+  "engines": {
+    "node": ">= 14.16"
+  }
+}
+./node_modules/magic-string/package.json
+{
+  "name": "magic-string",
+  "version": "0.30.21",
+  "type": "commonjs",
+  "description": "Modify strings, generate sourcemaps",
+  "keywords": [
+    "string",
+    "string manipulation",
+    "sourcemap",
+    "templating",
+    "transpilation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rich-Harris/magic-string.git"
+  },
+  "license": "MIT",
+  "author": "Rich Harris",
+  "main": "./dist/magic-string.cjs.js",
+  "module": "./dist/magic-string.es.mjs",
+  "sideEffects": false,
+  "jsnext:main": "./dist/magic-string.es.mjs",
+  "types": "./dist/magic-string.cjs.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "import": "./dist/magic-string.es.mjs",
+      "require": "./dist/magic-string.cjs.js"
+    }
+  },
+  "files": [
+    "dist/*",
+    "index.d.ts",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-replace": "^6.0.2",
+    "benchmark": "^2.1.4",
+    "bumpp": "^10.3.1",
+    "conventional-changelog-cli": "^5.0.0",
+    "eslint": "^9.38.0",
+    "prettier": "^3.6.2",
+    "publint": "^0.3.15",
+    "rollup": "^4.52.5",
+    "source-map-js": "^1.2.1",
+    "source-map-support": "^0.5.21",
+    "vitest": "^4.0.2"
+  },
+  "dependencies": {
+    "@jridgewell/sourcemap-codec": "^1.5.5"
+  },
+  "scripts": {
+    "build": "rollup -c",
+    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
+    "format": "prettier --single-quote --print-width 100 --use-tabs --write .",
+    "lint": "eslint src test && publint",
+    "lint:fix": "eslint src test --fix",
+    "release": "bumpp -x \"pnpm run changelog\" --all",
+    "pretest": "pnpm run build",
+    "test": "vitest run",
+    "test:dev": "vitest",
+    "bench": "pnpm run build && node benchmark/index.mjs",
+    "watch": "rollup -cw"
+  }
+}./node_modules/why-is-node-running/package.json
+{
+  "name": "why-is-node-running",
+  "version": "2.3.0",
+  "description": "Node is running but you don't know why? why-is-node-running is here to help you.",
+  "main": "index.js",
+  "dependencies": {
+    "siginfo": "^2.0.0",
+    "stackback": "0.0.2"
+  },
+  "bin": {
+    "why-is-node-running": "cli.js"
+  },
+  "engines": {
+    "node": ">=8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mafintosh/why-is-node-running.git"
+  },
+  "keywords": [
+    "debug",
+    "devops",
+    "test",
+    "events",
+    "handles"
+  ],
+  "author": "Mathias Buus (@mafintosh)",
+  "contributors": [
+    {
+      "name": "Jon Peck",
+      "email": "jpeck@fluxsauce.com"
+    }
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/why-is-node-running/issues"
+  },
+  "homepage": "https://github.com/mafintosh/why-is-node-running"
+}
+./node_modules/node-releases/package.json
+{
+  "name": "node-releases",
+  "version": "2.0.51",
+  "description": "Node.js releases data",
+  "type": "module",
+  "files": [
+    "data"
+  ],
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chicoxyzzy/node-releases.git"
+  },
+  "keywords": [
+    "nodejs",
+    "releases"
+  ],
+  "author": "Sergey Rubanov <chi187@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "semver": "^7.3.5"
+  }
+}
+./node_modules/convert-source-map/package.json
+{
+  "name": "convert-source-map",
+  "version": "2.0.0",
+  "description": "Converts a source-map from/to  different formats and allows adding/changing properties.",
+  "main": "index.js",
+  "scripts": {
+    "test": "tap test/*.js --color"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/thlorenz/convert-source-map.git"
+  },
+  "homepage": "https://github.com/thlorenz/convert-source-map",
+  "devDependencies": {
+    "inline-source-map": "~0.6.2",
+    "tap": "~9.0.0"
+  },
+  "keywords": [
+    "convert",
+    "sourcemap",
+    "source",
+    "map",
+    "browser",
+    "debug"
+  ],
+  "author": {
+    "name": "Thorsten Lorenz",
+    "email": "thlorenz@gmx.de",
+    "url": "http://thlorenz.com"
+  },
+  "license": "MIT",
+  "engine": {
+    "node": ">=4"
+  },
+  "files": [
+    "index.js"
+  ]
+}
+./node_modules/vite-node/package.json
+{
+  "name": "vite-node",
+  "type": "module",
+  "version": "2.1.9",
+  "description": "Vite as Node.js runtime",
+  "author": "Anthony Fu <anthonyfu117@hotmail.com>",
+  "license": "MIT",
+  "funding": "https://opencollective.com/vitest",
+  "homepage": "https://github.com/vitest-dev/vitest/blob/main/packages/vite-node#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitest-dev/vitest.git",
+    "directory": "packages/vite-node"
+  },
+  "bugs": {
+    "url": "https://github.com/vitest-dev/vitest/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.cjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.mjs",
+      "require": "./dist/server.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.mjs",
+      "require": "./dist/utils.cjs"
+    },
+    "./hmr": {
+      "types": "./dist/hmr.d.ts",
+      "import": "./dist/hmr.mjs",
+      "require": "./dist/hmr.cjs"
+    },
+    "./source-map": {
+      "types": "./dist/source-map.d.ts",
+      "import": "./dist/source-map.mjs",
+      "require": "./dist/source-map.cjs"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.mjs",
+      "require": "./dist/constants.cjs"
+    },
+    "./*": "./*"
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/*",
+        "./dist/index.d.ts"
+      ]
+    }
+  },
+  "bin": {
+    "vite-node": "./vite-node.mjs"
+  },
+  "files": [
+    "*.d.ts",
+    "*.mjs",
+    "dist"
+  ],
+  "engines": {
+    "node": "^18.0.0 || >=20.0.0"
+  },
+  "dependencies": {
+    "cac": "^6.7.14",
+    "debug": "^4.3.7",
+    "es-module-lexer": "^1.5.4",
+    "pathe": "^1.1.2",
+    "vite": "^5.0.0"
+  },
+  "devDependencies": {
+    "@jridgewell/trace-mapping": "^0.3.25",
+    "@types/debug": "^4.1.12",
+    "tinyrainbow": "^1.2.0"
+  },
+  "scripts": {
+    "build": "rimraf dist && rollup -c",
+    "dev": "rollup -c --watch --watch.include 'src/**' -m inline",
+    "typecheck": "tsc --noEmit"
+  }
+}./node_modules/tapable/package.json
+{
+  "name": "tapable",
+  "version": "2.3.3",
+  "description": "Just a little module for plugins.",
+  "homepage": "https://github.com/webpack/tapable",
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/webpack/tapable.git"
+  },
+  "funding": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/webpack"
+  },
+  "license": "MIT",
+  "author": "Tobias Koppers @sokra",
+  "main": "lib/index.js",
+  "browser": {
+    "util": "./lib/util-browser.js"
+  },
+  "types": "./tapable.d.ts",
+  "files": [
+    "lib",
+    "tapable.d.ts"
+  ],
+  "scripts": {
+    "lint": "npm run lint:code && npm run fmt:check",
+    "lint:code": "eslint --cache .",
+    "fmt": "npm run fmt:base -- --log-level warn --write",
+    "fmt:check": "npm run fmt:base -- --check",
+    "fmt:base": "node ./node_modules/prettier/bin/prettier.cjs --cache --ignore-unknown .",
+    "fix": "npm run fix:code && npm run fmt",
+    "fix:code": "npm run lint:code -- --fix",
+    "test": "jest",
+    "benchmark": "node --max-old-space-size=4096 --hash-seed=1 --random-seed=1 --no-opt --predictable --predictable-gc-schedule --interpreted-frames-native-stack --allow-natives-syntax --expose-gc --no-concurrent-sweeping ./benchmark/run.mjs",
+    "version": "changeset version",
+    "release": "changeset publish"
+  },
+  "jest": {
+    "transform": {
+      "test[\\\\/].+\\.js$": "babel-jest"
+    },
+    "snapshotFormat": {
+      "escapeString": true,
+      "printBasicPrototype": true
+    }
+  },
+  "devDependencies": {
+    "@babel/core": "^7.4.4",
+    "@babel/preset-env": "^7.4.4",
+    "@changesets/cli": "^2.31.0",
+    "@changesets/get-github-info": "^0.8.0",
+    "@codspeed/core": "^5.3.0",
+    "@stylistic/eslint-plugin": "^5.2.3",
+    "babel-jest": "^30.3.0",
+    "eslint": "^9.28.0",
+    "eslint-config-webpack": "^4.6.3",
+    "jest": "^30.3.0",
+    "prettier": "^3.8.3",
+    "prettier-1": "npm:prettier@^1",
+    "tinybench": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=6"
+  }
+}
+./node_modules/base64-js/package.json
+{
+  "name": "base64-js",
+  "description": "Base64 encoding/decoding in pure JS",
+  "version": "1.5.1",
+  "author": "T. Jameson Little <t.jameson.little@gmail.com>",
+  "typings": "index.d.ts",
+  "bugs": {
+    "url": "https://github.com/beatgammit/base64-js/issues"
+  },
+  "devDependencies": {
+    "babel-minify": "^0.5.1",
+    "benchmark": "^2.1.4",
+    "browserify": "^16.3.0",
+    "standard": "*",
+    "tape": "4.x"
+  },
+  "homepage": "https://github.com/beatgammit/base64-js",
+  "keywords": [
+    "base64"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/beatgammit/base64-js.git"
+  },
+  "scripts": {
+    "build": "browserify -s base64js -r ./ | minify > base64js.min.js",
+    "lint": "standard",
+    "test": "npm run lint && npm run unit",
+    "unit": "tape test/*.js"
+  },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/feross"
+    },
+    {
+      "type": "patreon",
+      "url": "https://www.patreon.com/feross"
+    },
+    {
+      "type": "consulting",
+      "url": "https://feross.org/support"
+    }
+  ]
+}
+./node_modules/jsesc/package.json
+{
+  "name": "jsesc",
+  "version": "3.1.0",
+  "description": "Given some data, jsesc returns the shortest possible stringified & ASCII-safe representation of that data.",
+  "homepage": "https://mths.be/jsesc",
+  "engines": {
+    "node": ">=6"
+  },
+  "main": "jsesc.js",
+  "bin": "bin/jsesc",
+  "man": "man/jsesc.1",
+  "keywords": [
+    "buffer",
+    "escape",
+    "javascript",
+    "json",
+    "map",
+    "set",
+    "string",
+    "stringify",
+    "tool"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Mathias Bynens",
+    "url": "https://mathiasbynens.be/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mathiasbynens/jsesc.git"
+  },
+  "bugs": "https://github.com/mathiasbynens/jsesc/issues",
+  "files": [
+    "LICENSE-MIT.txt",
+    "jsesc.js",
+    "bin/",
+    "man/"
+  ],
+  "scripts": {
+    "build": "grunt template",
+    "coveralls": "istanbul cover --verbose --dir 'coverage' 'tests/tests.js' && coveralls < coverage/lcov.info'",
+    "cover": "istanbul cover --report 'html' --verbose --dir 'coverage' 'tests/tests.js'",
+    "test": "mocha tests"
+  },
+  "devDependencies": {
+    "coveralls": "^2.11.6",
+    "grunt": "^0.4.5",
+    "grunt-cli": "^1.3.2",
+    "grunt-template": "^0.2.3",
+    "istanbul": "^0.4.2",
+    "mocha": "^5.2.0",
+    "regenerate": "^1.3.0",
+    "requirejs": "^2.1.22",
+    "unicode-13.0.0": "0.8.0"
+  }
+}
+./node_modules/iconv-lite/package.json
+{
+    "name": "iconv-lite",
+    "description": "Convert character encodings in pure javascript.",
+    "version": "0.6.3",
+    "license": "MIT",
+    "keywords": [
+        "iconv",
+        "convert",
+        "charset",
+        "icu"
+    ],
+    "author": "Alexander Shtuchkin <ashtuchkin@gmail.com>",
+    "main": "./lib/index.js",
+    "typings": "./lib/index.d.ts",
+    "homepage": "https://github.com/ashtuchkin/iconv-lite",
+    "bugs": "https://github.com/ashtuchkin/iconv-lite/issues",
+    "repository": {
+        "type": "git",
+        "url": "git://github.com/ashtuchkin/iconv-lite.git"
+    },
+    "engines": {
+        "node": ">=0.10.0"
+    },
+    "scripts": {
+        "coverage": "c8 _mocha --grep .",
+        "test": "mocha --reporter spec --grep ."
+    },
+    "browser": {
+        "stream": false
+    },
+    "devDependencies": {
+        "async": "^3.2.0",
+        "c8": "^7.2.0",
+        "errto": "^0.2.1",
+        "iconv": "^2.3.5",
+        "mocha": "^3.5.3",
+        "request": "^2.88.2",
+        "semver": "^6.3.0",
+        "unorm": "^1.6.0"
+    },
+    "dependencies": {
+        "safer-buffer": ">= 2.1.2 < 3.0.0"
+    }
+}
+./node_modules/tinyspy/package.json
+{
+  "name": "tinyspy",
+  "type": "module",
+  "version": "3.0.2",
+  "packageManager": "pnpm@9.1.1",
+  "description": "A minimal fork of nanospy, with more features",
+  "license": "MIT",
+  "homepage": "https://github.com/tinylibs/tinyspy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tinylibs/tinyspy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tinylibs/tinyspy/issues"
+  },
+  "keywords": [
+    "spy",
+    "mock",
+    "typescript",
+    "method"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+./node_modules/lightningcss/package.json
+{
+  "name": "lightningcss",
+  "version": "1.32.0",
+  "license": "MPL-2.0",
+  "description": "A CSS parser, transformer, and minifier written in Rust",
+  "main": "node/index.js",
+  "types": "node/index.d.ts",
+  "exports": {
+    "types": "./node/index.d.ts",
+    "import": "./node/index.mjs",
+    "require": "./node/index.js"
+  },
+  "browserslist": "last 2 versions, not dead",
+  "targets": {
+    "main": false,
+    "types": false
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "funding": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/parcel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parcel-bundler/lightningcss.git"
+  },
+  "engines": {
+    "node": ">= 12.0.0"
+  },
+  "napi": {
+    "name": "lightningcss"
+  },
+  "files": [
+    "node/*.js",
+    "node/*.mjs",
+    "node/*.d.ts",
+    "node/*.flow"
+  ],
+  "dependencies": {
+    "detect-libc": "^2.0.3"
+  },
+  "devDependencies": {
+    "@babel/parser": "7.21.4",
+    "@babel/traverse": "7.21.4",
+    "@codemirror/lang-css": "^6.0.1",
+    "@codemirror/lang-javascript": "^6.1.2",
+    "@codemirror/lint": "^6.1.0",
+    "@codemirror/theme-one-dark": "^6.1.0",
+    "@mdn/browser-compat-data": "~7.3.6",
+    "@napi-rs/cli": "^2.14.0",
+    "autoprefixer": "^10.4.27",
+    "caniuse-lite": "^1.0.30001777",
+    "codemirror": "^6.0.1",
+    "cssnano": "^7.0.6",
+    "esbuild": "^0.19.8",
+    "flowgen": "^1.21.0",
+    "jest-diff": "^27.4.2",
+    "json-schema-to-typescript": "^11.0.2",
+    "markdown-it-anchor": "^8.6.6",
+    "markdown-it-prism": "^2.3.0",
+    "markdown-it-table-of-contents": "^0.6.0",
+    "napi-wasm": "^1.0.1",
+    "node-fetch": "^3.1.0",
+    "parcel": "^2.8.2",
+    "patch-package": "^6.5.0",
+    "path-browserify": "^1.0.1",
+    "postcss": "^8.3.11",
+    "posthtml-include": "^1.7.4",
+    "posthtml-markdownit": "^1.3.1",
+    "posthtml-prism": "^1.0.4",
+    "process": "^0.11.10",
+    "puppeteer": "^12.0.1",
+    "recast": "^0.22.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.7.2",
+    "util": "^0.12.4",
+    "uvu": "^0.5.6"
+  },
+  "resolutions": {
+    "lightningcss": "link:."
+  },
+  "scripts": {
+    "prepare": "patch-package",
+    "build": "node scripts/build.js && node scripts/build-flow.js",
+    "build-release": "node scripts/build.js --release && node scripts/build-flow.js",
+    "prepublishOnly": "node scripts/build-flow.js",
+    "wasm:build": "cargo build --target wasm32-unknown-unknown -p lightningcss_node && wasm-opt target/wasm32-unknown-unknown/debug/lightningcss_node.wasm --asyncify --pass-arg=asyncify-imports@env.await_promise_sync -Oz -o wasm/lightningcss_node.wasm && node scripts/build-wasm.js",
+    "wasm:build-release": "cargo build --target wasm32-unknown-unknown -p lightningcss_node --release && wasm-opt target/wasm32-unknown-unknown/release/lightningcss_node.wasm --asyncify --pass-arg=asyncify-imports@env.await_promise_sync -Oz -o wasm/lightningcss_node.wasm && node scripts/build-wasm.js",
+    "website:start": "parcel 'website/*.html' website/playground/index.html",
+    "website:build": "yarn wasm:build-release && parcel build 'website/*.html' website/playground/index.html",
+    "build-ast": "cargo run --example schema --features jsonschema && node scripts/build-ast.js",
+    "tsc": "tsc -p node/tsconfig.json",
+    "test": "uvu node/test"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-x64": "1.32.0",
+    "lightningcss-linux-x64-gnu": "1.32.0",
+    "lightningcss-win32-x64-msvc": "1.32.0",
+    "lightningcss-win32-arm64-msvc": "1.32.0",
+    "lightningcss-darwin-arm64": "1.32.0",
+    "lightningcss-linux-arm64-gnu": "1.32.0",
+    "lightningcss-linux-arm-gnueabihf": "1.32.0",
+    "lightningcss-linux-arm64-musl": "1.32.0",
+    "lightningcss-linux-x64-musl": "1.32.0",
+    "lightningcss-freebsd-x64": "1.32.0",
+    "lightningcss-android-arm64": "1.32.0"
+  }
+}
+./node_modules/util-deprecate/package.json
+{
+  "name": "util-deprecate",
+  "version": "1.0.2",
+  "description": "The Node.js `util.deprecate()` function with browser support",
+  "main": "node.js",
+  "browser": "browser.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/TooTallNate/util-deprecate.git"
+  },
+  "keywords": [
+    "util",
+    "deprecate",
+    "browserify",
+    "browser",
+    "node"
+  ],
+  "author": "Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/TooTallNate/util-deprecate/issues"
+  },
+  "homepage": "https://github.com/TooTallNate/util-deprecate"
+}
+./node_modules/expect-type/package.json
+{
+  "name": "expect-type",
+  "version": "1.4.0",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "keywords": [
+    "typescript",
+    "type-check",
+    "assert",
+    "types",
+    "typings",
+    "test",
+    "testing"
+  ],
+  "homepage": "https://github.com/mmkal/expect-type#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mmkal/expect-type.git"
+  },
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "*.md"
+  ],
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.3",
+    "@types/node": "^24.0.0",
+    "@typescript/native-preview": "7.0.0-dev.20260609.1",
+    "@vitest/ui": "^4.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-mmkal": "0.9.0",
+    "np": "^11.0.0",
+    "pkg-pr-new": "0.0.75",
+    "strip-ansi": "7.2.0",
+    "ts-morph": "27.0.2",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "scripts": {
+    "eslint": "eslint --max-warnings 0",
+    "lint": "tsc && pnpm eslint .",
+    "type-check": "tsc",
+    "build": "tsc -p tsconfig.lib.json",
+    "arethetypeswrong": "attw --pack",
+    "test": "vitest run"
+  }
+}./node_modules/ws/package.json
+{
+  "name": "ws",
+  "version": "8.21.1",
+  "description": "Simple to use, blazing fast and thoroughly tested websocket client and server for Node.js",
+  "keywords": [
+    "HyBi",
+    "Push",
+    "RFC-6455",
+    "WebSocket",
+    "WebSockets",
+    "real-time"
+  ],
+  "homepage": "https://github.com/websockets/ws",
+  "bugs": "https://github.com/websockets/ws/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/websockets/ws.git"
+  },
+  "author": "Einar Otto Stangvik <einaros@gmail.com> (http://2x.io)",
+  "license": "MIT",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "browser": "./browser.js",
+      "import": "./wrapper.mjs",
+      "require": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "browser": "browser.js",
+  "engines": {
+    "node": ">=10.0.0"
+  },
+  "files": [
+    "browser.js",
+    "index.js",
+    "lib/*.js",
+    "wrapper.mjs"
+  ],
+  "scripts": {
+    "test": "nyc --reporter=lcov --reporter=text mocha --throw-deprecation test/*.test.js",
+    "integration": "mocha --throw-deprecation test/*.integration.js",
+    "lint": "eslint . && prettier --check --ignore-path .gitignore \"**/*.{json,md,yaml,yml}\""
+  },
+  "peerDependencies": {
+    "bufferutil": "^4.0.1",
+    "utf-8-validate": ">=5.0.2"
+  },
+  "peerDependenciesMeta": {
+    "bufferutil": {
+      "optional": true
+    },
+    "utf-8-validate": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "benchmark": "^2.1.4",
+    "bufferutil": "^4.0.1",
+    "eslint": "^10.0.1",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.0.0",
+    "globals": "^17.0.0",
+    "mocha": "^8.4.0",
+    "nyc": "^15.0.0",
+    "prettier": "^3.0.0",
+    "utf-8-validate": "^6.0.0"
+  },
+  "allowScripts": {
+    "bufferutil": true,
+    "utf-8-validate": true
+  }
+}
+./node_modules/yallist/package.json
+{
+  "name": "yallist",
+  "version": "3.1.1",
+  "description": "Yet Another Linked List",
+  "main": "yallist.js",
+  "directories": {
+    "test": "test"
+  },
+  "files": [
+    "yallist.js",
+    "iterator.js"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "tap": "^12.1.0"
+  },
+  "scripts": {
+    "test": "tap test/*.js --100",
+    "preversion": "npm test",
+    "postversion": "npm publish",
+    "postpublish": "git push origin --all; git push origin --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isaacs/yallist.git"
+  },
+  "author": "Isaac Z. Schlueter <i@izs.me> (http://blog.izs.me/)",
+  "license": "ISC"
+}
+./node_modules/ieee754/package.json
+{
+  "name": "ieee754",
+  "description": "Read/write IEEE754 floating point numbers from/to a Buffer or array-like object",
+  "version": "1.2.1",
+  "author": {
+    "name": "Feross Aboukhadijeh",
+    "email": "feross@feross.org",
+    "url": "https://feross.org"
+  },
+  "contributors": [
+    "Romain Beauxis <toots@rastageeks.org>"
+  ],
+  "devDependencies": {
+    "airtap": "^3.0.0",
+    "standard": "*",
+    "tape": "^5.0.1"
+  },
+  "keywords": [
+    "IEEE 754",
+    "buffer",
+    "convert",
+    "floating point",
+    "ieee754"
+  ],
+  "license": "BSD-3-Clause",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/feross/ieee754.git"
+  },
+  "scripts": {
+    "test": "standard && npm run test-node && npm run test-browser",
+    "test-browser": "airtap -- test/*.js",
+    "test-browser-local": "airtap --local -- test/*.js",
+    "test-node": "tape test/*.js"
+  },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/feross"
+    },
+    {
+      "type": "patreon",
+      "url": "https://www.patreon.com/feross"
+    },
+    {
+      "type": "consulting",
+      "url": "https://feross.org/support"
+    }
+  ]
+}
+./node_modules/nanoid/package.json
+{
+  "name": "nanoid",
+  "version": "3.3.16",
+  "description": "A tiny (116 bytes), secure URL-friendly unique string ID generator",
+  "keywords": [
+    "uuid",
+    "random",
+    "id",
+    "url"
+  ],
+  "engines": {
+    "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
+  },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/ai"
+    }
+  ],
+  "author": "Andrey Sitnik <andrey@sitnik.ru>",
+  "license": "MIT",
+  "repository": "ai/nanoid",
+  "browser": {
+    "./index.js": "./index.browser.js",
+    "./async/index.js": "./async/index.browser.js",
+    "./async/index.cjs": "./async/index.browser.cjs",
+    "./index.cjs": "./index.browser.cjs"
+  },
+  "react-native": "index.js",
+  "bin": "./bin/nanoid.cjs",
+  "sideEffects": false,
+  "types": "./index.d.ts",
+  "type": "module",
+  "main": "index.cjs",
+  "module": "index.js",
+  "exports": {
+    ".": {
+      "react-native": "./index.browser.js",
+      "browser": "./index.browser.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./index.cjs"
+      },
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      },
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./async/package.json": "./async/package.json",
+    "./async": {
+      "browser": "./async/index.browser.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./async/index.cjs"
+      },
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./async/index.js"
+      },
+      "default": "./async/index.js"
+    },
+    "./non-secure/package.json": "./non-secure/package.json",
+    "./non-secure": {
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./non-secure/index.cjs"
+      },
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./non-secure/index.js"
+      },
+      "default": "./non-secure/index.js"
+    },
+    "./url-alphabet/package.json": "./url-alphabet/package.json",
+    "./url-alphabet": {
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./url-alphabet/index.cjs"
+      },
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./url-alphabet/index.js"
+      },
+      "default": "./url-alphabet/index.js"
+    }
+  }
+}
+./node_modules/baseline-browser-mapping/package.json
+{
+  "name": "baseline-browser-mapping",
+  "main": "./dist/index.cjs",
+  "version": "2.10.44",
+  "description": "A library for obtaining browser versions with their maximum supported Baseline feature set and Widely Available status.",
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./legacy": {
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "jsdelivr": "./dist/index.js",
+  "files": [
+    "dist/*",
+    "!dist/scripts/*",
+    "LICENSE.txt",
+    "README.md"
+  ],
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "bin": {
+    "baseline-browser-mapping": "dist/cli.cjs"
+  },
+  "engines": {
+    "node": ">=6.0.0"
+  },
+  "scripts": {
+    "fix-cli-permissions": "output=$(npx baseline-browser-mapping 2>&1); path=$(printf '%s\n' \"$output\" | sed -n 's/^.*: \\(.*\\): Permission denied$/\\1/p; t; s/^\\(.*\\): Permission denied$/\\1/p'); if [ -n \"$path\" ]; then echo \"Permission denied for: $path\"; echo \"Removing $path ...\"; rm -rf \"$path\"; else echo \"$output\"; fi",
+    "test:format": "npx prettier --check .",
+    "test:lint": "npx eslint .",
+    "test:legacy-test": "node spec/legacy-tests/legacy-test.cjs; node dist/cli.cjs",
+    "test:jasmine": "npx jasmine",
+    "test:jasmine-browser": "npx jasmine-browser-runner runSpecs --config ./spec/support/jasmine-browser.js",
+    "test": "npm run build && npm run fix-cli-permissions && npm run test:format && npm run test:lint && npm run test:jasmine && npm run test:jasmine-browser",
+    "build": "rm -rf dist; npx prettier . --write; rollup -c; rm -rf ./dist/scripts/expose-data.d.ts ./dist/cli.d.ts",
+    "refresh-downstream": "npx tsx scripts/refresh-downstream.ts",
+    "refresh-static": "npx tsx scripts/refresh-static.ts",
+    "update-data-file": "npx tsx scripts/update-data-file.ts; npx prettier ./src/data/data.js --write",
+    "update-data-dependencies": "npm i @mdn/browser-compat-data@latest web-features@latest -D",
+    "check-data-changes": "git diff --name-only | grep -q '^src/data/data.js$' && echo 'changes-available=TRUE' || echo 'changes-available=FALSE'"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@mdn/browser-compat-data": "^8.0.7",
+    "@rollup/plugin-terser": "^1.0.0",
+    "@rollup/plugin-typescript": "^12.1.3",
+    "@types/node": "^22.15.17",
+    "eslint-plugin-new-with-error": "^5.0.0",
+    "jasmine": "^5.8.0",
+    "jasmine-browser-runner": "^3.0.0",
+    "jasmine-spec-reporter": "^7.0.0",
+    "prettier": "^3.5.3",
+    "rollup": "^4.44.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.35.0",
+    "web-features": "^3.34.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/web-platform-dx/baseline-browser-mapping.git"
+  }
+}
+./node_modules/caniuse-lite/package.json
+{
+  "name": "caniuse-lite",
+  "version": "1.0.30001806",
+  "description": "A smaller version of caniuse-db, with only the essentials!",
+  "keywords": [
+    "support"
+  ],
+  "license": "CC-BY-4.0",
+  "author": {
+    "name": "Ben Briggs",
+    "email": "beneb.info@gmail.com",
+    "url": "http://beneb.info"
+  },
+  "repository": "browserslist/caniuse-lite",
+  "funding": [
+    {
+      "type": "opencollective",
+      "url": "https://opencollective.com/browserslist"
+    },
+    {
+      "type": "tidelift",
+      "url": "https://tidelift.com/funding/github/npm/caniuse-lite"
+    },
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/ai"
+    }
+  ],
+  "files": [
+    "data",
+    "dist"
+  ],
+  "main": "dist/unpacker/index.js"
+}
+./node_modules/readable-stream/package.json
+{
+  "name": "readable-stream",
+  "version": "3.6.2",
+  "description": "Streams3, a user-land copy of the stream library from Node.js",
+  "main": "readable.js",
+  "engines": {
+    "node": ">= 6"
+  },
+  "dependencies": {
+    "inherits": "^2.0.3",
+    "string_decoder": "^1.1.1",
+    "util-deprecate": "^1.0.1"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.2.0",
+    "@babel/core": "^7.2.0",
+    "@babel/polyfill": "^7.0.0",
+    "@babel/preset-env": "^7.2.0",
+    "airtap": "0.0.9",
+    "assert": "^1.4.0",
+    "bl": "^2.0.0",
+    "deep-strict-equal": "^0.2.0",
+    "events.once": "^2.0.2",
+    "glob": "^7.1.2",
+    "gunzip-maybe": "^1.4.1",
+    "hyperquest": "^2.1.3",
+    "lolex": "^2.6.0",
+    "nyc": "^11.0.0",
+    "pump": "^3.0.0",
+    "rimraf": "^2.6.2",
+    "tap": "^12.0.0",
+    "tape": "^4.9.0",
+    "tar-fs": "^1.16.2",
+    "util-promisify": "^2.1.0"
+  },
+  "scripts": {
+    "test": "tap -J --no-esm test/parallel/*.js test/ours/*.js",
+    "ci": "TAP=1 tap --no-esm test/parallel/*.js test/ours/*.js | tee test.tap",
+    "test-browsers": "airtap --sauce-connect --loopback airtap.local -- test/browser.js",
+    "test-browser-local": "airtap --open --local -- test/browser.js",
+    "cover": "nyc npm test",
+    "report": "nyc report --reporter=lcov",
+    "update-browser-errors": "babel -o errors-browser.js errors.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/nodejs/readable-stream"
+  },
+  "keywords": [
+    "readable",
+    "stream",
+    "pipe"
+  ],
+  "browser": {
+    "util": false,
+    "worker_threads": false,
+    "./errors": "./errors-browser.js",
+    "./readable.js": "./readable-browser.js",
+    "./lib/internal/streams/from.js": "./lib/internal/streams/from-browser.js",
+    "./lib/internal/streams/stream.js": "./lib/internal/streams/stream-browser.js"
+  },
+  "nyc": {
+    "include": [
+      "lib/**.js"
+    ]
+  },
+  "license": "MIT"
+}
+./node_modules/source-map-js/package.json
+{
+  "name": "source-map-js",
+  "description": "Generates and consumes source maps",
+  "version": "1.2.1",
+  "homepage": "https://github.com/7rulnik/source-map-js",
+  "author": "Valentin 7rulnik Semirulnik <v7rulnik@gmail.com>",
+  "contributors": [
+    "Nick Fitzgerald <nfitzgerald@mozilla.com>",
+    "Tobias Koppers <tobias.koppers@googlemail.com>",
+    "Duncan Beevers <duncan@dweebd.com>",
+    "Stephen Crane <scrane@mozilla.com>",
+    "Ryan Seddon <seddon.ryan@gmail.com>",
+    "Miles Elam <miles.elam@deem.com>",
+    "Mihai Bazon <mihai.bazon@gmail.com>",
+    "Michael Ficarra <github.public.email@michael.ficarra.me>",
+    "Todd Wolfson <todd@twolfson.com>",
+    "Alexander Solovyov <alexander@solovyov.net>",
+    "Felix Gnass <fgnass@gmail.com>",
+    "Conrad Irwin <conrad.irwin@gmail.com>",
+    "usrbincc <usrbincc@yahoo.com>",
+    "David Glasser <glasser@davidglasser.net>",
+    "Chase Douglas <chase@newrelic.com>",
+    "Evan Wallace <evan.exe@gmail.com>",
+    "Heather Arthur <fayearthur@gmail.com>",
+    "Hugh Kennedy <hughskennedy@gmail.com>",
+    "David Glasser <glasser@davidglasser.net>",
+    "Simon Lydell <simon.lydell@gmail.com>",
+    "Jmeas Smith <jellyes2@gmail.com>",
+    "Michael Z Goddard <mzgoddard@gmail.com>",
+    "azu <azu@users.noreply.github.com>",
+    "John Gozde <john@gozde.ca>",
+    "Adam Kirkton <akirkton@truefitinnovation.com>",
+    "Chris Montgomery <christopher.montgomery@dowjones.com>",
+    "J. Ryan Stinnett <jryans@gmail.com>",
+    "Jack Herrington <jherrington@walmartlabs.com>",
+    "Chris Truter <jeffpalentine@gmail.com>",
+    "Daniel Espeset <daniel@danielespeset.com>",
+    "Jamie Wong <jamie.lf.wong@gmail.com>",
+    "Eddy Bruël <ejpbruel@mozilla.com>",
+    "Hawken Rives <hawkrives@gmail.com>",
+    "Gilad Peleg <giladp007@gmail.com>",
+    "djchie <djchie.dev@gmail.com>",
+    "Gary Ye <garysye@gmail.com>",
+    "Nicolas Lalevée <nicolas.lalevee@hibnet.org>"
+  ],
+  "repository": "7rulnik/source-map-js",
+  "main": "./source-map.js",
+  "files": [
+    "source-map.js",
+    "source-map.d.ts",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "license": "BSD-3-Clause",
+  "scripts": {
+    "test": "npm run build && node test/run-tests.js",
+    "build": "webpack --color",
+    "toc": "doctoc --title '## Table of Contents' README.md && doctoc --title '## Table of Contents' CONTRIBUTING.md"
+  },
+  "devDependencies": {
+    "clean-publish": "^3.1.0",
+    "doctoc": "^0.15.0",
+    "webpack": "^1.12.0"
+  },
+  "clean-publish": {
+    "cleanDocs": true
+  },
+  "typings": "source-map.d.ts"
+}
+./node_modules/react/package.json
+{
+  "name": "react",
+  "description": "React is a JavaScript library for building user interfaces.",
+  "keywords": [
+    "react"
+  ],
+  "version": "19.2.7",
+  "homepage": "https://react.dev/",
+  "bugs": "https://github.com/facebook/react/issues",
+  "license": "MIT",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "cjs/",
+    "compiler-runtime.js",
+    "jsx-runtime.js",
+    "jsx-runtime.react-server.js",
+    "jsx-dev-runtime.js",
+    "jsx-dev-runtime.react-server.js",
+    "react.react-server.js"
+  ],
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "react-server": "./react.react-server.js",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./jsx-runtime": {
+      "react-server": "./jsx-runtime.react-server.js",
+      "default": "./jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "react-server": "./jsx-dev-runtime.react-server.js",
+      "default": "./jsx-dev-runtime.js"
+    },
+    "./compiler-runtime": {
+      "react-server": "./compiler-runtime.js",
+      "default": "./compiler-runtime.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/facebook/react.git",
+    "directory": "packages/react"
+  },
+  "engines": {
+    "node": ">=0.10.0"
+  }
+}./node_modules/vitest/package.json
+{
+  "name": "vitest",
+  "type": "module",
+  "version": "2.1.9",
+  "description": "Next generation testing framework powered by Vite",
+  "author": "Anthony Fu <anthonyfu117@hotmail.com>",
+  "license": "MIT",
+  "funding": "https://opencollective.com/vitest",
+  "homepage": "https://github.com/vitest-dev/vitest#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitest-dev/vitest.git",
+    "directory": "packages/vitest"
+  },
+  "bugs": {
+    "url": "https://github.com/vitest-dev/vitest/issues"
+  },
+  "keywords": [
+    "vite",
+    "vitest",
+    "test",
+    "jest"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./index.cjs"
+      }
+    },
+    "./*": "./*",
+    "./globals": {
+      "types": "./globals.d.ts"
+    },
+    "./jsdom": {
+      "types": "./jsdom.d.ts"
+    },
+    "./importMeta": {
+      "types": "./importMeta.d.ts"
+    },
+    "./import-meta": {
+      "types": "./import-meta.d.ts"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./execute": {
+      "types": "./dist/execute.d.ts",
+      "default": "./dist/execute.js"
+    },
+    "./workers": {
+      "types": "./dist/workers.d.ts",
+      "import": "./dist/workers.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./runners": {
+      "types": "./dist/runners.d.ts",
+      "default": "./dist/runners.js"
+    },
+    "./suite": {
+      "types": "./dist/suite.d.ts",
+      "default": "./dist/suite.js"
+    },
+    "./environments": {
+      "types": "./dist/environments.d.ts",
+      "default": "./dist/environments.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "default": "./dist/utils.js"
+    },
+    "./config": {
+      "types": "./config.d.ts",
+      "require": "./dist/config.cjs",
+      "default": "./dist/config.js"
+    },
+    "./coverage": {
+      "types": "./coverage.d.ts",
+      "default": "./dist/coverage.js"
+    },
+    "./reporters": {
+      "types": "./dist/reporters.d.ts",
+      "default": "./dist/reporters.js"
+    },
+    "./snapshot": {
+      "types": "./dist/snapshot.d.ts",
+      "default": "./dist/snapshot.js"
+    },
+    "./mocker": {
+      "types": "./dist/mocker.d.ts",
+      "default": "./dist/mocker.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "vitest": "./vitest.mjs"
+  },
+  "files": [
+    "*.cjs",
+    "*.d.cts",
+    "*.d.ts",
+    "*.mjs",
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": "^18.0.0 || >=20.0.0"
+  },
+  "peerDependencies": {
+    "@edge-runtime/vm": "*",
+    "@types/node": "^18.0.0 || >=20.0.0",
+    "happy-dom": "*",
+    "jsdom": "*",
+    "@vitest/browser": "2.1.9",
+    "@vitest/ui": "2.1.9"
+  },
+  "peerDependenciesMeta": {
+    "@edge-runtime/vm": {
+      "optional": true
+    },
+    "@types/node": {
+      "optional": true
+    },
+    "@vitest/browser": {
+      "optional": true
+    },
+    "@vitest/ui": {
+      "optional": true
+    },
+    "happy-dom": {
+      "optional": true
+    },
+    "jsdom": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "chai": "^5.1.2",
+    "debug": "^4.3.7",
+    "expect-type": "^1.1.0",
+    "magic-string": "^0.30.12",
+    "pathe": "^1.1.2",
+    "std-env": "^3.8.0",
+    "tinybench": "^2.9.0",
+    "tinyexec": "^0.3.1",
+    "tinypool": "^1.0.1",
+    "tinyrainbow": "^1.2.0",
+    "vite": "^5.0.0",
+    "why-is-node-running": "^2.3.0",
+    "@vitest/expect": "2.1.9",
+    "@vitest/mocker": "2.1.9",
+    "@vitest/runner": "2.1.9",
+    "@vitest/snapshot": "2.1.9",
+    "@vitest/pretty-format": "^2.1.9",
+    "@vitest/spy": "2.1.9",
+    "vite-node": "2.1.9",
+    "@vitest/utils": "2.1.9"
+  },
+  "devDependencies": {
+    "@ampproject/remapping": "^2.3.0",
+    "@antfu/install-pkg": "^0.4.1",
+    "@edge-runtime/vm": "^4.0.4",
+    "@sinonjs/fake-timers": "11.1.0",
+    "@types/debug": "^4.1.12",
+    "@types/estree": "^1.0.6",
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/istanbul-reports": "^3.0.4",
+    "@types/jsdom": "^21.1.7",
+    "@types/micromatch": "^4.0.9",
+    "@types/node": "^22.9.0",
+    "@types/prompts": "^2.4.9",
+    "@types/sinonjs__fake-timers": "^8.1.5",
+    "acorn-walk": "^8.3.4",
+    "birpc": "0.2.19",
+    "cac": "^6.7.14",
+    "chai-subset": "^1.6.0",
+    "cli-truncate": "^4.0.0",
+    "fast-glob": "3.3.2",
+    "find-up": "^6.3.0",
+    "flatted": "^3.3.1",
+    "get-tsconfig": "^4.8.1",
+    "happy-dom": "^15.11.4",
+    "jsdom": "^25.0.1",
+    "local-pkg": "^0.5.0",
+    "log-update": "^5.0.1",
+    "micromatch": "^4.0.8",
+    "pretty-format": "^29.7.0",
+    "prompts": "^2.4.2",
+    "strip-literal": "^2.1.0",
+    "ws": "^8.18.0"
+  },
+  "scripts": {
+    "build": "rimraf dist && rollup -c",
+    "dev": "NODE_OPTIONS=\"--max-old-space-size=8192\" rollup -c --watch -m inline"
+  }
+}./node_modules/siginfo/package.json
+{
+  "name": "siginfo",
+  "version": "2.0.0",
+  "description": "Utility module to print pretty messages on SIGINFO/SIGUSR1",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {
+    "standard": "^14.3.4"
+  },
+  "scripts": {
+    "test": "standard"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emilbayes/siginfo.git"
+  },
+  "keywords": [
+    "siginfo",
+    "sigusr1",
+    "ctrl",
+    "t",
+    "info",
+    "progress",
+    "inspect"
+  ],
+  "author": "Emil Bay <github@tixz.dk>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/emilbayes/siginfo/issues"
+  },
+  "homepage": "https://github.com/emilbayes/siginfo#readme"
+}
+./node_modules/tsx/package.json
+{
+  "name": "tsx",
+  "version": "4.23.1",
+  "description": "TypeScript Execute (tsx): Node.js enhanced with esbuild to run TypeScript & ESM files",
+  "keywords": [
+    "cli",
+    "runtime",
+    "node",
+    "cjs",
+    "commonjs",
+    "esm",
+    "typescript",
+    "typescript runner"
+  ],
+  "license": "MIT",
+  "repository": "privatenumber/tsx",
+  "author": {
+    "name": "Hiroki Osame",
+    "email": "hiroki.osame@gmail.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "bin": "./dist/cli.mjs",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./dist/loader.mjs",
+    "./patch-repl": "./dist/patch-repl.cjs",
+    "./cjs": "./dist/cjs/index.cjs",
+    "./cjs/api": {
+      "import": {
+        "types": "./dist/cjs/api/index.d.mts",
+        "default": "./dist/cjs/api/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/api/index.d.cts",
+        "default": "./dist/cjs/api/index.cjs"
+      }
+    },
+    "./esm": "./dist/esm/index.mjs",
+    "./esm/api": {
+      "import": {
+        "types": "./dist/esm/api/index.d.mts",
+        "default": "./dist/esm/api/index.mjs"
+      },
+      "require": {
+        "types": "./dist/esm/api/index.d.cts",
+        "default": "./dist/esm/api/index.cjs"
+      }
+    },
+    "./cli": "./dist/cli.mjs",
+    "./suppress-warnings": "./dist/suppress-warnings.cjs",
+    "./preflight": "./dist/preflight.cjs",
+    "./repl": "./dist/repl.mjs"
+  },
+  "homepage": "https://tsx.hirok.io",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "esbuild": "~0.28.0"
+  },
+  "optionalDependencies": {
+    "fsevents": "~2.3.3"
+  }
+}./node_modules/undici-types/package.json
+{
+  "name": "undici-types",
+  "version": "6.21.0",
+  "description": "A stand-alone types package for Undici",
+  "homepage": "https://undici.nodejs.org",
+  "bugs": {
+    "url": "https://github.com/nodejs/undici/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nodejs/undici.git"
+  },
+  "license": "MIT",
+  "types": "index.d.ts",
+  "files": [
+    "*.d.ts"
+  ],
+  "contributors": [
+    {
+      "name": "Daniele Belardi",
+      "url": "https://github.com/dnlup",
+      "author": true
+    },
+    {
+      "name": "Ethan Arrowood",
+      "url": "https://github.com/ethan-arrowood",
+      "author": true
+    },
+    {
+      "name": "Matteo Collina",
+      "url": "https://github.com/mcollina",
+      "author": true
+    },
+    {
+      "name": "Matthew Aitken",
+      "url": "https://github.com/KhafraDev",
+      "author": true
+    },
+    {
+      "name": "Robert Nagy",
+      "url": "https://github.com/ronag",
+      "author": true
+    },
+    {
+      "name": "Szymon Marczak",
+      "url": "https://github.com/szmarczak",
+      "author": true
+    },
+    {
+      "name": "Tomas Della Vedova",
+      "url": "https://github.com/delvedor",
+      "author": true
+    }
+  ]
+}./node_modules/check-error/package.json
+{
+  "name": "check-error",
+  "description": "Error comparison and information related utility for node and the browser",
+  "keywords": [
+    "check-error",
+    "error",
+    "chai util"
+  ],
+  "license": "MIT",
+  "author": "Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com)",
+  "contributors": [
+    "David Losert (https://github.com/davelosert)",
+    "Keith Cirkel (https://github.com/keithamus)",
+    "Miroslav Bajtoš (https://github.com/bajtos)",
+    "Lucas Fernandes da Costa (https://github.com/lucasfcosta)"
+  ],
+  "files": [
+    "index.js",
+    "check-error.js"
+  ],
+  "type": "module",
+  "main": "./index.js",
+  "module": "./index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/chaijs/check-error.git"
+  },
+  "scripts": {
+    "lint": "eslint index.js test/",
+    "pretest": "npm run lint",
+    "test": "npm run test:node && npm run test:browser",
+    "test:browser": "web-test-runner",
+    "test:node": "mocha"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@web/test-runner": "^0.20.2",
+    "eslint": "^9.31.0",
+    "mocha": "^11.7.1",
+    "simple-assert": "^2.0.0"
+  },
+  "engines": {
+    "node": ">= 16"
+  },
+  "version": "2.1.3"
+}
+./node_modules/ms/package.json
+{
+  "name": "ms",
+  "version": "2.1.3",
+  "description": "Tiny millisecond conversion utility",
+  "repository": "vercel/ms",
+  "main": "./index",
+  "files": [
+    "index.js"
+  ],
+  "scripts": {
+    "precommit": "lint-staged",
+    "lint": "eslint lib/* bin/*",
+    "test": "mocha tests.js"
+  },
+  "eslintConfig": {
+    "extends": "eslint:recommended",
+    "env": {
+      "node": true,
+      "es6": true
+    }
+  },
+  "lint-staged": {
+    "*.js": [
+      "npm run lint",
+      "prettier --single-quote --write",
+      "git add"
+    ]
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "4.18.2",
+    "expect.js": "0.3.1",
+    "husky": "0.14.3",
+    "lint-staged": "5.0.0",
+    "mocha": "4.0.1",
+    "prettier": "2.0.5"
+  }
+}
+./node_modules/scheduler/package.json
+{
+  "name": "scheduler",
+  "version": "0.27.0",
+  "description": "Cooperative scheduler for the browser environment.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/facebook/react.git",
+    "directory": "packages/scheduler"
+  },
+  "license": "MIT",
+  "keywords": [
+    "react"
+  ],
+  "bugs": {
+    "url": "https://github.com/facebook/react/issues"
+  },
+  "homepage": "https://react.dev/",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "index.native.js",
+    "unstable_mock.js",
+    "unstable_post_task.js",
+    "cjs/"
+  ]
+}./node_modules/lightningcss-linux-x64-gnu/package.json
+{
+  "name": "lightningcss-linux-x64-gnu",
+  "version": "1.32.0",
+  "license": "MPL-2.0",
+  "description": "A CSS parser, transformer, and minifier written in Rust",
+  "main": "lightningcss.linux-x64-gnu.node",
+  "browserslist": "last 2 versions, not dead",
+  "publishConfig": {
+    "access": "public"
+  },
+  "funding": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/parcel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parcel-bundler/lightningcss.git"
+  },
+  "engines": {
+    "node": ">= 12.0.0"
+  },
+  "files": [
+    "lightningcss.linux-x64-gnu.node"
+  ],
+  "resolutions": {
+    "lightningcss": "link:."
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}
+./node_modules/json5/package.json
+{
+  "name": "json5",
+  "version": "2.2.3",
+  "description": "JSON for Humans",
+  "main": "lib/index.js",
+  "module": "dist/index.mjs",
+  "bin": "lib/cli.js",
+  "browser": "dist/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/",
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=6"
+  },
+  "scripts": {
+    "build": "rollup -c",
+    "build-package": "node build/package.js",
+    "build-unicode": "node build/unicode.js",
+    "coverage": "tap --coverage-report html test",
+    "lint": "eslint --fix .",
+    "lint-report": "eslint .",
+    "prepublishOnly": "npm run production",
+    "preversion": "npm run production",
+    "production": "run-s test build",
+    "tap": "tap -Rspec --100 test",
+    "test": "run-s lint-report tap",
+    "version": "npm run build-package && git add package.json5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/json5/json5.git"
+  },
+  "keywords": [
+    "json",
+    "json5",
+    "es5",
+    "es2015",
+    "ecmascript"
+  ],
+  "author": "Aseem Kishore <aseem.kishore@gmail.com>",
+  "contributors": [
+    "Max Nanasy <max.nanasy@gmail.com>",
+    "Andrew Eisenberg <andrew@eisenberg.as>",
+    "Jordan Tucker <jordanbtucker@gmail.com>"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/json5/json5/issues"
+  },
+  "homepage": "http://json5.org/",
+  "devDependencies": {
+    "core-js": "^2.6.5",
+    "eslint": "^5.15.3",
+    "eslint-config-standard": "^12.0.0",
+    "eslint-plugin-import": "^2.16.0",
+    "eslint-plugin-node": "^8.0.1",
+    "eslint-plugin-promise": "^4.0.1",
+    "eslint-plugin-standard": "^4.0.0",
+    "npm-run-all": "^4.1.5",
+    "regenerate": "^1.4.0",
+    "rollup": "^0.64.1",
+    "rollup-plugin-buble": "^0.19.6",
+    "rollup-plugin-commonjs": "^9.2.1",
+    "rollup-plugin-node-resolve": "^3.4.0",
+    "rollup-plugin-terser": "^1.0.1",
+    "sinon": "^6.3.5",
+    "tap": "^12.6.0",
+    "unicode-10.0.0": "^0.7.5"
+  }
+}
+./node_modules/lru-cache/package.json
+{
+  "name": "lru-cache",
+  "description": "A cache object that deletes the least-recently-used items.",
+  "version": "5.1.1",
+  "author": "Isaac Z. Schlueter <i@izs.me>",
+  "keywords": [
+    "mru",
+    "lru",
+    "cache"
+  ],
+  "scripts": {
+    "test": "tap test/*.js --100 -J",
+    "snap": "TAP_SNAPSHOT=1 tap test/*.js -J",
+    "coveragerport": "tap --coverage-report=html",
+    "preversion": "npm test",
+    "postversion": "npm publish",
+    "postpublish": "git push origin --all; git push origin --tags"
+  },
+  "main": "index.js",
+  "repository": "git://github.com/isaacs/node-lru-cache.git",
+  "devDependencies": {
+    "benchmark": "^2.1.4",
+    "tap": "^12.1.0"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "yallist": "^3.0.2"
+  },
+  "files": [
+    "index.js"
+  ]
+}
+./node_modules/semver/package.json
+{
+  "name": "semver",
+  "version": "6.3.1",
+  "description": "The semantic version parser used by npm.",
+  "main": "semver.js",
+  "scripts": {
+    "test": "tap test/ --100 --timeout=30",
+    "lint": "echo linting disabled",
+    "postlint": "template-oss-check",
+    "template-oss-apply": "template-oss-apply --force",
+    "lintfix": "npm run lint -- --fix",
+    "snap": "tap test/ --100 --timeout=30",
+    "posttest": "npm run lint"
+  },
+  "devDependencies": {
+    "@npmcli/template-oss": "4.17.0",
+    "tap": "^12.7.0"
+  },
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/npm/node-semver.git"
+  },
+  "bin": {
+    "semver": "./bin/semver.js"
+  },
+  "files": [
+    "bin",
+    "range.bnf",
+    "semver.js"
+  ],
+  "author": "GitHub Inc.",
+  "templateOSS": {
+    "//@npmcli/template-oss": "This file is partially managed by @npmcli/template-oss. Edits may be overwritten.",
+    "content": "./scripts/template-oss",
+    "version": "4.17.0"
+  }
+}
+./node_modules/enhanced-resolve/package.json
+{
+  "name": "enhanced-resolve",
+  "version": "5.24.3",
+  "description": "Offers a async require.resolve function. It's highly configurable.",
+  "homepage": "https://github.com/webpack/enhanced-resolve#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webpack/enhanced-resolve.git"
+  },
+  "license": "MIT",
+  "author": "Tobias Koppers @sokra",
+  "main": "lib/index.js",
+  "browser": {
+    "process": "./lib/util/process-browser.js",
+    "module": "./lib/util/module-browser.js",
+    "path": "./lib/util/path-browser.js",
+    "url": "./lib/util/url-browser.js",
+    "graceful-fs": "./lib/util/graceful-fs-browser.js"
+  },
+  "types": "types.d.ts",
+  "files": [
+    "lib",
+    "types.d.ts",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "lint": "npm run lint:code && npm run lint:types && npm run lint:types-test && npm run lint:special && npm run fmt:check && npm run lint:spellcheck",
+    "lint:code": "eslint --cache .",
+    "lint:special": "node node_modules/tooling/inherit-types && node node_modules/tooling/generate-types",
+    "lint:types": "tsc",
+    "lint:types-test": "tsc -p tsconfig.types.test.json",
+    "lint:spellcheck": "cspell --cache --no-must-find-files --quiet \"**/*.*\"",
+    "fmt": "npm run fmt:base -- --log-level warn --write",
+    "fmt:check": "npm run fmt:base -- --check",
+    "fmt:base": "node_modules/prettier/bin/prettier.cjs --cache --ignore-unknown .",
+    "fix": "npm run fix:code && npm run fix:special",
+    "fix:code": "npm run lint:code -- --fix",
+    "fix:special": "node node_modules/tooling/inherit-types --write && node node_modules/tooling/generate-types --write",
+    "type-report": "rimraf coverage && npm run cover:types && npm run cover:report && open-cli coverage/lcov-report/index.html",
+    "pretest": "npm run lint",
+    "test": "npm run test:only",
+    "test:only": "node scripts/test.js",
+    "test:watch": "node scripts/test.js --watch",
+    "test:coverage": "node scripts/test.js --experimental-test-coverage --test-coverage-include=\"lib/**\" --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
+    "test:browser": "node --experimental-vm-modules test/smoke/browser-run.cjs",
+    "version": "changeset version",
+    "release": "changeset publish",
+    "benchmark": "node --max-old-space-size=4096 --hash-seed=1 --random-seed=1 --no-opt --predictable --predictable-gc-schedule --interpreted-frames-native-stack --allow-natives-syntax --expose-gc --no-concurrent-sweeping ./benchmark/run.mjs"
+  },
+  "lint-staged": {
+    "*.{js,cjs,mjs}": [
+      "eslint --cache --fix"
+    ],
+    "*": [
+      "prettier --cache --write --ignore-unknown",
+      "cspell --cache --no-must-find-files"
+    ]
+  },
+  "dependencies": {
+    "graceful-fs": "^4.2.4",
+    "tapable": "^2.3.3"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "@changesets/get-github-info": "^0.8.0",
+    "@codspeed/core": "^5.2.0",
+    "@types/graceful-fs": "^4.1.6",
+    "@types/node": "^24.10.4",
+    "cspell": "^10.0.0",
+    "eslint": "^9.39.2",
+    "eslint-config-webpack": "^4.9.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
+    "memfs": "^4.56.11",
+    "prettier": "^3.7.4",
+    "tinybench": "^6.0.0",
+    "tooling": "webpack/tooling#v1.26.4",
+    "typescript": "^6.0.2",
+    "webpack": "^5.107.2"
+  },
+  "engines": {
+    "node": ">=10.13.0"
+  }
+}
+./node_modules/tinyexec/package.json
+{
+  "name": "tinyexec",
+  "version": "0.3.2",
+  "type": "module",
+  "description": "A minimal library for executing processes in Node",
+  "main": "./dist/main.js",
+  "files": [
+    "dist",
+    "!dist/node_modules",
+    "!dist/cjs/test",
+    "!dist/esm/test"
+  ],
+  "scripts": {
+    "build": "npm run build:types && tsup",
+    "build:types": "tsc",
+    "dev": "tsup --watch",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
+    "lint": "eslint src",
+    "prepare": "npm run build",
+    "test": "npm run build && c8 node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tinylibs/tinyexec.git"
+  },
+  "keywords": [
+    "execa",
+    "exec",
+    "tiny",
+    "child_process",
+    "spawn"
+  ],
+  "author": "James Garbutt (https://github.com/43081j)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tinylibs/tinyexec/issues"
+  },
+  "homepage": "https://github.com/tinylibs/tinyexec#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^20.12.7",
+    "c8": "^9.1.0",
+    "cross-spawn": "^7.0.3",
+    "eslint-config-google": "^0.14.0",
+    "prettier": "^3.2.5",
+    "tsup": "^8.1.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^7.7.0"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/main.d.ts",
+        "default": "./dist/main.js"
+      },
+      "require": {
+        "types": "./dist/main.d.cts",
+        "default": "./dist/main.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/main.d.ts"
+}
+./node_modules/postcss/package.json
+{
+  "name": "postcss",
+  "version": "8.5.20",
+  "description": "Tool for transforming styles with JS plugins",
+  "keywords": [
+    "css",
+    "manipulation",
+    "parser",
+    "postcss",
+    "preprocessor",
+    "rework",
+    "source map",
+    "transform",
+    "transpiler"
+  ],
+  "homepage": "https://postcss.org/",
+  "bugs": {
+    "url": "https://github.com/postcss/postcss/issues"
+  },
+  "license": "MIT",
+  "author": "Andrey Sitnik <andrey@sitnik.es>",
+  "repository": "postcss/postcss",
+  "funding": [
+    {
+      "type": "opencollective",
+      "url": "https://opencollective.com/postcss/"
+    },
+    {
+      "type": "tidelift",
+      "url": "https://tidelift.com/funding/github/npm/postcss"
+    },
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/ai"
+    }
+  ],
+  "main": "./lib/postcss.js",
+  "browser": {
+    "./lib/terminal-highlight": false,
+    "source-map-js": false,
+    "path": false,
+    "url": false,
+    "fs": false
+  },
+  "types": "./lib/postcss.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/postcss.mjs",
+      "require": "./lib/postcss.js"
+    },
+    "./lib/at-rule": "./lib/at-rule.js",
+    "./lib/comment": "./lib/comment.js",
+    "./lib/container": "./lib/container.js",
+    "./lib/css-syntax-error": "./lib/css-syntax-error.js",
+    "./lib/declaration": "./lib/declaration.js",
+    "./lib/fromJSON": "./lib/fromJSON.js",
+    "./lib/input": "./lib/input.js",
+    "./lib/lazy-result": "./lib/lazy-result.js",
+    "./lib/no-work-result": "./lib/no-work-result.js",
+    "./lib/list": "./lib/list.js",
+    "./lib/map-generator": "./lib/map-generator.js",
+    "./lib/node": "./lib/node.js",
+    "./lib/parse": "./lib/parse.js",
+    "./lib/parser": "./lib/parser.js",
+    "./lib/postcss": "./lib/postcss.js",
+    "./lib/previous-map": "./lib/previous-map.js",
+    "./lib/processor": "./lib/processor.js",
+    "./lib/result": "./lib/result.js",
+    "./lib/root": "./lib/root.js",
+    "./lib/rule": "./lib/rule.js",
+    "./lib/stringifier": "./lib/stringifier.js",
+    "./lib/stringify": "./lib/stringify.js",
+    "./lib/symbols": "./lib/symbols.js",
+    "./lib/terminal-highlight": "./lib/terminal-highlight.js",
+    "./lib/tokenize": "./lib/tokenize.js",
+    "./lib/warn-once": "./lib/warn-once.js",
+    "./lib/warning": "./lib/warning.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "nanoid": "^3.3.16",
+    "picocolors": "^1.1.1",
+    "source-map-js": "^1.2.1"
+  },
+  "engines": {
+    "node": "^10 || ^12 || >=14"
+  }
+}
+./node_modules/string_decoder/package.json
+{
+  "name": "string_decoder",
+  "version": "1.3.0",
+  "description": "The string_decoder module from Node core",
+  "main": "lib/string_decoder.js",
+  "files": [
+    "lib"
+  ],
+  "dependencies": {
+    "safe-buffer": "~5.2.0"
+  },
+  "devDependencies": {
+    "babel-polyfill": "^6.23.0",
+    "core-util-is": "^1.0.2",
+    "inherits": "^2.0.3",
+    "tap": "~0.4.8"
+  },
+  "scripts": {
+    "test": "tap test/parallel/*.js && node test/verify-dependencies",
+    "ci": "tap test/parallel/*.js test/ours/*.js --tap | tee test.tap && node test/verify-dependencies.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/nodejs/string_decoder.git"
+  },
+  "homepage": "https://github.com/nodejs/string_decoder",
+  "keywords": [
+    "string",
+    "decoder",
+    "browser",
+    "browserify"
+  ],
+  "license": "MIT"
+}
+./node_modules/buffer/package.json
+{
+  "name": "buffer",
+  "description": "Node.js Buffer API, for the browser",
+  "version": "6.0.3",
+  "author": {
+    "name": "Feross Aboukhadijeh",
+    "email": "feross@feross.org",
+    "url": "https://feross.org"
+  },
+  "bugs": {
+    "url": "https://github.com/feross/buffer/issues"
+  },
+  "contributors": [
+    "Romain Beauxis <toots@rastageeks.org>",
+    "James Halliday <mail@substack.net>"
+  ],
+  "dependencies": {
+    "base64-js": "^1.3.1",
+    "ieee754": "^1.2.1"
+  },
+  "devDependencies": {
+    "airtap": "^3.0.0",
+    "benchmark": "^2.1.4",
+    "browserify": "^17.0.0",
+    "concat-stream": "^2.0.0",
+    "hyperquest": "^2.1.3",
+    "is-buffer": "^2.0.5",
+    "is-nan": "^1.3.0",
+    "split": "^1.0.1",
+    "standard": "*",
+    "tape": "^5.0.1",
+    "through2": "^4.0.2",
+    "uglify-js": "^3.11.5"
+  },
+  "homepage": "https://github.com/feross/buffer",
+  "jspm": {
+    "map": {
+      "./index.js": {
+        "node": "@node/buffer"
+      }
+    }
+  },
+  "keywords": [
+    "arraybuffer",
+    "browser",
+    "browserify",
+    "buffer",
+    "compatible",
+    "dataview",
+    "uint8array"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/feross/buffer.git"
+  },
+  "scripts": {
+    "perf": "browserify --debug perf/bracket-notation.js > perf/bundle.js && open perf/index.html",
+    "perf-node": "node perf/bracket-notation.js && node perf/concat.js && node perf/copy-big.js && node perf/copy.js && node perf/new-big.js && node perf/new.js && node perf/readDoubleBE.js && node perf/readFloatBE.js && node perf/readUInt32LE.js && node perf/slice.js && node perf/writeFloatBE.js",
+    "size": "browserify -r ./ | uglifyjs -c -m | gzip | wc -c",
+    "test": "standard && node ./bin/test.js",
+    "test-browser-old": "airtap -- test/*.js",
+    "test-browser-old-local": "airtap --local -- test/*.js",
+    "test-browser-new": "airtap -- test/*.js test/node/*.js",
+    "test-browser-new-local": "airtap --local -- test/*.js test/node/*.js",
+    "test-node": "tape test/*.js test/node/*.js",
+    "update-authors": "./bin/update-authors.sh"
+  },
+  "standard": {
+    "ignore": [
+      "test/node/**/*.js",
+      "test/common.js",
+      "test/_polyfill.js",
+      "perf/**/*.js"
+    ]
+  },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/feross"
+    },
+    {
+      "type": "patreon",
+      "url": "https://www.patreon.com/feross"
+    },
+    {
+      "type": "consulting",
+      "url": "https://feross.org/support"
+    }
+  ]
+}
+./node_modules/graceful-fs/package.json
+{
+  "name": "graceful-fs",
+  "description": "A drop-in replacement for fs, making various improvements.",
+  "version": "4.2.11",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/isaacs/node-graceful-fs"
+  },
+  "main": "graceful-fs.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "preversion": "npm test",
+    "postversion": "npm publish",
+    "postpublish": "git push origin --follow-tags",
+    "test": "nyc --silent node test.js | tap -c -",
+    "posttest": "nyc report"
+  },
+  "keywords": [
+    "fs",
+    "module",
+    "reading",
+    "retry",
+    "retries",
+    "queue",
+    "error",
+    "errors",
+    "handling",
+    "EMFILE",
+    "EAGAIN",
+    "EINVAL",
+    "EPERM",
+    "EACCESS"
+  ],
+  "license": "ISC",
+  "devDependencies": {
+    "import-fresh": "^2.0.0",
+    "mkdirp": "^0.5.0",
+    "rimraf": "^2.2.8",
+    "tap": "^16.3.4"
+  },
+  "files": [
+    "fs.js",
+    "graceful-fs.js",
+    "legacy-streams.js",
+    "polyfills.js",
+    "clone.js"
+  ],
+  "tap": {
+    "reporter": "classic"
+  }
+}
+./node_modules/events/package.json
+{
+  "name": "events",
+  "version": "3.3.0",
+  "description": "Node's event emitter for all engines.",
+  "keywords": [
+    "events",
+    "eventEmitter",
+    "eventDispatcher",
+    "listeners"
+  ],
+  "author": "Irakli Gozalishvili <rfobic@gmail.com> (http://jeditoolkit.com)",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/Gozala/events.git",
+    "web": "https://github.com/Gozala/events"
+  },
+  "bugs": {
+    "url": "http://github.com/Gozala/events/issues/"
+  },
+  "main": "./events.js",
+  "engines": {
+    "node": ">=0.8.x"
+  },
+  "devDependencies": {
+    "airtap": "^1.0.0",
+    "functions-have-names": "^1.2.1",
+    "has": "^1.0.3",
+    "has-symbols": "^1.0.1",
+    "isarray": "^2.0.5",
+    "tape": "^5.0.0"
+  },
+  "scripts": {
+    "test": "node tests/index.js",
+    "test:browsers": "airtap -- tests/index.js"
+  },
+  "license": "MIT"
+}
+./node_modules/js-tokens/package.json
+{
+  "name": "js-tokens",
+  "version": "4.0.0",
+  "author": "Simon Lydell",
+  "license": "MIT",
+  "description": "A regex that tokenizes JavaScript.",
+  "keywords": [
+    "JavaScript",
+    "js",
+    "token",
+    "tokenize",
+    "regex"
+  ],
+  "files": [
+    "index.js"
+  ],
+  "repository": "lydell/js-tokens",
+  "scripts": {
+    "test": "mocha --ui tdd",
+    "esprima-compare": "node esprima-compare ./index.js everything.js/es5.js",
+    "build": "node generate-index.js",
+    "dev": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "coffeescript": "2.1.1",
+    "esprima": "4.0.0",
+    "everything.js": "1.0.3",
+    "mocha": "5.0.0"
+  }
+}
+./node_modules/chai/package.json
+{
+  "author": "Jake Luer <jake@alogicalparadox.com>",
+  "name": "chai",
+  "type": "module",
+  "description": "BDD/TDD assertion library for node.js and the browser. Test framework agnostic.",
+  "keywords": [
+    "test",
+    "assertion",
+    "assert",
+    "testing",
+    "chai"
+  ],
+  "files": [
+    "chai.js",
+    "index.js",
+    "lib",
+    "register-*.js"
+  ],
+  "homepage": "http://chaijs.com",
+  "license": "MIT",
+  "contributors": [
+    "Jake Luer <jake@alogicalparadox.com>",
+    "Domenic Denicola <domenic@domenicdenicola.com> (http://domenicdenicola.com)",
+    "Veselin Todorov <hi@vesln.com>",
+    "John Firebaugh <john.firebaugh@gmail.com>"
+  ],
+  "version": "5.3.3",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chaijs/chai"
+  },
+  "bugs": {
+    "url": "https://github.com/chaijs/chai/issues"
+  },
+  "main": "./index.js",
+  "scripts": {
+    "build": "esbuild --bundle --format=esm --keep-names --outfile=index.js lib/chai.js",
+    "prebuild": "npm run clean",
+    "format": "prettier --write lib",
+    "pretest": "npm run lint",
+    "test": "npm run test-node && npm run test-chrome",
+    "test-node": "c8 --99 --check-coverage mocha --require ./test/bootstrap/index.js test/*.js",
+    "test-chrome": "web-test-runner --playwright",
+    "lint": "npm run lint:js && npm run lint:format",
+    "lint:js": "eslint lib/",
+    "lint:format": "prettier --check lib",
+    "lint:types": "tsc",
+    "clean": "rm -rf index.js coverage/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "assertion-error": "^2.0.1",
+    "check-error": "^2.1.1",
+    "deep-eql": "^5.0.1",
+    "loupe": "^3.1.0",
+    "pathval": "^2.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@web/dev-server-rollup": "^0.6.1",
+    "@web/test-runner": "^0.18.0",
+    "@web/test-runner-playwright": "^0.11.0",
+    "c8": "^10.1.3",
+    "esbuild": "^0.25.9",
+    "eslint": "^8.56.0",
+    "eslint-plugin-jsdoc": "^48.0.4",
+    "mocha": "^10.2.0",
+    "prettier": "^3.4.2",
+    "typescript": "~5.7.3"
+  }
+}
+./node_modules/electron-to-chromium/package.json
+{
+  "name": "electron-to-chromium",
+  "version": "1.5.394",
+  "description": "Provides a list of electron-to-chromium version mappings",
+  "main": "index.js",
+  "files": [
+    "versions.js",
+    "full-versions.js",
+    "chromium-versions.js",
+    "full-chromium-versions.js",
+    "versions.json",
+    "full-versions.json",
+    "chromium-versions.json",
+    "full-chromium-versions.json",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "update": "node automated-update.js",
+    "test": "nyc ava --verbose",
+    "report": "nyc report --reporter=text-lcov > coverage.lcov"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kilian/electron-to-chromium.git"
+  },
+  "keywords": [
+    "electron",
+    "chrome",
+    "chromium",
+    "browserslist",
+    "browserlist"
+  ],
+  "author": "Kilian Valkhof",
+  "license": "ISC",
+  "devDependencies": {
+    "ava": "^7.0.0",
+    "compare-versions": "^6.1.1",
+    "node-fetch": "^3.3.2",
+    "nyc": "^18.0.0",
+    "shelljs": "^0.10.0"
+  }
+}
+./apps/proxy/package.json
+{
+  "name": "@assmud/proxy",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "assmud-proxy": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@assmud/protocol": "0.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2"
+  }
+}
+./apps/web/package.json
+{
+  "name": "@assmud/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@assmud/codec-big5": "0.1.0",
+    "@assmud/mapper": "0.1.0",
+    "@assmud/profiles": "0.1.0",
+    "@assmud/rw-pack": "0.1.0",
+    "@assmud/script-engine": "0.1.0",
+    "@assmud/terminal": "0.1.0",
+    "@assmud/vt": "0.1.0",
+    "buffer": "^6.0.3",
+    "events": "^3.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "stream-browserify": "^3.0.0",
+    "string_decoder": "^1.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.0"
+  }
+}
+./packages/vt/package.json
+{
+  "name": "@assmud/vt",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
+./packages/script-engine/package.json
+{
+  "name": "@assmud/script-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
+./packages/mapper/package.json
+{
+  "name": "@assmud/mapper",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}
+./packages/codec-big5/package.json
+{
+  "name": "@assmud/codec-big5",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "iconv-lite": "^0.6.3"
+  }
+}
+./packages/terminal/package.json
+{
+  "name": "@assmud/terminal",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@assmud/vt": "0.1.0"
+  }
+}
+./packages/profiles/package.json
+{
+  "name": "@assmud/profiles",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}
+./packages/protocol/package.json
+{
+  "name": "@assmud/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
+./packages/rw-pack/package.json
+{
+  "name": "@assmud/rw-pack",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@assmud/script-engine": "0.1.0"
+  }
+}
+
+exec
+/usr/bin/zsh -lc "rg -n \"export|Export|profiles|assmud_token|proxyToken|customAck|onConnect|setTabs\" apps/web/src apps/web/tests packages/profiles -g '"'!**/dist/**'"' && nl -ba apps/web/src/App.tsx | sed -n '180,370p' && nl -ba apps/web/src/components/ConnectGate.tsx | sed -n '45,330p' && nl -ba scripts/deploy/install-proxy.sh | sed -n '1,180p' && nl -ba deploy/docker-compose.proxy.yml" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+packages/profiles/src/index.ts:1:/** Connection profiles (Phase 4) — no secrets required; token optional. */
+packages/profiles/src/index.ts:3:export type { WidthMode, NormalizedCharset, WidthModeSource } from "./widthMode.js";
+packages/profiles/src/index.ts:4:export {
+packages/profiles/src/index.ts:10:export type MudProfile = {
+packages/profiles/src/index.ts:22:const KEY = "assmud.profiles.v1";
+packages/profiles/src/index.ts:24:export const DEFAULT_PROFILES: MudProfile[] = [
+packages/profiles/src/index.ts:41:export function loadProfiles(): MudProfile[] {
+packages/profiles/src/index.ts:53:export function saveProfiles(list: MudProfile[]): void {
+packages/profiles/src/index.ts:58:export function exportProfilesJson(list: MudProfile[]): string {
+packages/profiles/src/index.ts:62:export function importProfilesJson(json: string): MudProfile[] {
+packages/profiles/src/index.ts:64:  if (!Array.isArray(list)) throw new Error("invalid profiles");
+packages/profiles/src/widthMode.ts:3:export type WidthMode = "cjk" | "western";
+packages/profiles/src/widthMode.ts:5:export type NormalizedCharset =
+packages/profiles/src/widthMode.ts:32:export function normalizeCharset(raw: string | undefined | null): NormalizedCharset {
+packages/profiles/src/widthMode.ts:38:export type WidthModeSource = {
+packages/profiles/src/widthMode.ts:48:export function resolveWidthMode(src: WidthModeSource): WidthMode {
+apps/web/tests/trustMode.test.ts:3:  assertExportOmitsToken,
+apps/web/tests/trustMode.test.ts:43:  it("export must omit proxy token fields", () => {
+apps/web/tests/trustMode.test.ts:45:    expect(assertExportOmitsToken(clean)).toBe(true);
+apps/web/tests/trustMode.test.ts:47:      assertExportOmitsToken(JSON.stringify({ proxyToken: "secret" })),
+apps/web/src/TerminalHost.tsx:11:export type { HelloMsg, StatusEvent };
+apps/web/src/TerminalHost.tsx:58:export function TerminalHost({
+apps/web/src/TerminalHost.tsx:116:          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+apps/web/src/TerminalHost.tsx:117:          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+apps/web/src/lib/theme.ts:1:export type AccentId = "mint" | "blue";
+apps/web/src/lib/theme.ts:5:export function loadAccent(): AccentId {
+apps/web/src/lib/theme.ts:14:export function applyAccent(id: AccentId): void {
+apps/web/src/lib/theme.ts:24:export { pickTagline, TAGLINES } from "../i18n/taglines";
+apps/web/src/termFonts/catalog.ts:3:export type FontSource = "bundled" | "system" | "webfont" | "custom";
+apps/web/src/termFonts/catalog.ts:5:export type CatalogEntry = {
+apps/web/src/termFonts/catalog.ts:20:export const TC_FALLBACK_CHAIN = [
+apps/web/src/termFonts/catalog.ts:34:export const SC_FALLBACK_CHAIN = [
+apps/web/src/termFonts/catalog.ts:43:export const STATIC_CATALOG: CatalogEntry[] = [
+apps/web/src/termFonts/catalog.ts:129:export type TermFontConfig = {
+apps/web/src/termFonts/catalog.ts:141:export const DEFAULT_TERM_FONT: TermFontConfig = {
+apps/web/src/termFonts/catalog.ts:155:export function loadTermFont(): TermFontConfig {
+apps/web/src/termFonts/catalog.ts:166:export function saveTermFont(cfg: TermFontConfig): void {
+apps/web/src/termFonts/catalog.ts:175:export function resolveFontStack(
+apps/web/src/termFonts/catalog.ts:204:export function applyPreset(id: string): TermFontConfig {
+apps/web/src/lib/mudSocket.ts:6:export type HelloMsg = {
+apps/web/src/lib/mudSocket.ts:15:export type StatusCode =
+apps/web/src/lib/mudSocket.ts:27:export type StatusEvent = {
+apps/web/src/lib/mudSocket.ts:32:export type MudSocketHandlers = {
+apps/web/src/lib/mudSocket.ts:68:export function statusEventsEqual(a: StatusEvent, b: StatusEvent): boolean {
+apps/web/src/lib/mudSocket.ts:76:export class MudSocket {
+apps/web/src/lib/trustMode.ts:3:export type TrustMode = "local" | "selfhost" | "official" | "custom";
+apps/web/src/lib/trustMode.ts:7:const TOKEN_KEY = "assmud_token";
+apps/web/src/lib/trustMode.ts:10:export type SiteConfig = {
+apps/web/src/lib/trustMode.ts:14:export function loadTrustMode(): TrustMode {
+apps/web/src/lib/trustMode.ts:21:export function saveTrustMode(m: TrustMode): void {
+apps/web/src/lib/trustMode.ts:25:export function loadCustomWs(): string {
+apps/web/src/lib/trustMode.ts:29:export function saveCustomWs(url: string): void {
+apps/web/src/lib/trustMode.ts:33:export function loadProxyToken(): string {
+apps/web/src/lib/trustMode.ts:37:export function saveProxyToken(t: string): void {
+apps/web/src/lib/trustMode.ts:42:/** Token must never appear in profile export JSON. */
+apps/web/src/lib/trustMode.ts:43:export function assertExportOmitsToken(exportedJson: string): boolean {
+apps/web/src/lib/trustMode.ts:45:    const data = JSON.parse(exportedJson) as unknown;
+apps/web/src/lib/trustMode.ts:47:    // exported profiles should not embed assmud_token field
+apps/web/src/lib/trustMode.ts:48:    return !/"assmud_token"\s*:/.test(s) && !/"proxyToken"\s*:/.test(s);
+apps/web/src/lib/trustMode.ts:54:export function loadCustomAck(): boolean {
+apps/web/src/lib/trustMode.ts:58:export function saveCustomAck(ok: boolean): void {
+apps/web/src/lib/trustMode.ts:63:export function resolveWsUrl(
+apps/web/src/lib/trustMode.ts:85:export function canConnect(mode: TrustMode, customAck: boolean): boolean {
+apps/web/src/lib/trustMode.ts:86:  if (mode === "custom") return customAck;
+apps/web/src/lib/trustMode.ts:90:export function readOfficialProxyUrl(): string | undefined {
+packages/profiles/package.json:2:  "name": "@assmud/profiles",
+packages/profiles/package.json:7:  "exports": {
+apps/web/src/i18n/types.ts:1:export type Locale = "zh-TW" | "zh-CN" | "en";
+apps/web/src/i18n/types.ts:4:export type MessageKey =
+apps/web/src/i18n/types.ts:13:  | "connect.export"
+apps/web/src/i18n/types.ts:62:  | "drawer.export"
+apps/web/src/i18n/types.ts:75:export type MessageVars = Record<string, string | number>;
+apps/web/src/i18n/localeStore.ts:3:export const LOCALES = ["zh-TW", "zh-CN", "en"] as const satisfies readonly Locale[];
+apps/web/src/i18n/localeStore.ts:8:export function isLocale(v: unknown): v is Locale {
+apps/web/src/i18n/localeStore.ts:16:export function detectLocale(tag: string | undefined | null): Locale {
+apps/web/src/i18n/localeStore.ts:58:export function loadStoredLocale(): Locale | null {
+apps/web/src/i18n/localeStore.ts:69:export function saveLocale(locale: Locale): void {
+apps/web/src/i18n/localeStore.ts:108:export function resolveLocale(): Locale {
+apps/web/src/i18n/taglines.ts:48:export function pickTagline(locale: Locale): string {
+apps/web/src/i18n/taglines.ts:53:/** For tests / re-export parity. */
+apps/web/src/i18n/taglines.ts:54:export const TAGLINES = {
+apps/web/src/i18n/t.ts:24:export function t(
+apps/web/src/i18n/t.ts:40:/** Exported for parity tests. */
+apps/web/src/i18n/t.ts:41:export function messageCatalog(locale: Locale): Record<MessageKey, string> {
+apps/web/src/App.tsx:8:  exportProfilesJson,
+apps/web/src/App.tsx:11:} from "@assmud/profiles";
+apps/web/src/App.tsx:85:export function App() {
+apps/web/src/App.tsx:88:  const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
+apps/web/src/App.tsx:97:  const [customAck, setCustomAck] = useState(() => loadCustomAck());
+apps/web/src/App.tsx:100:    profiles[0]?.id ?? "rw-4000",
+apps/web/src/App.tsx:102:  const [tabs, setTabs] = useState<Tab[]>(() => {
+apps/web/src/App.tsx:136:    profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
+apps/web/src/App.tsx:137:    profiles[0]!;
+apps/web/src/App.tsx:152:    profiles.find((p) => p.id === closeTarget?.profileId)?.name ??
+apps/web/src/App.tsx:165:    setTabs((ts) => {
+apps/web/src/App.tsx:194:    setTabs((ts) => {
+apps/web/src/App.tsx:226:    setTabs((ts) =>
+apps/web/src/App.tsx:280:  const exportProfiles = () => {
+apps/web/src/App.tsx:281:    const blob = new Blob([exportProfilesJson(profiles)], {
+apps/web/src/App.tsx:286:    a.download = "assmud-profiles.json";
+apps/web/src/App.tsx:298:    setTabs((ts) =>
+apps/web/src/App.tsx:304:    setTabs((ts) =>
+apps/web/src/App.tsx:322:        profiles={profiles.length ? profiles : DEFAULT_PROFILES}
+apps/web/src/App.tsx:328:        customAck={customAck}
+apps/web/src/App.tsx:331:          setTabs((ts) =>
+apps/web/src/App.tsx:359:        onConnect={connectTab}
+apps/web/src/App.tsx:361:        onExportProfiles={exportProfiles}
+apps/web/src/App.tsx:406:            const p = profiles.find((x) => x.id === tb.profileId);
+apps/web/src/App.tsx:464:              setTabs((ts) => [
+apps/web/src/App.tsx:648:                      setTabs((ts) =>
+apps/web/src/App.tsx:655:                    {profiles.map((p) => (
+apps/web/src/App.tsx:677:                      localStorage.setItem("assmud_token", e.target.value);
+apps/web/src/App.tsx:812:                    onClick={exportProfiles}
+apps/web/src/App.tsx:814:                    {t("drawer.export")}
+apps/web/src/App.tsx:845:                  pack: {RW_STARTER_PACK.name} · profiles:{" "}
+apps/web/src/App.tsx:846:                  {profiles.length || DEFAULT_PROFILES.length}
+apps/web/src/i18n/statusCopy.ts:4:export type StatusTone = "idle" | "ok" | "warn" | "danger";
+apps/web/src/i18n/statusCopy.ts:6:export type StatusCopy = {
+apps/web/src/i18n/statusCopy.ts:25:export function statusCopy(event: StatusEvent): StatusCopy {
+apps/web/src/i18n/statusCopy.ts:38:export function tone(code: StatusCode): StatusTone {
+apps/web/src/i18n/index.ts:1:export type { Locale, MessageKey, MessageVars } from "./types";
+apps/web/src/i18n/index.ts:2:export { t, messageCatalog } from "./t";
+apps/web/src/i18n/index.ts:3:export {
+apps/web/src/i18n/index.ts:11:export { statusCopy, tone, type StatusCopy, type StatusTone } from "./statusCopy";
+apps/web/src/i18n/index.ts:12:export { LocaleProvider, useLocale, useT } from "./LocaleContext";
+apps/web/src/i18n/index.ts:13:export { pickTagline, TAGLINES } from "./taglines";
+apps/web/src/i18n/index.ts:14:export { en } from "./messages/en";
+apps/web/src/i18n/index.ts:15:export { zhTW } from "./messages/zh-TW";
+apps/web/src/i18n/index.ts:16:export { zhCN } from "./messages/zh-CN";
+apps/web/src/i18n/LocaleContext.tsx:37:export function LocaleProvider({ children, initial }: ProviderProps) {
+apps/web/src/i18n/LocaleContext.tsx:64:export function useLocale(): LocaleContextValue {
+apps/web/src/i18n/LocaleContext.tsx:72:export function useT(): (key: MessageKey, vars?: MessageVars) => string {
+apps/web/src/i18n/messages/en.ts:3:export const en = {
+apps/web/src/i18n/messages/en.ts:12:  "connect.export": "export profiles",
+apps/web/src/i18n/messages/en.ts:28:  "trust.token.secret": "Treat as a password — never exported",
+apps/web/src/i18n/messages/en.ts:65:  "drawer.export": "Export profiles",
+apps/web/src/components/LocaleSwitch.tsx:22:export function LocaleSwitch({ compact = false, className = "" }: Props) {
+apps/web/src/i18n/messages/zh-CN.ts:3:export const zhCN = {
+apps/web/src/i18n/messages/zh-CN.ts:12:  "connect.export": "导出配置",
+apps/web/src/i18n/messages/zh-CN.ts:65:  "drawer.export": "导出配置",
+apps/web/src/i18n/messages/zh-TW.ts:3:export const zhTW = {
+apps/web/src/i18n/messages/zh-TW.ts:12:  "connect.export": "匯出設定檔",
+apps/web/src/i18n/messages/zh-TW.ts:65:  "drawer.export": "匯出設定檔",
+apps/web/src/components/StatusPill.tsx:6:export function StatusPill({ status }: Props) {
+apps/web/src/components/ConfirmModal.tsx:15:export function ConfirmModal({
+apps/web/src/components/ConnectGate.tsx:2:import type { MudProfile } from "@assmud/profiles";
+apps/web/src/components/ConnectGate.tsx:10:  profiles: MudProfile[];
+apps/web/src/components/ConnectGate.tsx:16:  customAck: boolean;
+apps/web/src/components/ConnectGate.tsx:23:  onConnect: () => void;
+apps/web/src/components/ConnectGate.tsx:25:  onExportProfiles: () => void;
+apps/web/src/components/ConnectGate.tsx:28:export function ConnectGate({
+apps/web/src/components/ConnectGate.tsx:29:  profiles,
+apps/web/src/components/ConnectGate.tsx:35:  customAck,
+apps/web/src/components/ConnectGate.tsx:42:  onConnect,
+apps/web/src/components/ConnectGate.tsx:44:  onExportProfiles,
+apps/web/src/components/ConnectGate.tsx:53:  const p = profiles.find((x) => x.id === profileId) ?? profiles[0];
+apps/web/src/components/ConnectGate.tsx:56:  const connectOk = canConnect(trustMode, customAck);
+apps/web/src/components/ConnectGate.tsx:189:                  checked={customAck}
+apps/web/src/components/ConnectGate.tsx:230:              {profiles.map((pr) => (
+apps/web/src/components/ConnectGate.tsx:294:            onClick={onConnect}
+apps/web/src/components/ConnectGate.tsx:310:            <button type="button" className="hover:underline" onClick={onExportProfiles}>
+apps/web/src/components/ConnectGate.tsx:311:              {t("connect.export")}
+   180	        const idx = ts.findIndex((t) => t.id === id);
+   181	        const fallback =
+   182	          remaining[Math.max(0, idx - 1)] ?? remaining[0]!;
+   183	        queueMicrotask(() => setTabId(fallback.id));
+   184	      }
+   185	      return remaining;
+   186	    });
+   187	  };
+   188	
+   189	  const tabIdRef = useRef(tabId);
+   190	  tabIdRef.current = tabId;
+   191	
+   192	  // Stable forever — never recreated, so children cannot loop on identity.
+   193	  const setTabStatus = useCallback((id: string, status: StatusEvent) => {
+   194	    setTabs((ts) => {
+   195	      const cur = ts.find((x) => x.id === id);
+   196	      if (!cur || statusEventsEqual(cur.status, status)) return ts;
+   197	      return ts.map((x) => (x.id === id ? { ...x, status } : x));
+   198	    });
+   199	  }, []);
+   200	
+   201	  const handleStatus = useCallback(
+   202	    (e: StatusEvent) => {
+   203	      setTabStatus(tabIdRef.current, e);
+   204	      // connection lifecycle changes should never leave mask stuck
+   205	      if (
+   206	        e.code === "disconnected" ||
+   207	        e.code === "idle" ||
+   208	        e.code === "connecting" ||
+   209	        e.code === "max_retries" ||
+   210	        e.code === "proxy_error" ||
+   211	        e.code === "error"
+   212	      ) {
+   213	        setEchoMask(false);
+   214	      }
+   215	    },
+   216	    [setTabStatus],
+   217	  );
+   218	
+   219	  const handleEchoMask = useCallback((mask: boolean) => {
+   220	    setEchoMask(mask);
+   221	  }, []);
+   222	
+   223	  const handleServerLine = useCallback((line: string) => {
+   224	    engine.onServerLine(line);
+   225	    const id = tabIdRef.current;
+   226	    setTabs((ts) =>
+   227	      ts.map((x) =>
+   228	        x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
+   229	      ),
+   230	    );
+   231	  }, []);
+   232	
+   233	  const wsUrl = useMemo(() => {
+   234	    if (!tab?.connected) return null;
+   235	    if (trustMode === "local" && typeof window !== "undefined") {
+   236	      const h = window.location.hostname;
+   237	      if (h === "127.0.0.1" || h === "localhost") {
+   238	        return "ws://127.0.0.1:7788/ws";
+   239	      }
+   240	    }
+   241	    return resolveWsUrl(trustMode, {
+   242	      envDefault: DEFAULT_WS,
+   243	      customWs,
+   244	      officialUrl: readOfficialProxyUrl(),
+   245	    });
+   246	  }, [tab?.connected, trustMode, customWs]);
+   247	
+   248	  const hello: HelloMsg = useMemo(
+   249	    () => ({
+   250	      type: "hello",
+   251	      token: token || undefined,
+   252	      host: profile.host,
+   253	      port: profile.port,
+   254	      cols: 80,
+   255	      rows: 28,
+   256	    }),
+   257	    [token, profile],
+   258	  );
+   259	
+   260	  const onSendThroughEngine = useCallback((line: string) => {
+   261	    const expanded = engine.expandInput(line);
+   262	    for (const l of expanded) {
+   263	      const dir = l.trim().toLowerCase();
+   264	      if (["n", "s", "e", "w", "ne", "nw", "se", "sw", "u", "d"].includes(dir)) {
+   265	        clientMap.move(dir as "n", dir);
+   266	        setMapAscii(clientMap.ascii(4));
+   267	      }
+   268	    }
+   269	    return expanded;
+   270	  }, []);
+   271	
+   272	  const downloadLog = () => {
+   273	    const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
+   274	    const a = document.createElement("a");
+   275	    a.href = URL.createObjectURL(blob);
+   276	    a.download = `assmud-session-${tab.id}.log`;
+   277	    a.click();
+   278	  };
+   279	
+   280	  const exportProfiles = () => {
+   281	    const blob = new Blob([exportProfilesJson(profiles)], {
+   282	      type: "application/json",
+   283	    });
+   284	    const a = document.createElement("a");
+   285	    a.href = URL.createObjectURL(blob);
+   286	    a.download = "assmud-profiles.json";
+   287	    a.click();
+   288	  };
+   289	
+   290	  const importProfilesFile = async (file: File) => {
+   291	    const text = await file.text();
+   292	    const list = importProfilesJson(text);
+   293	    setProfiles(list);
+   294	    saveProfiles(list);
+   295	  };
+   296	
+   297	  const connectTab = () => {
+   298	    setTabs((ts) =>
+   299	      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+   300	    );
+   301	  };
+   302	
+   303	  const disconnectTab = () => {
+   304	    setTabs((ts) =>
+   305	      ts.map((x) =>
+   306	        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
+   307	      ),
+   308	    );
+   309	  };
+   310	
+   311	  const submitCmd = (line: string) => {
+   312	    const trimmed = line.trim();
+   313	    if (!trimmed) return;
+   314	    setCmd(trimmed);
+   315	    setInputDraft("");
+   316	  };
+   317	
+   318	  // ── Connect gate (pre-session) ─────────────────────────────────────
+   319	  if (!anyConnected) {
+   320	    return (
+   321	      <ConnectGate
+   322	        profiles={profiles.length ? profiles : DEFAULT_PROFILES}
+   323	        profileId={tab.profileId}
+   324	        token={token}
+   325	        accent={accent}
+   326	        trustMode={trustMode}
+   327	        customWs={customWs}
+   328	        customAck={customAck}
+   329	        onProfile={(id) => {
+   330	          setActiveProfile(id);
+   331	          setTabs((ts) =>
+   332	            ts.map((x) => (x.id === tabId ? { ...x, profileId: id } : x)),
+   333	          );
+   334	        }}
+   335	        onToken={(tok) => {
+   336	          setToken(tok);
+   337	          saveProxyToken(tok);
+   338	        }}
+   339	        onTrustMode={(m) => {
+   340	          setTrustMode(m);
+   341	          saveTrustMode(m);
+   342	          if (m !== "custom") {
+   343	            setCustomAck(false);
+   344	            saveCustomAck(false);
+   345	          }
+   346	        }}
+   347	        onCustomWs={(u) => {
+   348	          setCustomWs(u);
+   349	          saveCustomWs(u);
+   350	        }}
+   351	        onCustomAck={(ok) => {
+   352	          setCustomAck(ok);
+   353	          saveCustomAck(ok);
+   354	        }}
+   355	        onAccent={(a) => {
+   356	          setAccent(a);
+   357	          applyAccent(a);
+   358	        }}
+   359	        onConnect={connectTab}
+   360	        onImportProfiles={(f) => void importProfilesFile(f)}
+   361	        onExportProfiles={exportProfiles}
+   362	      />
+   363	    );
+   364	  }
+   365	
+   366	  // ── Play shell ─────────────────────────────────────────────────────
+   367	  return (
+   368	    <div
+   369	      className="h-full flex flex-col min-h-0"
+   370	      style={{ background: "var(--bg-void)" }}
+    45	}: Props) {
+    46	  const t = useT();
+    47	  const { locale } = useLocale();
+    48	  const [tagline, setTagline] = useState(() => pickTagline(locale));
+    49	  useEffect(() => {
+    50	    setTagline(pickTagline(locale));
+    51	  }, [locale]);
+    52	
+    53	  const p = profiles.find((x) => x.id === profileId) ?? profiles[0];
+    54	  const officialUrl = readOfficialProxyUrl();
+    55	  const showOfficial = Boolean(officialUrl);
+    56	  const connectOk = canConnect(trustMode, customAck);
+    57	  const needsWs =
+    58	    trustMode === "selfhost" || trustMode === "custom" || trustMode === "official";
+    59	
+    60	  return (
+    61	    <div className="min-h-full flex items-center justify-center p-4 sm:p-8">
+    62	      <div
+    63	        className="w-full max-w-md rounded-[var(--radius)] border p-6 sm:p-8 shadow-[var(--shadow)]"
+    64	        style={{
+    65	          background: "var(--bg-panel)",
+    66	          borderColor: "var(--border)",
+    67	        }}
+    68	      >
+    69	        <div className="mb-6">
+    70	          <div className="flex items-center gap-2 mb-3 flex-wrap">
+    71	            <span
+    72	              className="font-mono text-xs font-semibold tracking-widest uppercase px-2 py-0.5 rounded"
+    73	              style={{
+    74	                color: "var(--accent)",
+    75	                background: "var(--accent-dim)",
+    76	              }}
+    77	            >
+    78	              {t("app.name")}
+    79	            </span>
+    80	            <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+    81	              v0.1
+    82	            </span>
+    83	            <div className="ml-auto">
+    84	              <LocaleSwitch />
+    85	            </div>
+    86	          </div>
+    87	          <h1
+    88	            className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2"
+    89	            style={{ color: "var(--text)" }}
+    90	          >
+    91	            {t("connect.title")}
+    92	          </h1>
+    93	          <p
+    94	            className="text-sm leading-relaxed font-mono"
+    95	            style={{ color: "var(--text-dim)" }}
+    96	          >
+    97	            {tagline}
+    98	          </p>
+    99	        </div>
+   100	
+   101	        <div className="space-y-4">
+   102	          <fieldset>
+   103	            <legend
+   104	              className="text-xs font-medium mb-1.5"
+   105	              style={{ color: "var(--text-dim)" }}
+   106	            >
+   107	              {t("trust.mode.label")}
+   108	            </legend>
+   109	            <div className="space-y-1.5">
+   110	              {(
+   111	                [
+   112	                  ["local", "trust.mode.local"],
+   113	                  ["selfhost", "trust.mode.selfhost"],
+   114	                  ...(showOfficial
+   115	                    ? ([["official", "trust.mode.official"]] as const)
+   116	                    : []),
+   117	                  ["custom", "trust.mode.custom"],
+   118	                ] as const
+   119	              ).map(([id, key]) => (
+   120	                <label
+   121	                  key={id}
+   122	                  className="flex items-center gap-2 text-sm cursor-pointer"
+   123	                  style={{ color: "var(--text)" }}
+   124	                >
+   125	                  <input
+   126	                    type="radio"
+   127	                    name="trustMode"
+   128	                    checked={trustMode === id}
+   129	                    onChange={() => onTrustMode(id as TrustMode)}
+   130	                  />
+   131	                  {t(key)}
+   132	                </label>
+   133	              ))}
+   134	            </div>
+   135	          </fieldset>
+   136	
+   137	          {trustMode === "selfhost" && (
+   138	            <p className="text-[11px] space-x-2" style={{ color: "var(--text-faint)" }}>
+   139	              <a
+   140	                className="underline"
+   141	                href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
+   142	                target="_blank"
+   143	                rel="noreferrer"
+   144	                onClick={(e) => {
+   145	                  e.preventDefault();
+   146	                  window.open(
+   147	                    "https://github.com/search?q=assmud+ORACLE-ALWAYS-FREE",
+   148	                    "_blank",
+   149	                  );
+   150	                }}
+   151	              >
+   152	                {t("trust.selfhost.cta")}
+   153	              </a>
+   154	              <span>·</span>
+   155	              <span>{t("trust.home.cf")}</span>
+   156	            </p>
+   157	          )}
+   158	
+   159	          {trustMode === "official" && (
+   160	            <p
+   161	              className="text-xs rounded border p-2"
+   162	              style={{
+   163	                borderColor: "var(--border)",
+   164	                color: "var(--text-dim)",
+   165	                background: "var(--bg-elevated)",
+   166	              }}
+   167	            >
+   168	              {t("trust.warn.official")}
+   169	            </p>
+   170	          )}
+   171	
+   172	          {trustMode === "custom" && (
+   173	            <div
+   174	              className="rounded border p-3 space-y-2"
+   175	              style={{
+   176	                borderColor: "var(--accent)",
+   177	                background: "var(--accent-dim)",
+   178	              }}
+   179	            >
+   180	              <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>
+   181	                {t("trust.warn.custom")}
+   182	              </p>
+   183	              <label
+   184	                className="flex items-center gap-2 text-sm"
+   185	                style={{ color: "var(--text)" }}
+   186	              >
+   187	                <input
+   188	                  type="checkbox"
+   189	                  checked={customAck}
+   190	                  onChange={(e) => onCustomAck(e.target.checked)}
+   191	                />
+   192	                {t("trust.warn.ack")}
+   193	              </label>
+   194	            </div>
+   195	          )}
+   196	
+   197	          {needsWs && trustMode !== "official" && (
+   198	            <label
+   199	              className="block text-xs font-medium"
+   200	              style={{ color: "var(--text-dim)" }}
+   201	            >
+   202	              {t("trust.ws")}
+   203	              <input
+   204	                className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none"
+   205	                style={{
+   206	                  background: "var(--bg-elevated)",
+   207	                  borderColor: "var(--border)",
+   208	                  color: "var(--text)",
+   209	                }}
+   210	                value={customWs}
+   211	                onChange={(e) => onCustomWs(e.target.value)}
+   212	                placeholder={t("trust.ws.placeholder")}
+   213	                autoComplete="off"
+   214	              />
+   215	            </label>
+   216	          )}
+   217	
+   218	          <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
+   219	            {t("connect.profile")}
+   220	            <select
+   221	              className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
+   222	              style={{
+   223	                background: "var(--bg-elevated)",
+   224	                borderColor: "var(--border)",
+   225	                color: "var(--text)",
+   226	              }}
+   227	              value={profileId}
+   228	              onChange={(e) => onProfile(e.target.value)}
+   229	            >
+   230	              {profiles.map((pr) => (
+   231	                <option key={pr.id} value={pr.id}>
+   232	                  {pr.name} — {pr.host}:{pr.port}
+   233	                </option>
+   234	              ))}
+   235	            </select>
+   236	          </label>
+   237	
+   238	          <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
+   239	            {t("connect.token")}
+   240	            <span className="font-normal" style={{ color: "var(--text-faint)" }}>
+   241	              {" "}
+   242	              {t("trust.token.secret")}
+   243	            </span>
+   244	            <input
+   245	              className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
+   246	              style={{
+   247	                background: "var(--bg-elevated)",
+   248	                borderColor: "var(--border)",
+   249	                color: "var(--text)",
+   250	              }}
+   251	              value={token}
+   252	              onChange={(e) => onToken(e.target.value)}
+   253	              autoComplete="off"
+   254	              placeholder={t("connect.token.placeholder")}
+   255	            />
+   256	          </label>
+   257	
+   258	          <div>
+   259	            <div className="text-xs font-medium mb-1.5" style={{ color: "var(--text-dim)" }}>
+   260	              {t("connect.accent")}
+   261	            </div>
+   262	            <div className="flex gap-2">
+   263	              {(
+   264	                [
+   265	                  { id: "mint" as const, labelKey: "accent.mint" as const, swatch: "#3dffa8" },
+   266	                  { id: "blue" as const, labelKey: "accent.blue" as const, swatch: "#5b9dff" },
+   267	                ] as const
+   268	              ).map((opt) => (
+   269	                <button
+   270	                  key={opt.id}
+   271	                  type="button"
+   272	                  onClick={() => onAccent(opt.id)}
+   273	                  className="flex-1 flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border py-2 text-sm transition"
+   274	                  style={{
+   275	                    borderColor:
+   276	                      accent === opt.id ? "var(--accent)" : "var(--border)",
+   277	                    background:
+   278	                      accent === opt.id ? "var(--accent-dim)" : "var(--bg-elevated)",
+   279	                    color: "var(--text)",
+   280	                  }}
+   281	                >
+   282	                  <span
+   283	                    className="h-3 w-3 rounded-full"
+   284	                    style={{ background: opt.swatch }}
+   285	                  />
+   286	                  {t(opt.labelKey)}
+   287	                </button>
+   288	              ))}
+   289	            </div>
+   290	          </div>
+   291	
+   292	          <button
+   293	            type="button"
+   294	            onClick={onConnect}
+   295	            disabled={!connectOk}
+   296	            className="w-full rounded-[var(--radius-sm)] py-3 text-sm font-semibold tracking-wide transition active:scale-[0.99] disabled:opacity-40"
+   297	            style={{
+   298	              background: "var(--accent)",
+   299	              color: "#0a0b0e",
+   300	              boxShadow: `0 0 24px var(--accent-glow)`,
+   301	            }}
+   302	          >
+   303	            {t("connect.cta", { name: p?.name ?? "MUD" })}
+   304	          </button>
+   305	
+   306	          <div
+   307	            className="flex justify-between text-[11px] pt-1"
+   308	            style={{ color: "var(--text-faint)" }}
+   309	          >
+   310	            <button type="button" className="hover:underline" onClick={onExportProfiles}>
+   311	              {t("connect.export")}
+   312	            </button>
+   313	            <label className="hover:underline cursor-pointer">
+   314	              {t("connect.import")}
+   315	              <input
+   316	                type="file"
+   317	                accept="application/json"
+   318	                className="hidden"
+   319	                onChange={(e) => {
+   320	                  const f = e.target.files?.[0];
+   321	                  if (f) onImportProfiles(f);
+   322	                }}
+   323	              />
+   324	            </label>
+   325	          </div>
+   326	        </div>
+   327	      </div>
+   328	    </div>
+   329	  );
+   330	}
+     1	#!/usr/bin/env bash
+     2	# assmud self-host proxy installer (interactive).
+     3	# Pin chain: verify this script SHA-256 from release notes, then it pulls a digest-pinned image.
+     4	set -euo pipefail
+     5	
+     6	INSTALLER_VERSION="${ASSMUD_INSTALLER_VERSION:-0.1.0-dev}"
+     7	# Override for real releases: ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:...
+     8	IMAGE="${ASSMUD_PROXY_IMAGE:-}"
+     9	ORIGIN="${ASSMUD_ORIGIN_ALLOWLIST:-}"
+    10	TOKEN_FILE="${ASSMUD_TOKEN_FILE:-/etc/assmud/auth_token}"
+    11	COMPOSE_DIR="${ASSMUD_COMPOSE_DIR:-/opt/assmud}"
+    12	
+    13	echo "assmud-proxy installer ${INSTALLER_VERSION}"
+    14	
+    15	if [[ "$(id -u)" -ne 0 ]]; then
+    16	  echo "Run as root (sudo)." >&2
+    17	  exit 1
+    18	fi
+    19	
+    20	if [[ -z "$IMAGE" ]]; then
+    21	  echo "Set ASSMUD_PROXY_IMAGE to a digest-pinned image, e.g.:" >&2
+    22	  echo "  export ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:…" >&2
+    23	  exit 1
+    24	fi
+    25	
+    26	if [[ "$IMAGE" == *":latest" ]]; then
+    27	  echo "Refusing :latest — use @sha256: digest pin." >&2
+    28	  exit 1
+    29	fi
+    30	
+    31	if [[ -z "$ORIGIN" ]]; then
+    32	  echo "Set ASSMUD_ORIGIN_ALLOWLIST (comma-separated https origins). Empty is fail-closed." >&2
+    33	  exit 1
+    34	fi
+    35	
+    36	if ! command -v docker >/dev/null 2>&1; then
+    37	  echo "docker required" >&2
+    38	  exit 1
+    39	fi
+    40	
+    41	mkdir -p "$(dirname "$TOKEN_FILE")" "$COMPOSE_DIR"
+    42	# MUST: do not leave token in shell history
+    43	set +o history 2>/dev/null || true
+    44	TOKEN="$(openssl rand -hex 24)"
+    45	umask 077
+    46	printf '%s' "$TOKEN" >"$TOKEN_FILE"
+    47	chmod 600 "$TOKEN_FILE"
+    48	chown root:root "$TOKEN_FILE" 2>/dev/null || true
+    49	
+    50	cat >"$COMPOSE_DIR/.env" <<EOF
+    51	ASSMUD_PROXY_IMAGE=${IMAGE}
+    52	ASSMUD_AUTH_TOKEN=${TOKEN}
+    53	ASSMUD_ORIGIN_ALLOWLIST=${ORIGIN}
+    54	EOF
+    55	chmod 600 "$COMPOSE_DIR/.env"
+    56	
+    57	# Minimal compose (loopback via host network)
+    58	cat >"$COMPOSE_DIR/docker-compose.yml" <<EOF
+    59	services:
+    60	  proxy:
+    61	    image: \${ASSMUD_PROXY_IMAGE}
+    62	    restart: unless-stopped
+    63	    env_file: .env
+    64	    environment:
+    65	      ASSMUD_PROXY_MODE: remote-prod
+    66	      ASSMUD_BIND_HOST: "127.0.0.1"
+    67	      PORT: "7788"
+    68	    network_mode: host
+    69	EOF
+    70	
+    71	docker pull "$IMAGE"
+    72	(cd "$COMPOSE_DIR" && docker compose up -d)
+    73	
+    74	echo ""
+    75	echo "=== INSTALL COMPLETE ==="
+    76	echo "Token (shown once — treat as password; do not paste in chat):"
+    77	echo "$TOKEN"
+    78	echo "Also stored 0600 at: $TOKEN_FILE"
+    79	echo "Retrieve later: sudo cat $TOKEN_FILE"
+    80	echo "Front with Caddy or cloudflared → 127.0.0.1:7788 (do not publish 7788)."
+    81	echo "Origin allowlist only limits browser Origin; it does not replace the token."
+    82	echo "Proxy operators can read cleartext MUD passwords — only run on machines you control."
+     1	# assmud proxy — self-host defaults (loopback only).
+     2	# Front with Caddy/cloudflared on 443. Do not publish 7788 to the internet.
+     3	#
+     4	# Required env: ASSMUD_AUTH_TOKEN, ASSMUD_ORIGIN_ALLOWLIST
+     5	services:
+     6	  proxy:
+     7	    image: ${ASSMUD_PROXY_IMAGE:-ghcr.io/example/assmud-proxy:pin-me}
+     8	    # Prefer: ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:...
+     9	    restart: unless-stopped
+    10	    environment:
+    11	      ASSMUD_PROXY_MODE: remote-prod
+    12	      ASSMUD_AUTH_TOKEN: ${ASSMUD_AUTH_TOKEN:?set token}
+    13	      ASSMUD_ORIGIN_ALLOWLIST: ${ASSMUD_ORIGIN_ALLOWLIST:?set origins}
+    14	      ASSMUD_BIND_HOST: "127.0.0.1"
+    15	      PORT: "7788"
+    16	    network_mode: host
+    17	    # With network_mode host, bind 127.0.0.1:7788 on the host only.
+
+exec
+/usr/bin/zsh -lc "nl -ba packages/profiles/src/index.ts | sed -n '1,140p'; nl -ba apps/web/src/App.tsx | sed -n '630,700p'; npm test -- --run apps/proxy/tests/policy.test.ts apps/web/tests/trustMode.test.ts && npm run typecheck" in /home/cookys/projects/assmud
+ exited 1 in 942ms:
+
+> assmud@0.1.0 test
+> vitest run --run apps/proxy/tests/policy.test.ts apps/web/tests/trustMode.test.ts
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ apps/web/tests/trustMode.test.ts (3 tests) 2ms
+ ❯ apps/proxy/tests/policy.test.ts (9 tests | 1 failed) 17ms
+   × policy > allows RW on allowlist 12ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/proxy/tests/policy.test.ts > policy > allows RW on allowlist
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/proxy/tests/policy.test.ts:54:18
+     52|   it("allows RW on allowlist", async () => {
+     53|     const r = await assertDestinationAllowed("mud.revivalworld.org", 4…
+     54|     expect(r.ok).toBe(true);
+       |                  ^
+     55|     if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+     56|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 11 passed (12)
+   Start at  00:01:36
+   Duration  463ms (transform 82ms, setup 0ms, collect 90ms, tests 20ms, environment 0ms, prepare 149ms)
+
+
+codex
+The focused tests exposed one environment-dependent DNS failure, and I’ve found concrete acceptance gaps in the image pin and export path. I’m checking build/type safety and the trust acknowledgment state transitions before issuing the verdict.
+exec
+/usr/bin/zsh -lc "npm run typecheck; npm run build -w @assmud/web; bash -n scripts/deploy/install-proxy.sh; if command -v docker >/dev/null 2>&1; then ASSMUD_AUTH_TOKEN=x ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com ASSMUD_PROXY_IMAGE=ghcr.io/example/proxy@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa docker compose -f deploy/docker-compose.proxy.yml config; else echo 'docker unavailable: compose config not run'; fi; node -e 'import(\"./packages/profiles/src/index.ts\").then(({importProfilesJson,exportProfilesJson})=>{const x=exportProfilesJson(importProfilesJson(JSON.stringify([{id:\"a\",name:\"a\",host:\"h\",port:1,charset:\"utf8\",proxyToken:\"SECRET\"}]))); console.log(x); process.exit(x.includes(\"SECRET\")?2:0)})'" in /home/cookys/projects/assmud
+ exited 1 in 5675ms:
+
+> assmud@0.1.0 typecheck
+> tsc -b
+
+
+> @assmud/web@0.1.0 build
+> tsc -p tsconfig.json && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 133 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.02 kB │ gzip:   0.55 kB
+dist/assets/index-Bg5JHMvc.css   18.28 kB │ gzip:   4.76 kB
+dist/assets/index-Y2Z7ghm-.js   614.03 kB │ gzip: 259.54 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.63s
+docker unavailable: compose config not run
+node:internal/modules/esm/resolve:271
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/cookys/projects/assmud/packages/profiles/src/widthMode.js' imported from /home/cookys/projects/assmud/packages/profiles/src/index.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+    at moduleResolve (node:internal/modules/esm/resolve:861:10)
+    at defaultResolve (node:internal/modules/esm/resolve:988:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:697:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:714:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:746:52)
+    at #resolve (node:internal/modules/esm/loader:679:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:599:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:162:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:252:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///home/cookys/projects/assmud/packages/profiles/src/widthMode.js'
+}
+
+Node.js v24.15.0
+
+exec
+/usr/bin/zsh -lc "npx tsx -e 'import {importProfilesJson,exportProfilesJson} from \"./packages/profiles/src/index.ts\"; const x=exportProfilesJson(importProfilesJson(JSON.stringify([{id:\"a\",name:\"a\",host:\"h\",port:1,charset:\"utf8\",proxyToken:\"SECRET\"}]))); console.log(x); if ("'!x.includes("SECRET")) process.exit(1)'"' ; nl -ba apps/web/src/lib/trustMode.ts | sed -n '1,120p'; nl -ba apps/web/tests/trustMode.test.ts | sed -n '1,100p'; nl -ba packages/profiles/src/index.ts | sed -n '50,75p'" in /home/cookys/projects/assmud
+ succeeded in 427ms:
+node:net:1986
+      const error = new UVExceptionWithHostPort(rval, 'listen', address, port);
+                    ^
+
+Error: listen EPERM: operation not permitted /tmp/tsx-1000/16.pipe
+    at Server.setupListenHandle [as _listen2] (node:net:1986:21)
+    at listenInCluster (node:net:2065:12)
+    at Server.listen (node:net:2187:5)
+    at file:///home/cookys/projects/assmud/node_modules/tsx/dist/cli.mjs:53:31472
+    at new Promise (<anonymous>)
+    at createIpcServer (file:///home/cookys/projects/assmud/node_modules/tsx/dist/cli.mjs:53:31450)
+    at async file:///home/cookys/projects/assmud/node_modules/tsx/dist/cli.mjs:55:500 {
+  code: 'EPERM',
+  errno: -1,
+  syscall: 'listen',
+  address: '/tmp/tsx-1000/16.pipe',
+  port: -1
+}
+
+Node.js v24.15.0
+     1	/** Connection trust modes (selfhost-proxy-trust plan). */
+     2	
+     3	export type TrustMode = "local" | "selfhost" | "official" | "custom";
+     4	
+     5	const MODE_KEY = "assmud_trust_mode";
+     6	const CUSTOM_WS_KEY = "assmud_custom_ws";
+     7	const TOKEN_KEY = "assmud_token";
+     8	const CUSTOM_ACK_KEY = "assmud_trust_custom_ack";
+     9	
+    10	export type SiteConfig = {
+    11	  officialProxyUrl?: string;
+    12	};
+    13	
+    14	export function loadTrustMode(): TrustMode {
+    15	  const m = localStorage.getItem(MODE_KEY);
+    16	  if (m === "local" || m === "selfhost" || m === "official" || m === "custom")
+    17	    return m;
+    18	  return "local";
+    19	}
+    20	
+    21	export function saveTrustMode(m: TrustMode): void {
+    22	  localStorage.setItem(MODE_KEY, m);
+    23	}
+    24	
+    25	export function loadCustomWs(): string {
+    26	  return localStorage.getItem(CUSTOM_WS_KEY) ?? "";
+    27	}
+    28	
+    29	export function saveCustomWs(url: string): void {
+    30	  localStorage.setItem(CUSTOM_WS_KEY, url);
+    31	}
+    32	
+    33	export function loadProxyToken(): string {
+    34	  return localStorage.getItem(TOKEN_KEY) ?? "";
+    35	}
+    36	
+    37	export function saveProxyToken(t: string): void {
+    38	  if (t) localStorage.setItem(TOKEN_KEY, t);
+    39	  else localStorage.removeItem(TOKEN_KEY);
+    40	}
+    41	
+    42	/** Token must never appear in profile export JSON. */
+    43	export function assertExportOmitsToken(exportedJson: string): boolean {
+    44	  try {
+    45	    const data = JSON.parse(exportedJson) as unknown;
+    46	    const s = JSON.stringify(data);
+    47	    // exported profiles should not embed assmud_token field
+    48	    return !/"assmud_token"\s*:/.test(s) && !/"proxyToken"\s*:/.test(s);
+    49	  } catch {
+    50	    return false;
+    51	  }
+    52	}
+    53	
+    54	export function loadCustomAck(): boolean {
+    55	  return localStorage.getItem(CUSTOM_ACK_KEY) === "1";
+    56	}
+    57	
+    58	export function saveCustomAck(ok: boolean): void {
+    59	  if (ok) localStorage.setItem(CUSTOM_ACK_KEY, "1");
+    60	  else localStorage.removeItem(CUSTOM_ACK_KEY);
+    61	}
+    62	
+    63	export function resolveWsUrl(
+    64	  mode: TrustMode,
+    65	  opts: {
+    66	    envDefault: string;
+    67	    customWs: string;
+    68	    officialUrl?: string;
+    69	  },
+    70	): string | null {
+    71	  switch (mode) {
+    72	    case "local":
+    73	      return opts.envDefault || "ws://127.0.0.1:7788/ws";
+    74	    case "selfhost":
+    75	    case "custom":
+    76	      return opts.customWs.trim() || null;
+    77	    case "official":
+    78	      return opts.officialUrl?.trim() || null;
+    79	    default:
+    80	      return null;
+    81	  }
+    82	}
+    83	
+    84	/** Connect allowed for custom only after explicit risk ack. */
+    85	export function canConnect(mode: TrustMode, customAck: boolean): boolean {
+    86	  if (mode === "custom") return customAck;
+    87	  return true;
+    88	}
+    89	
+    90	export function readOfficialProxyUrl(): string | undefined {
+    91	  if (typeof window === "undefined") return undefined;
+    92	  const w = window as unknown as { __ASSMUD_SITE__?: SiteConfig };
+    93	  return w.__ASSMUD_SITE__?.officialProxyUrl;
+    94	}
+     1	import { describe, it, expect } from "vitest";
+     2	import {
+     3	  assertExportOmitsToken,
+     4	  canConnect,
+     5	  resolveWsUrl,
+     6	} from "../src/lib/trustMode";
+     7	
+     8	describe("trustMode", () => {
+     9	  it("custom requires ack", () => {
+    10	    expect(canConnect("custom", false)).toBe(false);
+    11	    expect(canConnect("custom", true)).toBe(true);
+    12	    expect(canConnect("local", false)).toBe(true);
+    13	  });
+    14	
+    15	  it("resolveWsUrl by mode", () => {
+    16	    expect(
+    17	      resolveWsUrl("local", {
+    18	        envDefault: "ws://127.0.0.1:7788/ws",
+    19	        customWs: "",
+    20	      }),
+    21	    ).toBe("ws://127.0.0.1:7788/ws");
+    22	    expect(
+    23	      resolveWsUrl("selfhost", {
+    24	        envDefault: "ws://x",
+    25	        customWs: "wss://mine.example/ws",
+    26	      }),
+    27	    ).toBe("wss://mine.example/ws");
+    28	    expect(
+    29	      resolveWsUrl("official", {
+    30	        envDefault: "ws://x",
+    31	        customWs: "",
+    32	        officialUrl: "wss://official.example/ws",
+    33	      }),
+    34	    ).toBe("wss://official.example/ws");
+    35	    expect(
+    36	      resolveWsUrl("official", {
+    37	        envDefault: "ws://x",
+    38	        customWs: "",
+    39	      }),
+    40	    ).toBeNull();
+    41	  });
+    42	
+    43	  it("export must omit proxy token fields", () => {
+    44	    const clean = JSON.stringify([{ id: "a", host: "h", port: 1 }]);
+    45	    expect(assertExportOmitsToken(clean)).toBe(true);
+    46	    expect(
+    47	      assertExportOmitsToken(JSON.stringify({ proxyToken: "secret" })),
+    48	    ).toBe(false);
+    49	  });
+    50	});
+    50	  }
+    51	}
+    52	
+    53	export function saveProfiles(list: MudProfile[]): void {
+    54	  if (typeof localStorage === "undefined") return;
+    55	  localStorage.setItem(KEY, JSON.stringify(list));
+    56	}
+    57	
+    58	export function exportProfilesJson(list: MudProfile[]): string {
+    59	  return JSON.stringify(list, null, 2);
+    60	}
+    61	
+    62	export function importProfilesJson(json: string): MudProfile[] {
+    63	  const list = JSON.parse(json) as MudProfile[];
+    64	  if (!Array.isArray(list)) throw new Error("invalid profiles");
+    65	  return list.filter((p) => p.id && p.host && p.port);
+    66	}
+
+codex
+VERDICT
+
+FAIL
+
+MUST_FIX
+
+- [`install-proxy.sh`](/home/cookys/projects/assmud/scripts/deploy/install-proxy.sh:26) rejects only `:latest`; arbitrary mutable tags such as `:prod` pass. Require an exact `@sha256:<64 hex>` reference.
+- [`docker-compose.proxy.yml`](/home/cookys/projects/assmud/deploy/docker-compose.proxy.yml:7) defaults to the mutable placeholder tag `:pin-me`. Fail when `ASSMUD_PROXY_IMAGE` is absent and require a digest-pinned image.
+- [`exportProfilesJson`](/home/cookys/projects/assmud/packages/profiles/src/index.ts:58) serializes imported objects unchanged. Because [`importProfilesJson`](/home/cookys/projects/assmud/packages/profiles/src/index.ts:62) preserves unknown fields, an imported `proxyToken` or `assmud_token` is re-exported. The new test only tests an unused assertion helper, not the real export path.
+- T3 acknowledgment is global and persistent. [`saveCustomWs`](/home/cookys/projects/assmud/apps/web/src/lib/trustMode.ts:29) does not invalidate the acknowledgment, so after acknowledging URL A, the user can change to URL B and connect without acknowledging B. Bind acknowledgment to the normalized URL or clear it whenever the URL changes.
+- [`canConnect`](/home/cookys/projects/assmud/apps/web/src/lib/trustMode.ts:85) ignores endpoint validity/presence. Self-host/custom mode can enter the connected UI with an empty or invalid URL. Require a valid endpoint; require `wss:` for non-loopback endpoints.
+
+NITS
+
+- [`policy.test.ts`](/home/cookys/projects/assmud/apps/proxy/tests/policy.test.ts:51) performs live DNS resolution, causing the focused suite to fail in network-restricted environments. Mock DNS for deterministic tests.
+- [`ConnectGate.tsx`](/home/cookys/projects/assmud/apps/web/src/components/ConnectGate.tsx:141) replaces the Oracle documentation link with a GitHub search, while the Cloudflare text is not linked.
+- [`App.tsx`](/home/cookys/projects/assmud/apps/web/src/App.tsx:675) bypasses `saveProxyToken`, leaving an empty token value in storage instead of removing it.
+tokens used
+65,485
+VERDICT
+
+FAIL
+
+MUST_FIX
+
+- [`install-proxy.sh`](/home/cookys/projects/assmud/scripts/deploy/install-proxy.sh:26) rejects only `:latest`; arbitrary mutable tags such as `:prod` pass. Require an exact `@sha256:<64 hex>` reference.
+- [`docker-compose.proxy.yml`](/home/cookys/projects/assmud/deploy/docker-compose.proxy.yml:7) defaults to the mutable placeholder tag `:pin-me`. Fail when `ASSMUD_PROXY_IMAGE` is absent and require a digest-pinned image.
+- [`exportProfilesJson`](/home/cookys/projects/assmud/packages/profiles/src/index.ts:58) serializes imported objects unchanged. Because [`importProfilesJson`](/home/cookys/projects/assmud/packages/profiles/src/index.ts:62) preserves unknown fields, an imported `proxyToken` or `assmud_token` is re-exported. The new test only tests an unused assertion helper, not the real export path.
+- T3 acknowledgment is global and persistent. [`saveCustomWs`](/home/cookys/projects/assmud/apps/web/src/lib/trustMode.ts:29) does not invalidate the acknowledgment, so after acknowledging URL A, the user can change to URL B and connect without acknowledging B. Bind acknowledgment to the normalized URL or clear it whenever the URL changes.
+- [`canConnect`](/home/cookys/projects/assmud/apps/web/src/lib/trustMode.ts:85) ignores endpoint validity/presence. Self-host/custom mode can enter the connected UI with an empty or invalid URL. Require a valid endpoint; require `wss:` for non-loopback endpoints.
+
+NITS
+
+- [`policy.test.ts`](/home/cookys/projects/assmud/apps/proxy/tests/policy.test.ts:51) performs live DNS resolution, causing the focused suite to fail in network-restricted environments. Mock DNS for deterministic tests.
+- [`ConnectGate.tsx`](/home/cookys/projects/assmud/apps/web/src/components/ConnectGate.tsx:141) replaces the Oracle documentation link with a GitHub search, while the Cloudflare text is not linked.
+- [`App.tsx`](/home/cookys/projects/assmud/apps/web/src/App.tsx:675) bypasses `saveProxyToken`, leaving an empty token value in storage instead of removing it.

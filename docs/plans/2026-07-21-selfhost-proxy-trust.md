@@ -1,6 +1,6 @@
 # Plan — 自架 proxy 一鍵部屬 + 連線信任／密碼 UX
 
-> **Status**: **APPROVED · ALL_CLEAR**（hetero R3 三家 APPROVE、MUST_FIX/NITS 空；可 `/ship`）  
+> **Status**: **SHIP**（feat/selfhost-proxy-trust → develop）  
 > **Owner**: cookys  
 > **Why**: 台灣 MUD 多開靠 **出口 IP**；共用 hosted 易撞。自架（Oracle／任意 VPS／**家用 + Cloudflare Tunnel·Zero Trust**／本機）是 **一等公民**。明文 telnet 下 **proxy 營運者必可見密碼**——用 UX／預設／一鍵安全預設處理，不能假裝 E2E。  
 > **North**: 玩家 **極簡** 起「只服務自己」的 proxy；產品 **極難** 把不知情玩家導向陌生人 proxy。  

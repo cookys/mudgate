@@ -1,0 +1,28 @@
+## VERDICT: MUST_FIX — 2 NITS
+
+### NIT 1: `docker-compose.proxy.yml:14` hardcodes `127.0.0.1` instead of env var
+
+The compose file sets `ASSMUD_BIND_HOST: "127.0.0.1"` as a literal, while every other var uses `${VAR}` syntax from the `.env`. This means changing the bind host requires editing the compose file directly instead of just updating `.env`.
+
+```yaml
+# Current (hardcoded):
+ASSMUD_BIND_HOST: "127.0.0.1"
+
+# Should be:
+ASSMUD_BIND_HOST: ${ASSMUD_BIND_HOST:-127.0.0.1}
+```
+
+### NIT 2: `trustMode.test.ts` — `assmud_token` field not covered in export test
+
+`assertExportOmitsToken` checks both `assmud_token` and `proxyToken` patterns (line 48), but the test only covers `proxyToken`. Add coverage:
+
+```typescript
+it("export must omit proxy token fields", () => {
+  // ...existing tests...
+  expect(assertExportOmitsToken(JSON.stringify({ assmud_token: "secret" }))).toBe(false);
+});
+```
+
+---
+
+Everything else is correct: `remote-prod` defaults to `127.0.0.1` (`policy.ts:34`), `assertProdConfig` exists with proper fail-closed checks, `install-proxy.sh` refuses `:latest` and requires digest pin, custom ack storage/gate is wired (`trustMode.ts:54-61,85-88`), and `ConnectGate.tsx` enforces `canConnect` on the connect button.
