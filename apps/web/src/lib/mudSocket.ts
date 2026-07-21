@@ -85,6 +85,8 @@ export class MudSocket {
   private handlers: MudSocketHandlers = {};
   private lastOpenAt = 0;
   private opening = false;
+  /** Lines typed before WS is OPEN / ready — flushed on connected. */
+  private outbox: string[] = [];
 
   constructor(
     private readonly url: string,
@@ -132,15 +134,51 @@ export class MudSocket {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
+    this.outbox = [];
     this.killSocket();
     this.setStatus({ code: "disconnected" });
   }
 
-  send(line: string): void {
+  /**
+   * Send a MUD command line. If the socket is not open yet, queue until
+   * proxy `ready` (connected) — never silently drop Enter sends.
+   * @returns true if sent immediately, false if queued
+   */
+  send(line: string): boolean {
+    if (line.length > 4096) return false;
+    const ws = this.ws;
+    if (
+      !ws ||
+      ws.readyState !== WebSocket.OPEN ||
+      this.status.code !== "connected"
+    ) {
+      this.outbox.push(line);
+      // cap queue
+      if (this.outbox.length > 64) this.outbox.shift();
+      return false;
+    }
+    try {
+      ws.send(line);
+      return true;
+    } catch {
+      this.outbox.push(line);
+      return false;
+    }
+  }
+
+  private flushOutbox(): void {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    if (line.length > 4096) return;
-    ws.send(line);
+    if (this.status.code !== "connected") return;
+    const batch = this.outbox.splice(0, this.outbox.length);
+    for (const line of batch) {
+      try {
+        ws.send(line);
+      } catch {
+        this.outbox.unshift(line);
+        break;
+      }
+    }
   }
 
   /** Send a JSON control frame (e.g. mid-session NAWS resize). */
@@ -283,6 +321,8 @@ export class MudSocket {
               this.setStatus({ code: "connected" });
               // new mud hop — never leave password mask sticky
               this.handlers.onEchoMask?.(false);
+              // flush commands typed during handshake
+              this.flushOutbox();
             } else if (j.type === "echo") {
               this.handlers.onEchoMask?.(j.mask === true);
             }

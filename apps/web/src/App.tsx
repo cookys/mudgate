@@ -440,10 +440,12 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      // Enter outside form fields: send draft (form handles Enter inside cmd bar)
-      if (e.key === "Enter") {
-        if (isCmdBar(e.target)) return; // native form submit
+      // Enter outside cmd bar / form fields: send draft
+      // (cmd bar handles Enter in its own onKeyDown)
+      if (e.key === "Enter" || e.code === "NumpadEnter") {
+        if (isCmdBar(e.target)) return;
         if (isFormField(e.target)) return;
+        if (e.isComposing) return;
         e.preventDefault();
         submitCmd(inputDraftRef.current);
         return;
@@ -1193,7 +1195,8 @@ export function App() {
           className="flex gap-2 items-center"
           onSubmit={(e) => {
             e.preventDefault();
-            submitCmd(inputDraft);
+            // Prefer ref so we never send a stale React state snapshot
+            submitCmd(inputDraftRef.current);
           }}
         >
           <span
@@ -1207,10 +1210,20 @@ export function App() {
             value={inputDraft}
             onChange={(e) => setInputDraft(e.target.value)}
             onKeyDown={(e) => {
+              // Enter / NumpadEnter — always handle here (form submit alone is flaky
+              // under IME, some browsers, and when focus tricks fire).
+              if (e.key === "Enter" || e.code === "NumpadEnter") {
+                // IME composing: don't send mid-composition
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                e.preventDefault();
+                e.stopPropagation();
+                submitCmd(inputDraftRef.current);
+                return;
+              }
               // zMUD: ↑↓ command history (not movement — movement is numpad)
               if (e.key === "ArrowUp") {
                 e.preventDefault();
-                const next = cmdHistoryRef.current.up(inputDraft);
+                const next = cmdHistoryRef.current.up(inputDraftRef.current);
                 if (next != null) setInputDraft(next);
                 return;
               }

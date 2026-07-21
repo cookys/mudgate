@@ -364,15 +364,22 @@ export function TerminalHost({
     };
   }, [wsUrl, redraw, applyFit]);
 
+  // Deliver inject immediately (MudSocket queues if not yet connected)
+  const lastInjectIdRef = useRef(0);
   useEffect(() => {
     if (!injectCommand?.line) return;
+    if (lastInjectIdRef.current === injectCommand.id) return;
+    lastInjectIdRef.current = injectCommand.id;
     const expand = expandInputRef.current;
     const lines = expand
       ? expand(injectCommand.line)
       : [injectCommand.line];
-    for (const line of lines) socketRef.current?.send(line);
+    const sock = socketRef.current;
+    for (const line of lines) {
+      if (sock) sock.send(line);
+      // if no sock yet, drop is rare (tab just unmounted); id still advanced
+    }
     onInjectConsumedRef.current?.();
-    // Depend on id so identical lines still re-send
   }, [injectCommand?.id, injectCommand?.line]);
 
   // zMUD Echo commands: paint a dim › line into the live buffer (not server)
