@@ -1,63 +1,70 @@
-# Plan — T1-site（站方自架 proxy）+ 出口 IP／身份 · 與「Rust core = TinTin 式 daemon」架構討論
+# Plan — **site mode** / **player mode** · 出口 IP · daemon 方向
 
-> **Status**: **APPROVED · plan-hetero ALL_CLEAR R2**（R1+R2 fold；gpt REQUEST_CHANGES 兩點已收）  
-
-
+> **Status**: **APPROVED · plan-hetero ALL_CLEAR R2** + **naming lock site/player mode**  
 > **Owner**: cookys  
 > **Date**: 2026-07-22  
-> **Extends**: [`2026-07-21-selfhost-proxy-trust.md`](./2026-07-21-selfhost-proxy-trust.md)（T0–T3 **已 SHIP**）  
-> **Related**: ADR-002 remote auth proxy · `docs/deploy/SELF-HOSTED-PROXY.md` · threat model · proxy abuse limits  
-> **Trigger**: 站方若自架 → wss 護瀏覽器；但 mud 常只見 `127.0.0.1` → 限連／多開／ban 失效；並牽動「核心是否該是 TinTin 式 daemon」  
+> **Extends**: [`2026-07-21-selfhost-proxy-trust.md`](./2026-07-21-selfhost-proxy-trust.md)  
+> **Product naming (owner)**:  
+> 1. **site mode** — multi-WSS → telnet（站方閘道）  
+> 2. **player mode** — VPS/本機 daemon → 任意 telnet；**web 只顯示**
 
 ---
 
-## 0. Problem
-
-### 0.1 部署缺一格
-
-現有信任表（selfhost-proxy-trust）：
-
-| 等級 | 誰跑 proxy | 典型出口 IP |
-|------|------------|-------------|
-| T0 | 玩家本機 | 玩家 ISP |
-| T1a | 玩家 VPS | VPS |
-| T1b | 玩家家 + CF Tunnel | 玩家 ISP |
-| T2 | assmud 官方 | 共用官方 |
-| T3 | 陌生人 URL | 未知 |
-
-**缺：T1-site — MUD 站方自己跑 proxy（與 mud 同信任域）。**
-
-| 站方自架的甜頭 | 代價 |
-|----------------|------|
-| 公網玩家用 **wss/https**，不必裸 telnet 出站 | 站方仍見帳密（本來就管 mud） |
-| allowlist 可鎖死本站 `host:port` | mud 預設見 **proxy 的 TCP src**（常 `127.0.0.1`） |
-| 可跟官網同源、站方帳號綁 | IP 限連／多開策略要改或補 identity |
-
-### 0.2 Source IP 鐵律
+## 0. 雙模式 SSOT（owner 定義）
 
 ```text
-mud accept() 看到的 = 建立 TCP 連線那一端的位址
-瀏覽器無法「直接」當 telnet client 的 src IP
+┌─────────────────────────────────────────────────────────────────┐
+│  SITE MODE                                                      │
+│  multi-WSS  ──►  proxy/gateway  ──►  telnet (本站 mud)           │
+│  誰跑：MUD 站方 · 多玩家共用 · 閘道型                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  PLAYER MODE                                                    │
+│  Web display  ──►  VPS/本機 daemon  ──►  telnet (任意 mud)        │
+│  誰跑：玩家 · 單租戶 session · TinTin 心智 · web 只顯示            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-站方 hop：
+| | **site mode** | **player mode** |
+|--|---------------|-----------------|
+| 運行者 | 站方 | 玩家（VPS／家機） |
+| WSS 扇入 | **多** client → 一 gateway | 通常 **1** display → 1 daemon（可多 tab/session） |
+| Telnet 出口 | 站方機（常 localhost mud） | **玩家 VPS／家** ISP IP |
+| Allowlist | **鎖本站** mud | **開**（玩家自選 dest；仍要防 SSRF） |
+| Web 職責 | SPA 連站方 wss | **薄顯示**；執行在 daemon |
+| 密碼可見 | 站方（=遊戲營運） | 玩家自己的 daemon 機 |
+| 舊文件別名 | T1-site · G-daemon | P-daemon · TinTin-like |
+
+### 0.1 各模式要解的問題
+
+**site mode**
+
+| 甜頭 | 代價 |
+|------|------|
+| 公網 **wss/https**，玩家免裸 telnet | 站方見帳密（可接受） |
+| allowlist 本站 | mud 常見 src=`127.0.0.1` → IP 限連失效 |
+| 官網同源 | 需 proxy 層 identity／限流補洞 |
+
+**player mode**
+
+| 甜頭 | 代價 |
+|------|------|
+| 出口 IP = 玩家 VPS（多開友善、像桌面客端） | 玩家要跑／維護 daemon |
+| Web 可換、可關分頁（daemon 可續跑） | 協定：display ↔ daemon |
+| 任意 mud | 勿變成 open relay（auth+allowlist 策略） |
+
+### 0.2 Source IP 鐵律（兩模式都成立）
 
 ```text
-玩家 --wss--> [站方 proxy] --tcp--> mud:4000
-                    ↑
-              mud 看到 proxy（多為 127.0.0.1 / 內網）
+mud accept() 的 src = 握 TCP 那一端（gateway 或 player daemon）
+瀏覽器永遠不能直接當 telnet src
 ```
 
-**不能**在不改 mud／不加 shim 的情況下，讓標準 TCP 假裝 src = 玩家家寬。
-
-### 0.3 架構討論觸發
-
-若「站方 daemon」變一等公民，自然問：
-
-> 是否應有 **Rust（或 native）core** 像 **TinTin++** 一樣當常駐 **execute daemon**（握 TCP、腳本、mapper 狀態），  
-> **Web 只負責顯示／輸入**？
-
-本 plan **同時**定 T1-site 產品契約，並把 daemon 分層做成 **可裁決的架構選項**（不立刻重寫，但鎖方向）。
+```text
+site:   玩家 --wss--> [site gateway] --tcp--> mud     → mud 見 gateway
+player: 玩家 --wss--> [player daemon] --tcp--> mud    → mud 見 VPS/家
+```
 
 ---
 
@@ -67,12 +74,12 @@ mud accept() 看到的 = 建立 TCP 連線那一端的位址
 
 | ID | Goal |
 |----|------|
-| **S1** | 定義 **T1-site** 信任級、UX 文案、與 T1a／T2 差異 |
-| **S2** | 站方一鍵／文件：proxy 只連本站 mud；wss + origin + token 預設 |
-| **S3** | **誠實** 出口 IP 行為 + 可選 **PROXY protocol** 與 **proxy 層限流** 補洞 |
-| **S4** | 身份替代：ws `remoteAddress` 稽核、per-token／per-account 限連（不依賴 mud 見真人 IP） |
-| **S5** | 架構：對照 **Thin proxy + fat web** vs **TinTin 式 daemon + thin display**；產出 ADR 草案與分期 |
-| **S6** | 明確「何時值得上 Rust core」的門檻（perf／站方嵌入／本地 daemon） |
+| **S1** | 鎖 **site mode** 契約、UX、與 T2／player mode 差異 |
+| **S2** | 站方一鍵／文件：multi-WSS gateway；allowlist 本站 mud |
+| **S3** | site 出口 IP 誠實 + 可選 PROXY + gateway 限流／稽核 |
+| **S4** | S1 限流用 effectiveClientAddr（不假 per-player token） |
+| **S5** | **player mode** 方向：daemon + thin web；Session Protocol ADR |
+| **S6** | Rust 換引擎門檻（兩 mode 可共用 binary、不同預設） |
 
 ### Non-goals
 
@@ -86,16 +93,15 @@ mud accept() 看到的 = 建立 TCP 連線那一端的位址
 
 ---
 
-## 2. T1-site 產品定義
+## 2. Site mode 產品定義（站方 multi-WSS→telnet）
 
-### 2.1 信任表新增列
+### 2.1 信任表
 
 | 等級 | 模式 | 出口 IP（mud 預設） | 誰見密碼 | UX |
 |------|------|---------------------|----------|-----|
-| **T1-site** | **MUD 站方自架 proxy** | proxy 機（常 localhost／內網） | **站方**（與 mud 同營運） | 「連線經本站安全閘道」；**不**用 T3 地獄警告 |
+| **site mode**（T1-site） | 站方 multi-WSS gateway | gateway（常 localhost） | **站方** | 「本站 Web 閘道」；非 T3 |
 
-與 T2 差異：營運者 = 遊戲站，不是 assmud 官方。  
-與 T1a 差異：玩家不必自己有 VPS；站方提供 `wss://mud.example/ws`。
+與 T2：營運者=遊戲站。與 player mode：不必每人 VPS；站方給 `wss://mud.example/ws`。
 
 ### 2.2 部署拓撲（建議預設）
 
@@ -269,57 +275,46 @@ PROXY TCP4 <src.ip> <dst.ip> <src.port> <dst.port>\r\n
 - Web 繼續握 VT／腳本／vault  
 - **最適合**：現在就 ship 站方模式  
 
-#### 選項 **D1** — **Split：Session Daemon + Display Client**（推薦中期方向）
+#### 選項 **D1** — 對齊 owner：**player mode 先 thin-display**；site 維持 gateway
 
 ```text
-[Display]
-  Web / 未來 native UI
-  渲染 cells、輸入、**本地 vault／無障礙／偏好可留 display**
-       │  session protocol (WSS or local IPC)
-[Session daemon]  ← Node 先驗證，Rust 後換引擎
-  TCP·MCCP·telnet · （可選）腳本 · （可選）mapper
-       │
-[MUD]
+PLAYER MODE (目標形態)
+[Web display] ◄──session proto──► [player daemon on VPS]
+                                        │ telnet any mud
+SITE MODE (目標形態 = 今日強化)
+[Web × N] ──multi-wss──► [site gateway] ──telnet──► 本站 mud
 ```
 
-**兩種 deployment role（R1 強制拆分 · 不可混談）**
+| Role | 產品名 | 可承載 | **不可**預設 |
+|------|--------|--------|--------------|
+| site gateway | **site mode** | multi-WSS、bridge、allowlist、auth、限流、audit | 玩家 vault、跨租戶腳本、站方代管自動登入密 |
+| player daemon | **player mode** | TCP+腳本+mapper+本地自動登入；web 顯示 | 多租戶當公共 proxy |
 
-| Role | 誰跑 | 可承載 | **不可**預設承載 |
-|------|------|--------|-------------------|
-| **G-daemon**（站方 gateway） | 站方 | TCP bridge、allowlist、auth edge、限流、audit | 玩家 vault 明文、跨租戶腳本任意執行、自動登入密 |
-| **P-daemon**（玩家私有 session） | 玩家本機／玩家 VPS | 上列 + 本地自動登入 + 腳本 + mapper 狀態 | 多租戶 |
+**S0–S2 本 plan 實作 = site mode（Node proxy 強化）**。  
+**player mode** = 中期主線（Session Protocol + daemon；可先 Node 抽離，再 Rust）。
 
-T1-site **S0–S2 = 強化 G-daemon（現 Node proxy）**，不是把 browser vault 丟上站方。  
-D1 ADR 必須先定 **ownership／租戶隔離**，再談狀態下沉。
+#### 選項 **R2** — **Rust 實作 daemon 引擎**（長期，兩 mode 可共用 binary 不同 config）
 
-#### 選項 **R2** — **Rust core daemon 為 SSOT**（長期）
+| 門檻 | |
+|------|--|
+| 可測 perf 瓶頸 | |
+| 站方／玩家要單一二進位 | |
+| desktop 無瀏覽器也能玩 | |
+| 腳本強度接近 tt++ | |
 
-- 熱路徑、記憶、bridge 全 Rust  
-- Node proxy **退役或變薄**（僅 reverse-proxy 邊緣）  
-- Web 經 WSS 訂閱 **cell diff / input** 協定  
+**禁止**無門檻重寫。
 
-| 何時才做 | 門檻 |
-|----------|------|
-| Node bridge CPU／延遲成可測瓶頸 | 有 profile 數據 |
-| 站方要單一二進位嵌入 mud 機 | 運維需求 |
-| 桌面「無瀏覽器也能玩」 | 產品要 desktop shell |
-| 腳本要強到接近 tt++/Mudlet | 引擎重寫理由 |
+### 4.4 建議裁決（與 owner 對齊）
 
-**禁止**：為了「Rust 比較酷」在無門檻下重寫。
+| 時程 | site mode | player mode |
+|------|-----------|-------------|
+| **現在** | W0：文件+`SITE_MODE`+audit+限流+可選 PROXY | 尚未；web 仍 fat |
+| **中期** | 維持 gateway；可吃同一 Session Proto 的「bridge 子集」 | **daemon + thin web**（TinTin 心智） |
+| **長期** | Rust gateway 可選 | Rust player daemon 可選 |
 
-### 4.4 建議裁決（plan 預設）
-
-| 時程 | 選擇 |
-|------|------|
-| **現在（本 plan 實作範圍）** | **W0 + T1-site 文件／開關／可選 PROXY + 稽核** |
-| **中期 ADR** | **D1 方向鎖定**：定義 **Session Protocol v0**（顯示與執行分離），daemon **先可用 Node 抽離**（從現有 proxy+部分 web 狀態下沉） |
-| **長期** | 達 §4.3 R2 門檻再 **Rust 實作同一 Session Protocol** |
-
-一句話（**角色限定**）：
-
-> **P-daemon（玩家私有）** 路徑上，Web 應趨向 thin display＋輸入（本地 vault／a11y 可留 web）。  
-> **G-daemon（站方）** 只做閘道／bridge／限流／audit——**不**把玩家 vault／自動登入／任意腳本下沉到站方。  
-> 今天的 Node proxy = **G-daemon 雛形**；Rust = 同協定換引擎，達門檻才做。
+> **site mode** = multi-WSS proxy→telnet（站方）。  
+> **player mode** = VPS daemon→任意 telnet，web 只顯示。  
+> 兩者 **不要** 用同一個「什麼都能開的 daemon 預設」混部。
 
 ### 4.5 Session Protocol v0（草案 · 非本 plan 實作）
 
@@ -412,14 +407,16 @@ D1 ADR 必須先定 **ownership／租戶隔離**，再談狀態下沉。
 
 ---
 
-## 9. 與「Rust = TinTin daemon」的一句裁決
+## 9. 命名與 Rust 裁決（對齊 owner）
 
 | 命題 | 裁決 |
 |------|------|
-| Web 只負責顯示？ | **方向：是**（中期 D1） |
-| 現在立刻 Rust？ | **否** — 先 T1-site + 可選 PROXY + 限流／稽核 |
-| Node proxy 定位 | **Session daemon 雛形**，站方可先跑 Node |
-| Rust | **同一協定的未來引擎**，達門檻再換 |
+| 兩種產品模式 | **site mode** / **player mode**（上文 SSOT） |
+| Web 只顯示？ | **player mode：是（目標）**；site mode：web 仍是多開 client，gateway 不跑玩家腳本 |
+| 現在立刻 Rust？ | **否** — 先 **site mode S0–S1** |
+| Node proxy | **site mode gateway 雛形** |
+| VPS daemon | **player mode** 主體（中期） |
+| Rust | 兩 mode 可共用引擎、**不同預設 config**；達門檻再換 |
 
 ---
 
