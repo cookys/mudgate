@@ -1,0 +1,54 @@
+## ENGINE
+
+T1-site 產品契約清晰；S0–S1 分期務實；架構裁決框架合理。邏輯缺口集中於 effectiveClientAddr 與 trusted hop 的邊界、以及 G/P daemon 狀態所有權須先於 D1 ADR 定案。
+
+---
+
+## VERDICT
+
+**條件性 APPROVE**（需先解 MUST_FIX 後續 ADR 明文化）。
+
+---
+
+## MUST_FIX
+
+| # | 項 | 理由 |
+|---|-----|------|
+| **M1** | G/P daemon ADR **必須先定 ownership** 再談實作 | §4.3 D1 說「先定 ownership」，但 S3.1 ADR 交付未列此為前提；今天 implementation 可能在 ownership 模糊時就動手 |
+| **M2** | `ASSMUD_TRUSTED_HOP` CIDR 比對的 socket 是 **TCP accept peer**，但 Caddy/CF 等 reverse-proxy 在 TCP 層 accept 外部，forwarded header 也在同 TCP 連線；文件需澄清：trusted hop CIDR = reverse-proxy 的**外部 listen IP**，而非其內部 `127.0.0.1` | §3.3.1 未交代 trusted peer 的 socket 視角；部署者易配成 trust 自己 reverse-proxy 的 `127.0.0.1` 而非外部 IP |
+| **M3** | CDN 場景 effectiveClientAddr = 邊緣節點，ban 此 IP = ban 一群人；§3.2 說「禁止當唯一維度，應退回帳號／站方 session」；但文件未定義「退回帳號」的實作路徑（logout session？清除站方 cookie？） | 產品文案有共識但 implementor 無從下手 |
+| **M4** | PROXY v1 非 IPv4 → `PROXY UNKNOWN` 仍是實作選擇，文件二選一不夠；需要在 C0 test plan 明定「啞終端」的預期行為（mud 能否 fallback 或直接斷線？） | S2.1 experimental 但啞終端行為攸關站方決策 |
+| **M5** | Audit `token_hmac` 的 key 是 `server secret`（shared site token？）還是 `ASSMUD_AUTH_TOKEN`？若共用同一 key，site operator rotation 時 HMAC 也跟著換，舊 log 無法重算；文件需交代 log lineage | HMAC 可稽核但需定義 stable key scope |
+
+---
+
+## NITS
+
+| # | 項 | 建議 |
+|---|-----|------|
+| N1 | §5 Phase S1.3 「**S1 不宣稱 per-player token 限連**」寫入 implementor 可見的 env comment 或 flag description | 避免 codebase 無此 constraint 文件 |
+| N2 | `effectiveClientAddr` derived from `CF-Connecting-IP` → `X-Real-IP` fallback chain；但 CF 使用者可能同時帶兩個 header；文件明定「CF-Connecting-IP 存在則忽略 X-Real-IP」而非「優先」 | 「優先」易被讀成級聯 |
+| N3 | `SITE_MODE=1` + `localhost-dev` → fail-fast；但 `localhost-dev` 本身是否應與 `SITE_MODE` 共存？若「不允許」需寫進 implementation（非僅 plan 措辭） | 避免 config validation 有漏洞 |
+| N4 | `PROXY UNKNOWN` vs 關閉 protocol 的抉擇文件二選一；建議 C0 **實作 UNKNOWN**，避免啞 mud 直接爛線 | 已在 §3.3.2 候選但需 C0 確認 |
+
+---
+
+## ARCH_VERDICT
+
+**D1 方向正確；W0 適合作 C0 實作起點；R2 門檻合理但 S3 ADR 需先鎖 G/P daemon ownership 再往下寫。**
+
+TinTin 類比精準：session daemon 雛形 → future engine swap 的分期是正確框架，與「立刻重寫 Rust」拉開距離。
+
+---
+
+## C0_EQUIV_SHIP_OK
+
+**YES — S0 文件 + S1.1/S1.3 核心邏輯（allowlist + 稽核 + 限流）**
+
+PROXY protocol（S2）experimental 標記、S3 ADR 平行不 block C0。
+
+---
+
+## ONE_LINE_SUMMARY
+
+T1-site 契約 solid，架構方向正確，S0–S1 可 C0 ship；需先以 ADR 形式固化 G/P daemon ownership 邊界，再推進 D1 Session Protocol。

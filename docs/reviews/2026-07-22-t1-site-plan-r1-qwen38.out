@@ -1,0 +1,18 @@
+ENGINE: plan-hetero-review
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX:
+1. §3.3 XFF 描述「最左不可信」語意歧義，實作者可能誤解為「取 XFF 最左欄位」（即最易偽造的一端）。應改寫為明確規則：**僅當 `ASSMUD_TRUSTED_PROXY=1` 且上游恰好一跳時，讀取該 hop 寫入的 `X-Real-IP` / `CF-Connecting-IP`；不解析 XFF 鏈。** 把「最左不可信」刪掉或改成「XFF 全鏈不可信，只用單一 trusted hop 標頭」。
+2. §3.2 方案 A「ban proxy 記錄的 client IP」未交叉引用 §3.3 尾段的 CDN/NAT 誠實聲明。站方若前置 Cloudflare/LB，`remoteAddress` = 邊緣 IP，ban 它 = ban 全站。應在 §3.2 加一行 caveat 並指向 §3.3：「若 wss 入口經 CDN，client IP 為邊緣節點；此時限連應退化為 per-token / per-account，而非 per-IP。」
+
+NITS:
+- §2.2 bind 建議更具體：`127.0.0.1` 或 unix socket，避免「僅 reverse-proxy 可達」被讀成 0.0.0.0 + 防火牆。
+- §3.4「token id hash」可標註演算法（SHA-256 truncated）或留給實作，但 plan 層級至少寫「one-way, 不可逆推 token」。
+- S1 shared site token 預設（§8 #4）：補一句「文件須含 rotation 步驟；洩露 = 全站 session 可偽」。
+- 標題含「Rust/TinTin daemon」但實作範圍 S0–S2 全為 Node/docs；建議副標加「（本 plan 實作限 W0；D1/R2 僅 ADR）」防誤讀。
+- §4.5 Session Protocol v0 的 `echo_mask` 語意未定義（password 遮蔽？），草案階段可留 TBD 但標一下。
+
+ARCH_VERDICT: accept — D1 方向鎖定合理：(1) 不擋當前 ship；(2) Node proxy 定位為 daemon 雛形，避免「Rust 重寫」的 sunk-cost 陷阱；(3) R2 四條門檻（可測瓶頸、單二進位運維需求、desktop shell、腳本引擎對齊 tt++/Mudlet）是必要且充分的觸發條件；(4) Session Protocol v0 採演進式（與現有 WS 兼容）而非 big-bang，風險可控。唯一建議：S3.1 ADR 應明確寫出「若 D1 spike 發現 Node daemon 已滿足門檻，R2 可無限期擱置」，避免 ADR 變成隱性承諾。
+
+C0_EQUIV_SHIP_OK: yes — S0（信任表、i18n、SITE-OPERATOR.md、threat model 補段）與 S1（`ASSMUD_SITE_MODE` allowlist 強制、metadata audit log、限連哲學文件、site-mode 拒非白名單測試）均有明確 env 契約、驗收條件與測試項，可直接進入實作，不依賴 S2/S3。
+
+ONE_LINE_SUMMARY: 誠實、分期清晰的 T1-site 契約＋IP 選項矩陣＋D1 架構北星；兩處安全文案歧義（XFF 措辭、CDN 下 ban-IP 失效）修正後即可 approve 進 S0–S1 實作。

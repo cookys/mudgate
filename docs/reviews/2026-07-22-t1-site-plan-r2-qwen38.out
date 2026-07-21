@@ -1,0 +1,41 @@
+## ENGINE
+
+Plan review — T1-site proxy trust + exit-IP identity + daemon architecture (R2 post-R1-fold).
+
+## VERDICT
+
+**CONDITIONAL_PASS** — 2 MUST_FIX, rest solid.
+
+## MUST_FIX
+
+1. **`SITE_MODE=1` + empty allowlist = fail-fast at startup.**
+   §2.2 says hello dest ∈ allowlist, but never states startup behavior when `ASSMUD_ALLOWLIST` is empty/absent under SITE_MODE. Without this, a misconfigured site proxy silently becomes an open relay (any dest passes the "∈ ∅" check only if code treats empty as wildcard — common bug). Add: `SITE_MODE=1 ∧ |allowlist|=0 → process exit(1) + explicit log "SITE_MODE requires non-empty ASSMUD_ALLOWLIST"`.
+
+2. **CDN/edge rate-limit fallback unspecified.**
+   §3.2 mandates per-IP rate before upgrade/dial. §3.3.1 correctly handles `effectiveClientAddr` via trusted hop. But §3.2 never says **which** address the per-IP bucket keys on. If it keys on `transportPeer` behind CDN → all players share one edge IP → either useless (too loose) or catastrophic (one bad actor bans the edge). State explicitly: **rate bucket key = `effectiveClientAddr`** (post-§3.3.1 resolution); if trusted-hop is configured but header missing → reject (already fail-closed, good) → rate never hit. One sentence closes the gap.
+
+## NITS
+
+- §3.3.1: CF-Connecting-IP **and** X-Real-IP both present + disagree → spec says CF wins; add a warn-level audit line for the mismatch (ops signal of misconfigured edge).
+- §3.4: `token_hmac` truncation length unstated — pin it (e.g., first 16 hex chars) so implementations don't diverge.
+- §2.2 table: `SITE_MODE=1 + localhost-dev → fail-fast` — also state `SITE_MODE=1` + **any** mode ≠ `remote-prod` fails (not just localhost-dev), to avoid future mode additions silently bypassing.
+- §3.3.2 PROXY v1: "長度上限" — give a number (v1 spec max = 107 bytes including CRLF); makes the injection guard testable.
+- Open Q #4 default (shared site token): add one line on rotation overlap (dual-token grace window? or hard cut?) since S1.5 references it but the contract is silent.
+
+## ARCH_VERDICT
+
+**ACCEPT.**
+
+- **G-daemon / P-daemon split** is the critical insight; prevents the dangerous conflation of "site gateway holds player vault/scripts." Ownership table (§4.3 D1) is enforceable.
+- **W0 → D1 → R2** staging with concrete Rust gates (measurable perf, single-binary ops need, desktop shell, script engine parity) kills the "rewrite because Rust" failure mode.
+- Session Protocol v0 as **evolution from existing WS JSON** (not big-bang) is correct.
+- "Node proxy = daemon 雛形" framing lets S0–S1 ship value now while locking the direction.
+- One addition for ADR-00x: state explicitly that **G-daemon never becomes P-daemon by config flag** — separate binaries or at minimum separate process boundaries, to prevent a site operator accidentally enabling player-session features on a multi-tenant gateway.
+
+## C0_EQUIV_SHIP_OK
+
+**YES.** S0 (docs/i18n) + S1 (SITE_MODE gate, effectiveClientAddr, audit, rate) + S2 (optional PROXY, default off) are all achievable within the existing Node proxy without language rewrite or protocol big-bang. S3 is ADR/spike only. No item in the plan requires Rust, native daemon, or mud-side changes to ship C0-equivalent value.
+
+## ONE_LINE_SUMMARY
+
+R1 folds land cleanly (SITE_MODE orthogonal to PROXY_MODE, single-hop effectiveClientAddr, honest S1 identity, G/P daemon split); pin the two MUST_FIX (empty-allowlist fail-fast, rate-key = effectiveClientAddr) and this is ready to approve for S0–S1 implementation.

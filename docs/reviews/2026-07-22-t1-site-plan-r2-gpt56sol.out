@@ -1,0 +1,20 @@
+ENGINE: GPT-5
+
+VERDICT: REQUEST_CHANGES
+
+MUST_FIX:
+1. `trusted hop header 缺失／非法 → 拒 upgrade（1008）` 自相矛盾：HTTP upgrade 前無法送 WebSocket 1008。請明定為「upgrade 前回 HTTP 4xx」或「upgrade 後 close 1008」，並讓 S1.3/S1.4 測試對齊。
+2. D1 結論需限定 deployment role：**P-daemon** 可走完整 thin-display；**G-daemon** 預設只能下沉 bridge/session transport，玩家 vault、自動登入、任意腳本仍留 display。否則「Web 只負責顯示＋輸入」會重新混淆 G/P 信任邊界。
+
+NITS:
+- 固定 trusted-header 優先序之外，建議允許設定「唯一 header」，避免不同上游意外同時注入 CF 與 X-Real-IP。
+- 明定 rate-limit key 的 canonicalization，尤其 IPv4-mapped IPv6 與 IPv6 正規化。
+- Audit 的 `token_hmac` 在 shared-token S1 只能關聯部署密鑰，不能識別玩家；文件可再直說一次。
+- `PROXY UNKNOWN` 不攜帶 dst，驗收應明確覆蓋 IPv6 路徑。
+- Board #1 的「public mud IP allowlist」措辭可改為「非 localhost／私網或公網目的地」，雙機不必公開 mud port。
+
+ARCH_VERDICT: W0 現在落地、D1 鎖定協定與角色邊界、R2 僅在量測或產品門檻成立後換 Rust，方向正確；SITE_MODE/PROXY_MODE、effectiveClientAddr、S1 shared-token honesty，以及 G/P daemon 分拆均已實質修正 R1 問題。
+
+C0_EQUIV_SHIP_OK: YES — 修正上述兩個契約歧義後，S0–S1 可獨立 ship；S2 experimental 與 S3 ADR 不應阻擋。
+
+ONE_LINE_SUMMARY: R1 核心問題已折好，但須修正「upgrade 前使用 1008」及把 thin-display 願景明確限定為 P-daemon，避免實作與信任邊界再次漂移。

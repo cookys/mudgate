@@ -1,0 +1,24 @@
+ENGINE:
+VERDICT: **APPROVE_WITH_NITS**
+MUST_FIX: （無 blocker）
+NITS:
+1. **S0 文件 vs S1 代碼邊界模糊** — S0 自述「可先 ship 文件」，但 S1 才開始改 proxy 行為。若 S0 只交付 .md，Board 需認知「T1-site 第一個可測試交付是 S1.1」；建議 S0 補一個 `ASSMUD_SITE_MODE` env flag skeleton（哪怕只是 parse+reject-all）讓 S0 有code可驗證。
+2. **Open Question #4 預設太輕** — shared site token 在多玩家場景等同「所有人知道同一密碼」。建議明寫「S1 = 單一 static token，SSO = 未来可插拔 auth backend」，避免站方誤以為這是完整方案。
+3. **§3.3 PROXY src IP 吃 X-Real-IP** — 「單一 trusted hop 時吃 X-Real-IP」邏輯正確，但 fail-closed 文件需強調：若 reverse-proxy（如 Caddy/Cloudflare）不剝協義頭，攻擊者可偽造。建議加一行「部署文件須驗證 upstream 不傳未信任的 X-Real-IP」。
+
+ARCH_VERDICT: **accept — 附條件**
+
+中期 D1（Session Daemon + Display 分离）方向正確，TinTin 類比有說服力。但有兩個執行層面的問題 plan 應交代：
+
+1. **D1 的 session daemon 邊界** — 目前 bridge（MCCP/TCP）與 auth/allowlist 在同一 process；D1 若抽 daemon，站方部署變成「daemon + display server」兩個行程，運維複雜度上升。建議 ADR 草案先定義 **最小 daemon scope**（至少 TCP+MCCP+自動登入；auth/allowlist 仍可在 edge 或在 daemon 內），否則 D1 可能比預期重。
+
+2. **Web 仍是事實上的 session owner** — 今天 VT state、腳本、vault 在 browser；D1 後這些往 daemon 沉的代價不低。建議 D1 的 session protocol v0 定義時把「state 在哪側」當 first-class 問題，否則中期變成「多寫一份 Rust code + 還要同步 browser state」。
+
+Rust R2 门槛定义清晰；**禁止「Rust 比较酷」** 写进 plan 是好的反盲点约束。
+
+C0_EQUIV_SHIP_OK: **yes**
+
+S0（trust table + i18n + docs）+ S1（site mode flag + allowlist + audit log）構成封閉功能集，T1-site 可從文件交付 + 配置開關驗證。Board 確認即可進 impl。
+
+ONE_LINE_SUMMARY:
+Plan 填补 T0–T3 缺格，T1-site 產品契約清晰，IP 誠實分級（接受 proxy src + 可選 PROXY），架構分期（W0→D1→R2門檻）穩健，S0+S1 可 ship；D1 方向正確但 daemon scope 邊界建議 ADR 先行定義。

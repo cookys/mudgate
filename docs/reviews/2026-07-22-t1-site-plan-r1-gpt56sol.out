@@ -1,0 +1,28 @@
+ENGINE: GPT-5 Codex — plan-hetero R1
+
+VERDICT: CHANGES_REQUIRED
+
+MUST_FIX:
+
+- **S4 與預設實作不一致。** S1 採 shared site token，無法提供真正的 per-token／per-account 限連或可靠身份。需改成「shared token 僅閘道驗證；C0 身份能力只保證 per-IP」，或在 S1 納入具唯一 ID、可撤銷的 per-player token。不得用 shared token 宣稱 identity replacement。
+- **Client IP 信任模型必須精確化。** `ASSMUD_TRUSTED_PROXY=1` 布林值不足以建立安全邊界。需指定可信 peer CIDR／Unix socket，只有 TCP peer 命中才接受指定 header；直連時忽略所有 forwarded headers。多 hop 應採「由右向左剝除可信 hop」，不能籠統使用 XFF。
+- **限流必須發生在昂貴操作之前。** 明定 upgrade／auth／TCP dial 前的 per-effective-IP 限速，以及 auth identity 的 concurrent cap、全域 cap、dial timeout；否則 T1-site 仍可被用來耗盡 fd、記憶體與 MUD connection slots。
+- **Audit 契約缺少資料治理。** Client IP、token hash、目的地與時間仍是敏感 metadata。需定義預設輸出位置、保留期／rotation、權限、hash 使用 keyed HMAC 而非裸 hash，以及 log injection 防護。
+- **D1 必須拆成兩種 deployment role。** 「站方多租戶 gateway daemon」與「玩家私有常駐 session daemon」不是同一安全模型。站方 daemon 若承載腳本、mapper、自動登入，會新增憑證保管、租戶隔離、資源配額、session ownership、重連與版本遷移問題。ADR 應先定協定與 ownership，不應直接承諾把 vault／autologin 下沉至站方。
+- **PROXY v1 的 destination 欄位與地址正規化需有明確來源。** 定義 src/dst、IPv4-mapped IPv6、IPv6 zone ID、`UNKNOWN`、CRLF/header injection、header 長度，以及「只對 allowlisted destination 且連線成功後寫一次」。否則測試一條 happy-path 首行不足。
+- **驗收缺少負向安全案例。** 至少加入：偽造 forwarded header、非可信 peer、缺失／重複 header、IPv6、token 撤銷或 shared-token 降級語義、audit 不含輸入內容、rate-limit 在 dial 前生效、PROXY-disabled byte-for-byte 相容。
+
+NITS:
+
+- `remoteAddress` 建議統一稱為 `effective client address`，並在 log 同時保留 transport peer，方便稽核來源。
+- 「最左不可信」表述容易誤導；直接寫完整可信代理鏈演算法。
+- `ASSMUD_SITE_MODE=1` 與既有 `remote-prod` 的優先序、衝突時 fail-fast 行為需列入設定契約。
+- S0–S1 可先 ship；S2 應維持 experimental，且不阻擋主路徑。
+- Session Protocol v0 應預先包含版本協商、resume/session ownership、流量控制、序號或 snapshot recovery；只有 `cell_patch` 不足以安全重連。
+- 「Web 只負責顯示＋輸入」宜寫成目標形態，不應把本地 vault、離線偏好與可及性邏輯一概移出 Web。
+
+ARCH_VERDICT: **接受 D1 作為中期方向，但僅限「協定優先、部署角色分離、Node 先驗證」的條件式接受。** W0 是本 plan 正確的近期裁決；R2 只能在量測或單一二進位運維需求達門檻後啟動。Rust 不應成為 D1 的前置條件。
+
+C0_EQUIV_SHIP_OK: **NO** — 目前 shared-token 預設無法滿足宣稱的 identity／per-token 限連，可信代理與 metadata 治理也尚未形成可驗收契約。修正上述契約後，S0–S1 可獨立 ship；S2–S3 不應阻擋。
+
+ONE_LINE_SUMMARY: T1-site 與 W0→D1→R2 分期方向正確，但必須先補齊可驗證的 client-IP 信任鏈、身份／限流語義、audit 治理，並分離站方多租戶 daemon 與玩家私有 daemon 的安全模型。

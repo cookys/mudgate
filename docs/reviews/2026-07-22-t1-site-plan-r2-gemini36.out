@@ -1,0 +1,42 @@
+# ENGINE
+Hetero Architectural & Security Review Engine (R2 Fold Verification)
+
+---
+
+# VERDICT
+**APPROVED**
+
+---
+
+# MUST_FIX
+無 (None). Plan R2 已完整修正 R1 所有關於邊界安全、身份宣稱過度擴張與 G/P Daemon 權責混淆之風險。
+
+---
+
+# NITS
+1. **PROXY v1 非 IPv4 `PROXY UNKNOWN` 邊界測試**：
+   在 S2.1/S2.2 測試中，建議顯式補上 IPv6 連線（例如 `::1`）時生成 `PROXY UNKNOWN\r\n` 的單元測試斷言，確保 socket 寫入長度與 CRLF 結束符未漏掉。
+2. **`ASSMUD_TRUSTED_HOP` IP/CIDR 匹配邏輯驗證**：
+   若 upstream 為 Unix domain socket（例如 Node 經由 Caddy `/var/run/caddy.sock` 轉發），`socket.remoteAddress` 可能為 `undefined` 或空字串，應確保 `ASSMUD_TRUSTED_HOP=unix` 能正確識別此類本地 IPC 管道。
+
+---
+
+# ARCH_VERDICT
+1. **`SITE_MODE` vs `PROXY_MODE` 鎖死機制**：
+   `SITE_MODE=1` + `localhost-dev` 觸發 fail-fast exit 屬正確設計，防止營運者在不安全的開發配置下誤開站方模式。
+2. **`effectiveClientAddr` 與 Fail-closed 安全策略**：
+   嚴格限定單一 header (`CF-Connecting-IP` / `X-Real-IP`) 並拒絕解析可偽造的 XFF 鏈；且當啟用 trusted hop 時若 header 缺失即執行 1008 關閉連線，防禦無效標頭欺騙，水準優異。
+3. **G-daemon vs P-daemon 權責與資安隔離**：
+   明確劃分 G-daemon (站方閘道，禁用明文 Vault/自動登入/跨租戶腳本) 與 P-daemon (玩家私有，可持有狀態)，徹底杜絕站方託管導致的多租戶資安洩漏風險。
+4. **W0 ➔ D1 ➔ R2 演進路線**：
+   把 Rust 定位為「同一 Session Protocol 的替換引擎」而非產品型態變動，並設定明確 measurable metrics (CPU/延遲瓶頸、單一二進位需求) 為門檻，有效阻絕無意義的過早重寫 (premature rewrite)。
+
+---
+
+# C0_EQUIV_SHIP_OK
+**YES**
+
+---
+
+# ONE_LINE_SUMMARY
+T1-site 契約、PROXY protocol v1 補洞、G/P Daemon 權責拆解與 W0/D1/R2 演進門檻均符合生產級安全與架構標準，准予 SHIP。

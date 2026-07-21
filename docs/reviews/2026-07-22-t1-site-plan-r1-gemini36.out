@@ -1,0 +1,15 @@
+ENGINE: Antigravity Plan Reviewer Engine
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+(無)
+
+NITS:
+1. **§3.3 Header 解析規範細化**：`ASSMUD_TRUSTED_PROXY=1` 時取用 `X-Real-IP` 或 CF 標頭的邏輯需在 S1/S2 的實作與測試中嚴格規範（例如明確限制僅在由單一已知 Reverse Proxy 寫入時生效），避免 Reverse Proxy 預設轉發標頭導致外網 Client 可透過偽造 Header 繞過 proxy 層限流與稽核。
+2. **§5.1 S1.1 白名單維護**：`ASSMUD_SITE_MODE=1` 的 allowlist 設定建議說明是否支援動態 Reload（或熱重載 config 檔），避免站方 MUD 調整 port 時必須重啟 proxy 容器導致所有現有 WSS 連線中斷。
+
+ARCH_VERDICT: accept — 完全同意中期採 D1 (Display/Session Split)，並以硬性指標（Perf bottleneck / 嵌入需求）作為 R2 (Rust core) 的開工門檻。此舉成功防止 premature optimization / 過早語法重寫陷阱，同時確保 Web UI 演進為可替換的 Thin Display。
+
+C0_EQUIV_SHIP_OK: yes — S0 (契約/文件) 與 S1 (Proxy 站方模式、allowlist、metadata audit) 的範圍與驗收條件極為清晰，可直接作為 C0 實作的依據。
+
+ONE_LINE_SUMMARY: 務實且誠實的 T1-site 代理架構 Plan，精確處理了 IP 邊界與信任模型，並合理鎖定中期 Session 分離與 Rust 門檻演進方向。

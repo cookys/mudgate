@@ -1,0 +1,18 @@
+ENGINE:
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX:
+1. §2.2 `ASSMUD_PROXY_MODE=remote-prod` vs §5 S1.1 `ASSMUD_SITE_MODE=1` — 兩個 env var 名稱疑似指同一概念但關係未定義。S1.1 實作前必須釐清：是同一旗標的兩個別名、互補分層、還是覆寫關係？直接影響 allowlist 強制邏輯的實作。
+2. §3.3：`ASSMUD_TRUSTED_PROXY=1` 時若 trusted header（X-Real-IP／CF 專用頭）缺失，fail-closed 具體行為未寫死——是拒連線、回退 `socket.remoteAddress`、還是 abort upgrade？S2 雖 experimental，但 PROXY src IP 來源直接影響稽核正確性，應在 plan 層級定義。
+
+NITS:
+1. §3.3 僅展示 PROXY v1 文字格式；v2 二進位格式至少應被引用或標注「v2 deferred」。
+2. §4.5 Session Protocol v0 的 `echo_mask` 訊息型別被列出但未定義語意。
+3. §8 Q1 預設允許非 localhost public mud IP 作為備援，弱化 §2.1「與 mud 同信任域」的前提——應在文件中明示此安全權衡。
+4. §2.3 UX 文案可加一句交叉引用 §3.2：提示 web 玩家被 ban 時靠 proxy 稽核 log 而非 mud peer IP，避免站方誤以為傳統 ban-ip 仍有效。
+5. §4.4「中期 ADR」的「中期」缺時間框定義；建議綁定一個觸發條件（如 S0–S2 ship 後 / Session Protocol v0 spike 完成）而非模糊時間詞。
+
+ARCH_VERDICT: accept — D1（Display/Session 分離）作為中期方向鎖定合理：不強迫即時重寫、以 Session Protocol v0 作為演進契約、Node proxy 先下沉為 daemon 雛形，路徑清晰。R2 Rust 門檻表（CPU profile 瓶頸、單二進位嵌入需求、desktop shell 產品需求、腳本引擎追平 tt++/Mudlet）定義充分且附「禁止無門檻重寫」護欄。「Rust = 換引擎非換產品形態」的定位正確。
+
+C0_EQUIV_SHIP_OK: yes — S0（信任表 + i18n + docker-compose 文件 + threat model + README）與 S1（site mode allowlist 強制 + audit log 格式已定義於 §3.4 + 測試案例明確）均有足夠細節可直接從 plan 實作。S2/S3 明確標為 experimental/ADR，不擋 S0–S1。
+
+ONE_LINE_SUMMARY: 誠實的 T1-site 契約搭配 W0-now／D1-mid／R2-gated 架構裁決；修 env var 歧義與 fail-closed 定義後即可 S0–S1 開工。

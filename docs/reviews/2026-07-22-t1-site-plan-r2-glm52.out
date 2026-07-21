@@ -1,0 +1,56 @@
+## ENGINE
+
+Plan is technically coherent. Key R1-fold items hold:
+
+- **SITE_MODE vs PROXY_MODE**: Clean overlay semantics. `remote-prod` = base fail-closed security; `SITE_MODE=1` = additional allowlist-enforce layer. Fail-fast on `SITE_MODE=1 + localhost-dev` is correct. No aliasing confusion.
+- **effectiveClientAddr**: Trust model is sound — default to transport peer, read single forwarded header only from trusted-hop CIDR, fail-closed (1008) when header missing. Dropping XFF-leftmost parsing is the right security call.
+- **No fake per-token S1**: Honestly scoped. S1 = shared site token + per-effective-IP rate + global concurrent. Does not claim per-player identity limiting. Good — avoids false-ship.
+- **G vs P daemon**: Role table correctly forbids G-daemon from holding player vault plaintext / cross-tenant script execution / auto-login credentials. Ownership/tenant isolation before state sinking is the right ordering.
+
+## VERDICT
+
+**SHIP_OK** — S0–S1 implementable in current Node proxy; no Rust prerequisite; no impossible claims.
+
+## MUST_FIX
+
+1. §3.3.1: `CF-Connecting-IP` is Cloudflare-specific. If non-CF trusted hop (e.g., bare Caddy) only sends `X-Real-IP`, the priority order works, but document that `CF-Connecting-IP` is a CF convention, not standard. Otherwise operators using nginx直連 will be confused about why their header is ignored in favor of a non-existent CF header.
+
+2. §2.2: Only `localhost-dev` is listed as illegal with `SITE_MODE=1`. Enumerate **all** `PROXY_MODE` values and their legality with `SITE_MODE=1`, or state explicitly that `remote-prod` is the **only** legal base. Ambiguity here = runtime edge case.
+
+3. §3.2 point 3 (Ban): States mud peer IP ban is ineffective against web. Should also state the **reverse gap**: web-level effective-IP ban does not propagate to mud-level bans without PROXY protocol. The bidirectional gap must be explicit for operators.
+
+## NITS
+
+- §3.3.2: `PROXY UNKNOWN` for non-IPv4 is already decided as C0 implement. Good — remove the "文件二選一" phrasing since decision is made.
+- §4.3 D1 table: "自動登入密" → should read "自動登入憑證" for clarity.
+- §5 S1.3: States "不宣稱 per-player token 限連" but doesn't specify what happens if an operator sets a config that implies per-player limiting (e.g., per-token concurrent cap). Add: shared-token concurrent cap is allowed and operates as a global valve, not per-player.
+
+## ARCH_VERDICT
+
+W0→D1→R2 progression is architecturally sound:
+
+- **W0** (now): Correct — ship T1-site as deployment/policy layer on existing Node proxy. No engine change.
+- **D1** (mid-term): Session Protocol split is the right direction. Display↔execution separation mirrors the TinTin daemon model without requiring browser-as-daemon. Node-first validation before Rust is prudent.
+- **R2** (long-term): Explicit thresholds (profiled bottleneck, single-binary embed, desktop shell, tt++-class scripting) prevent "Rust because cool" rewrite. "Rust = engine swap on same protocol, not product rewrite" is the correct framing.
+- **G vs P daemon split** prevents the most dangerous conflation: site gateway holding player credentials. This must be an invariant, not a guideline.
+
+No architecture-level blockers.
+
+## C0_EQUIV_SHIP_OK
+
+All S0–S2 deliverables are implementable in Node today:
+
+| Phase | C0? | Note |
+|-------|-----|------|
+| S0 docs | ✅ | Pure documentation |
+| S1.1 SITE_MODE | ✅ | Env parsing + allowlist check + fail-fast |
+| S1.2 Audit | ✅ | HMAC-SHA256 truncated token, JSON line, structured fields |
+| S1.3 Rate limiting | ✅ | Pre-upgrade per-IP map + global concurrent counter |
+| S1.4 Tests | ✅ | Mock ws + non-trusted-peer header injection assertions |
+| S2 PROXY v1 | ✅ | String format write after TCP connect, before first telnet byte |
+
+No phase requires capabilities the current stack lacks.
+
+## ONE_LINE_SUMMARY
+
+T1-site plan is honest about IP limitations, correctly separates SITE_MODE from PROXY_MODE, refuses to fake per-player identity on shared tokens, and defers Rust rewrite behind measurable thresholds — ship S0–S1 after the three MUST_FIX items.

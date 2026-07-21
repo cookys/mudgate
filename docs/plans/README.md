@@ -37,6 +37,7 @@ Impl hetero: **[queue-impl-hetero-all-clear](../reviews/2026-07-21-queue-impl-he
 | 8 | [profile-secrets-vault](./2026-07-22-profile-secrets-vault.md) | (expand next) | **APPROVED** plan · ALL_CLEAR R6 · not impl |
 | 9 | [automap-nav-shell](./2026-07-22-automap-nav-shell.md) | — | **SHIP** P1 HUD/trail |
 | 10 | [mapd-nav-companion](./2026-07-22-mapd-nav-companion.md) | (next) | **APPROVED** · plan-hetero **ALL_CLEAR R4** · impl C0 next |
+| 11 | [t1-site-proxy-and-core-daemon](./2026-07-22-t1-site-proxy-and-core-daemon.md) | (next) | **APPROVED** · T1-site + D1 arch · ALL_CLEAR R2 |
 
 ## Research / triage
 
