@@ -625,6 +625,26 @@ export function App() {
                 </button>
                 <button
                   type="button"
+                  className="px-1.5 text-[11px] border-l min-w-[26px] hover:opacity-100 opacity-70 transition"
+                  style={{
+                    borderColor: active ? "var(--accent)" : "var(--border)",
+                    color:
+                      active && drawerOpen
+                        ? "var(--accent)"
+                        : "var(--text-dim)",
+                  }}
+                  aria-label={`${t("shell.settings")}: ${p?.name ?? tb.id}`}
+                  title={t("shell.settings")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTabId(tb.id);
+                    setDrawerOpen(true);
+                  }}
+                >
+                  ⚙
+                </button>
+                <button
+                  type="button"
                   className="px-1.5 text-xs border-l min-w-[28px] hover:opacity-100 opacity-70 transition"
                   style={{
                     borderColor: active ? "var(--accent)" : "var(--border)",
