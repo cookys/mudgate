@@ -140,18 +140,19 @@ Players need a **modern web client** that:
 - Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
 - React shell + Tailwind + login/session + `TerminalHost` (narrow + wide viewports).
 - Terminal (**partial**): Big5-HKSCS family + SGR + scrollback; Canvas2D; banner golden (uncompressed path).
+- **XSS (bound to 1a)**: because SGR is already rendered, ship a minimal sanitizer + adversarial corpus (no raw HTML injection from server text/SGR). Expand corpus in 1b with map/MXP-like strings.
 - **Reconnect**: WSS drop → re-establish → re-IAC; buffer kept client-side.
 - Manual: desktop (required) + phone smoke (desired) → RW banner without mojibake.
-- **Acceptance**: KR0 connect path; banner golden; unauth denied; private-IP denied; bad Origin denied; reconnect smoke; no per-cell React rendering.
+- **Acceptance**: KR0 connect path; banner golden; unauth denied; private-IP denied; bad Origin denied; reconnect smoke; **XSS corpus green for SGR path**; no per-cell React rendering.
 - **Explicit non-goal for 1a**: full map_d CSI set (that is 1b).
 
 ### Phase 1b — Screen buffer + map_d control plane (Size: L)
 - Full minimum CSI set: save/restore, CUP, ED, DECSTBM, etc. (see research).
 - Synthetic **city map frame** golden — **clean-room** from research control sequences (not vendored RWlib).
 - Synthetic **dual-color / mid-DBCS SGR** cell fixture (hand-built bytes) so `ansi_part`-style path is unit-tested before live capture.
-- Terminal XSS sanitizer tests (adversarial SGR/MXP-like strings) bound here or shared with 1a if render ships early.
+- Expand XSS/sanitizer corpus for absolute-position / multi-attr map paint paths.
 - Human (optional same milestone): after login, `look` map redraws in-place (no scroll thrash).
-- **Acceptance**: synthetic map + dual-color goldens; “SGR-only client” refuse-to-ship; KR1 path ready pending live login.
+- **Acceptance**: synthetic map + dual-color goldens; expanded XSS corpus green; “SGR-only client” refuse-to-ship; KR1 path ready pending live login.
 
 ### Phase 2 — Core automation engine (Size: L)
 - Declarative aliases, triggers (regex + simple), variables, send queues.
@@ -270,4 +271,4 @@ Players need a **modern web client** that:
 - R4 2026-07-21 — Stack lock: React+Vite+TS+Tailwind; ADR-001 + architecture sketch; pluggable Canvas2D/WebGPU + WASM hot paths; Phase 0' / 1a / 1b split; KR3 automation numbering fix; declarative scripts v1
 - R5 2026-07-21 — Remote authenticated proxy as product path for remote access; localhost demoted to dev; ADR-002 + threat model; WASM not TCP; generic KR3 top-10
 - R6 2026-07-21 — Board correction: **not** mobile-first branding; **desktop + mobile both first-class**; honest MUD-on-phone limits (KR6); rename ADR-002 to remote-auth-proxy
-- R7 2026-07-21 — Hetero plan review (MiniMax-M3 FIX-THEN-SHIP, GLM-5.2 SHIP empty, Qwen3.8-Max-Preview FIX-THEN-SHIP): fold auth/Origin/MCCP DONT/HKSCS/dual-color 1b/reconnect/clean-room fixtures/XSS phase bind
+- R7 2026-07-21 — Hetero plan review R1 (MiniMax FIX-THEN-SHIP, GLM SHIP empty, Qwen FIX-THEN-SHIP) + R2 verify (Qwen+GLM SHIP-AS-IS; MiniMax 11/12 FIXED, XSS PARTIAL) → pin XSS ship-gate on Phase 1a SGR render

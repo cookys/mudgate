@@ -1,0 +1,20 @@
+| # | Must-fix | Status | Evidence |
+|---|----------|--------|----------|
+| 1 | Auth/session mechanism pinned | **FIXED** | Threat model §"Auth / session (pinned for Phase 1a)" — httpOnly Secure SameSite=Strict cookie, WSS via cookie-or-ticket, ≥30 min sliding, revoke on logout. |
+| 2 | Origin/CSRF-via-WS in threat model | **FIXED** | Threat model §Threats→controls row "Cross-site WebSocket hijack" — validate Origin+Host on upgrade, reject mismatch in prod. |
+| 3 | Phase 1a DONT MCCP2 | **FIXED** | Global Constraints + Phase 1a bullet: "Phase 1a MUST reply `DONT MCCP2`"; inflate deferred to Phase 3+. |
+| 4 | Big5-HKSCS codec default | **FIXED** | Global Constraints: "Default session charset for RW: **Big5-HKSCS superset** decode"; `packages/codec-big5` named accordingly. |
+| 5 | Phase 1b synthetic dual-color fixture | **FIXED** | Phase 1b: "Synthetic dual-color / mid-DBCS SGR cell fixture (hand-built bytes) so `ansi_part`-style path is unit-tested before live capture." |
+| 6 | Reconnect acceptance | **FIXED** | Global Constraints + Phase 1a acceptance list: "WSS drop → re-auth/ticket → re-IAC; buffer kept client-side … reconnect smoke." |
+| 7 | Clean-room RWlib fixtures in OPEN-SOURCE | **FIXED** | OPEN-SOURCE §"What is OK as fixtures": "clean-room … **not** by copying RWlib sources"; licensing determination paragraph explicit. |
+| 8 | Phase 1a partial vs 1b full VT clarified | **FIXED** | Global Constraints: "Phase 1a is intentionally partial (Big5+SGR+scrollback+connect). Phase 1b delivers CUP/save-restore/ED/DECSTBM." + 1a non-goal callout. |
+| 9 | XSS bound to a phase | **FIXED** | Phase 1b: "Terminal XSS sanitizer tests (adversarial SGR/MXP-like strings) bound here or shared with 1a if render ships early." |
+| 10 | Dev localhost still blocks private IPs | **FIXED** | Global Constraints + Threat model Modes table + Phase 1a: "**always** block private/metadata IPs" for dev profile. |
+| 11 | apps/proxy wording not localhost-as-product-default | **FIXED** | Plan header, Global Constraints ("Proxy product default: remote authenticated WSS↔TCP … Localhost bind is dev/advanced only"), ADR-002 rejected-alternatives table. |
+| 12 | Scripts cannot exfil cookies | **FIXED** | Global Constraints + Threat model row "Malicious trigger package" + Phase 2 acceptance: no cookie/localStorage/fetch; "exfil negative tests green." |
+
+---
+
+**VERDICT: SHIP-AS-IS**
+
+All 12 Round-1 must-fix items are addressed with concrete, testable language in the updated docs. No remaining blockers.

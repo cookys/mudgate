@@ -1,0 +1,442 @@
+You reviewed assmud plan pack earlier (or act as if you did). Below is the MUST-FIX list from Round 1 and the UPDATED key docs.
+
+For each must-fix item, answer: FIXED | PARTIAL | STILL OPEN with one-line evidence (section name).
+
+Must-fix:
+1. Auth/session mechanism pinned
+2. Origin/CSRF-via-WS in threat model
+3. Phase 1a DONT MCCP2
+4. Big5-HKSCS codec default
+5. Phase 1b synthetic dual-color fixture
+6. Reconnect acceptance
+7. Clean-room RWlib fixtures in OPEN-SOURCE
+8. Phase 1a partial vs 1b full VT clarified
+9. XSS bound to a phase
+10. Dev localhost still blocks private IPs
+11. apps/proxy wording not localhost-as-product-default
+12. Scripts cannot exfil cookies
+
+End with VERDICT: SHIP-AS-IS or FIX-THEN-SHIP and remaining blockers only.
+===== UPDATED PLAN EXCERPT =====
+# Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
+
+> **Status**: draft (R7 post–hetero review fold; ready for Board approve)  
+> **Owner**: cookys  
+> **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
+> **North star (Board)**: **電腦與手機**都能用網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩（兩表面都要考慮；不假裝 MUD 天生適合手機）。  
+> **Depth benchmark**: [重生的世界 / Revival World](https://www.revivalworld.org)（Big5 + 完整 VT/map_d）。  
+> **Stack**: [ADR-001](../adr/ADR-001-stack.md) — React + Vite + TS + Tailwind; pluggable Canvas2D/WebGPU + WASM (compute only).  
+> **Networking**: [ADR-002](../adr/ADR-002-remote-auth-proxy.md) — remote authenticated WSS↔TCP proxy for remote/phone access; localhost = dev.
+
+## 0. Context / thesis
+
+### Product goal (final)
+
+| Dimension | Target |
+|-----------|--------|
+| Surfaces | **Desktop + mobile** browsers (same app; optional PWA) — **both first-class** |
+| Reach | Configured MUDs via **official/self-host proxy** (allowlist first; custom later) |
+| Power | zMUD-class: terminal fidelity, triggers, aliases, variables, packages |
+| Security | **WSS + login** on remote/public proxy; allowlist/quotas/audit; no open-relay |
+| Depth | RW fidelity ceiling (map_d / Big5) — expect **best on desktop** |
+| Mobile honesty | Phone: connect + play + decent chrome; dense map/scripting harder — improve if we can, **don’t over-claim** |
+| Non-goal UX | Require a **proxy app on the phone** |
+
+Classic zMUD (and successors like cMUD) gave power users triggers, aliases, variables, buttons, and automapper. **All MUD game traffic is TCP (Telnet framing)** — that does not change. Revival World is a long-running Chinese LPMud (`mud.revivalworld.org:4000/5000/6000`); **RW is the deep-support benchmark**, not the only host.
+
+**2026-07-21 live probe** ([research](../research/rw-probe-2026-07-21.md)) confirmed:
+
+- TCP ports 4000/5000/6000 open; banner ~2KB + Telnet IAC.
+- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+- Charset: **Traditional Chinese BIG5** (server prints `Current charset is Traditional Chinese (BIG5)`; also accepts `GB`/`BIG5` switch).
+- Payload is **not UTF-8**; decode path must be Big5-aware **before** Unicode UI.
+
+**Browser constraint (not a product choice):** pure web pages (and in-page **WASM**) cannot open arbitrary TCP sockets.
+
+| Mode | Path | Role |
+|------|------|------|
+| **A. Remote authenticated proxy** | Browser ⇄ **WSS+login** ⇄ proxy ⇄ **TCP → MUD** | Product path for phone **and** remote desktop |
+| **B. Dev localhost proxy** | Browser ⇄ WS ⇄ `127.0.0.1` proxy ⇄ TCP | Developers / same-machine desktop |
+| **C. Desktop native shell** | App process raw TCP | Optional later |
+
+Product language: **TCP to the MUD is non-negotiable**; **WSS+auth proxy is how a browser reaches TCP without a phone-side daemon**. WASM is **compute-only**, not a TCP tunnel.
+
+### Encryption & trust model (honest)
+
+| Hop | Requirement |
+|-----|-------------|
+| User device → web app / API | **HTTPS only** in production |
+| Browser → proxy | **WSS (TLS)**; **login required** on official/self-host prod |
+| Proxy → MUD host | TCP (often cleartext telnet); TLS-to-MUD when offered; **never log passwords/payloads** by default |
+| Official multi-tenant | Auth + **allowlist** + quotas + metadata audit — see [threat model](../security/hosted-proxy-threat-model.md) |
+| Highest secrecy optional | User self-hosts proxy or future local bridge so mud hop never touches official IP |
+
+Prior art: RW Java applet client + telnet. We replace that with a modern multi-MUD client that still speaks each mud’s real TCP/Telnet wire (RW: Big5 + full VT).
+
+## 1. Problem
+
+Players need a **modern web client** that:
+
+1. Works on **PC and phone** without installing classic Windows zMUD.
+2. Connects to **各家 MUD** (configurable host/port/charset), with **RW-class fidelity** when the mud needs it.
+3. Keeps the **public path encrypted** and refuses to become an open TCP proxy for the internet.
+4. Supports zMUD-depth automation (triggers / aliases / variables / scripts).
+5. Is secure by default (MUD output untrusted; scripts sandboxed).
+
+## 2. OKR / KRs
+
+**Objective**: From **desktop or phone** browser, securely play MUDs (daily-playable RW on desktop-class fidelity; phone usable; then multi-mud).
+
+**Key Results**:
+- KR0 — **Multi-surface connect**: desktop **and** phone browsers reach a MUD over **HTTPS/WSS + logged-in remote proxy** (or dev localhost), 30+ min session — phone needs **no** on-device proxy app.
+- KR1 — **Desktop-class RW**: login without garbled text; map_d control plane works (VT research).
+- KR2 — Connect to **≥1 non-RW allowlisted MUD** via same UI (charset selectable).
+- KR3 — Declarative automation: **generic top-10 client capabilities** (see §8); personal zMUD imports optional.
+- KR4 — Security: WSS+auth on public proxy; allowlist/SSRF/quota green; open-relay red; XSS green; metadata audit only.
+- KR5 — Docs tracking stays current for every L-size phase.
+- KR6 — **Mobile adequacy** (honest bar): readable terminal, send input, reconnect; not required to match desktop map power-user flow on day-1.
+
+## 2.5 Global Constraints (copied verbatim into every dispatch)
+
+- **Product north star (multi-surface)**: desktop **and** phone browsers → **HTTPS/WSS + authenticated remote proxy** (when not using dev localhost) → TCP MUD. No on-phone proxy app required. RW is the fidelity benchmark; **desktop is the natural power-user home**.
+- Target MUD primary (depth): `mud.revivalworld.org` ports `4000|5000|6000`; architecture must not hard-code a single host in libraries (config/allowlist instead).
+- **Wire to the game host is always raw TCP + Telnet IAC** (never “HTTP-only MUD”).
+- Browser/WASM never open raw TCP. Browser uses WSS only as a **byte-pipe** into a **proxy process** that holds TCP.
+- Production public endpoints: **HTTPS + WSS only**. Cleartext `ws://` only on localhost **dev**.
+- **Official/self-host prod proxy**: login required; destination **allowlist** (v1); SSRF blocks; **WSS Origin allowlist**; per-user quotas; metadata-only audit; kill-switch. Session: httpOnly Secure SameSite=Strict cookie (or equivalent WS ticket). See ADR-002 + threat model.
+- **Localhost proxy**: developer / same-machine convenience; same protocol, different config; **still block private/metadata IPs** (dev may relax public allowlist only).
+- Default session charset for RW: **Big5-HKSCS superset** decode (wire still “BIG5” family; GB switch secondary). Do not assume UTF-8 on the wire.
+- Stream pipeline is **byte-first**: IAC → (optional MCCP2 inflate) → Big5/DBCS tokenizer → **full control parser** → screen cells → render. Never `bytes.toString('utf8')` on RW traffic.
+- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+- **Complete ANSI/VT control plane is mandatory for the RW ship gate (Phase 1b+)** (not SGR-only). Phase **1a** is intentionally partial (Big5 + SGR + scrollback + connect). Phase **1b** delivers CUP/save-restore/ED/DECSTBM screen buffer. See research.
+- Minimum must-implement CSI/C0 for RW gate: `CSI s/u` (save/restore), `CSI H` / `CSI r;cH` (CUP), `CSI 2J` (ED), `CSI r` / `CSI t;br` (DECSTBM), full SGR (incl. bold/dim/reverse/underline/blink/fg/bg), BEL/BS/HT/LF/CR, Big5 DBCS with mid-stream SGR (雙色 / `ansi_part` map cells).
+- **雙色字 / DBCS mid-glyph attributes** and map tile SGR carry (`ansi_part`) are first-class; strip-non-color CSI is a **ship blocker**.
+- MUD server output is **untrusted**; terminal render path must not inject raw HTML from MXP/ANSI without a sanitizer.
+- No player passwords, session tokens, or captcha solutions committed to git.
+- Traditional Chinese UI first; English secondary.
+- **UI stack (locked)**: **React + Vite + TypeScript** shell; **Tailwind** for chrome; **no heavy UI kit** v1. See [ADR-001](../adr/ADR-001-stack.md).
+- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+- **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
+- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
+- **Script engine v1**: **declarative** triggers/aliases/variables first; **no** arbitrary network/`fetch`, **no** reading cookies/`localStorage` secrets. User JS sandbox later/optional. Personal zMUD import optional.
+- **Proxy product default**: **remote authenticated WSS↔TCP** (official or self-host). **Localhost bind** is dev/advanced only.
+- **Reconnect**: client must survive WSS drop → re-auth/ticket → re-IAC negotiate; screen buffer retained client-side (Phase 1a acceptance).
+- Autopilot tracking: every L-size phase updates `docs/projects/.../README.md` + `docs/projects/INDEX.md`.
+- **Open-source hygiene**: no secrets, live credentialed captures, or unlicensed bulk third-party trees in git. Follow `docs/OPEN-SOURCE.md` + `SECURITY.md`. Local dumps only under gitignored `local/` / `private/` / `captures/`.
+
+## 3. File-structure map (intended — after Phase 0')
+
+| Path | Responsibility |
+|------|----------------|
+| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+| `apps/proxy/` | WSS↔TCP bridge; profiles `remote-prod` \| `localhost-dev`; allowlist/auth/Origin |
+| `packages/terminal/` | Screen buffer, scrollback, `Renderer` (Canvas2D / WebGPU) |
+| `packages/vt/` | CSI/C0 state machine: CUP, ED/EL, DECSTBM, save/restore, SGR |
+| `packages/script-engine/` | declarative triggers / aliases / variables / timers (no secret exfil) |
+| `packages/protocol/` | Telnet IAC, MCCP2 refuse-then-optional, MSSP/MXP hooks, reconnect |
+| `packages/codec-big5/` | Big5-HKSCS-capable streaming codec (TS now; WASM later) |
+| `packages/client-automap/` | optional client-side automap (later; not server map_d) |
+| `docs/adr/` | architecture decision records |
+| `docs/plans/` | executable plans |
+| `docs/projects/` | L-size execution tracking + INDEX |
+| `docs/research/` | RW fixtures notes, encoding notes (no secrets) |
+| `tests/fixtures/streams/` | golden byte/text streams (anonymized) |
+
+## 4. Phases
+
+### Phase 0' — Close design gates (Size: S)
+- ~~Stack pick~~ → **done (ADR-001)**.
+- ~~Networking / mobile path~~ → **done (ADR-002 + threat model)**.
+- ~~RW encoding / VT research~~ → **done** (`docs/research/*`).
+- Remaining optional: personal top automations flavor; zMUD import samples.
+- Keep architecture + ADRs in sync.
+- **Acceptance**: plan ready for `status: approved` → Phase 1a.
+
+### Phase 1a — Auth proxy + Big5 banner (Size: L)
+- Scaffold monorepo + CI smoke + vitest.
+- **Proxy** (one codebase, two configs):
+  - **prod/staging**: public WSS, **auth required**, allowlist (include RW), SSRF/quota/**Origin** tests.
+  - **dev**: localhost bind; auth optional; **still deny private IPs**.
+- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+- React shell + Tailwind + login/session + `TerminalHost` (narrow + wide viewports).
+- Terminal (**partial**): Big5-HKSCS family + SGR + scrollback; Canvas2D; banner golden (uncompressed path).
+- **Reconnect**: WSS drop → re-establish → re-IAC; buffer kept client-side.
+- Manual: desktop (required) + phone smoke (desired) → RW banner without mojibake.
+- **Acceptance**: KR0 connect path; banner golden; unauth denied; private-IP denied; bad Origin denied; reconnect smoke; no per-cell React rendering.
+- **Explicit non-goal for 1a**: full map_d CSI set (that is 1b).
+
+### Phase 1b — Screen buffer + map_d control plane (Size: L)
+- Full minimum CSI set: save/restore, CUP, ED, DECSTBM, etc. (see research).
+- Synthetic **city map frame** golden — **clean-room** from research control sequences (not vendored RWlib).
+- Synthetic **dual-color / mid-DBCS SGR** cell fixture (hand-built bytes) so `ansi_part`-style path is unit-tested before live capture.
+- Terminal XSS sanitizer tests (adversarial SGR/MXP-like strings) bound here or shared with 1a if render ships early.
+- Human (optional same milestone): after login, `look` map redraws in-place (no scroll thrash).
+- **Acceptance**: synthetic map + dual-color goldens; “SGR-only client” refuse-to-ship; KR1 path ready pending live login.
+
+### Phase 2 — Core automation engine (Size: L)
+- Declarative aliases, triggers (regex + simple), variables, send queues.
+- Persist packages locally (IndexedDB); import/export JSON.
+- **No arbitrary user JS**; packages cannot read cookies / secret storage / arbitrary fetch.
+- **Acceptance**: KR3 top-10 green; exfil negative tests green.
+
+### Phase 3 — RW deep support pack (Size: L)
+- Login/captcha UX helpers (human-in-the-loop; no captcha bypass).
+- Live dual-color / map / title_screen captures (redacted); GB/BIG5 switch at login.
+- Expand VT if live probe shows more (EL, relative cursor, DECDHL/DECDWL).
+- Optional **DO MCCP2 + inflate**; MXP off until sanitizer green.
+- Common RW triggers pack (user-validated).
+- Optional: link-out to RW online who / 2D map.
+- **Acceptance**: daily-play checklist (walk city map without scroll thrash) on live RW.
+
+### Phase 4 — Multi-MUD + mobile polish (Size: L)
+- Connection profiles within allowlist / approved custom; charset; TLS-to-mud flag.
+- Mobile keyboard / touch send; PWA installability.
+- Deploy recipe for **official/self-host** (TLS, secrets, allowlist ops).
+- Second-mud smoke (UTF-8 mud + RW Big5).
+- **Acceptance**: KR0 hardened + KR2; mobile checklist; runbook for bans/quotas.
+
+### Phase 5 — Power features parity slice (Size: L, optional split)
+- Buttons / keypad, multi-session tabs, basic mapper spike.
+- Log save / search.
+===== THREAT MODEL =====
+# Hosted proxy threat model
+
+> Product path: **browser (desktop or phone) → authenticated WSS → official/self-hosted proxy → TCP MUD**.  
+> Localhost proxy is **dev / advanced desktop** only — not how phone users connect.
+
+## Assets
+
+| Asset | Why it matters |
+|-------|----------------|
+| User account identity | Attribution, ban, abuse response |
+| Session tokens | Hijack = play as user |
+| Egress TCP from proxy IP | Open-relay / scanning / legal exposure |
+| Game passwords on mud hop | Often cleartext telnet — must not log |
+| Audit metadata | Who connected where/when |
+
+## Threats → controls
+
+| Threat | Control (required for official host) |
+|--------|--------------------------------------|
+| Anonymous open-relay | **Auth required** before any upstream TCP |
+| Port scan / attack third parties | **Destination allowlist** (v1) or request+approve; rate limits; fail-closed |
+| SSRF (localhost, metadata, RFC1918) | Block private/link-local/metadata IPs; re-check after DNS on **every** new upstream connect |
+| Credential logging | **Never** log telnet payloads by default; metadata-only audit |
+| Session theft | Short-lived tokens; **httpOnly + Secure + SameSite=Strict** session cookie (or equivalent); revoke on logout |
+| Cross-site WebSocket hijack | Validate **`Origin`** (and Host) on WSS upgrade against allowlist; reject missing/mismatched Origin in prod |
+| Resource exhaustion | Per-user concurrency, connect rate, idle timeout; deploy runbook: global max connections |
+| DNS rebinding | Resolve → validate IP → connect; deny if rebinding class; re-validate per connect |
+| Insider / support tools | No default full-stream capture; explicit time-boxed consent only |
+| Malicious trigger package | Declarative engine **cannot** read document cookies, `localStorage` secrets, or arbitrary `fetch` to exfiltrate session |
+
+## Modes
+
+| Mode | Audience | Auth | Destinations | Bind |
+|------|----------|------|--------------|------|
+| **Official / self-host prod** | Desktop + phone browsers | Required | Allowlist (or approved custom) | Public WSS |
+| **Dev localhost** | Developers | Optional (token/dev header OK) | May skip public allowlist **only** for non-private destinations; **always** block private/metadata IPs | `127.0.0.1` |
+| **User-run remote** | Power users | Their choice | Their policy | Their VPS |
+
+### Auth / session (pinned for Phase 1a)
+
+| Decision | Choice (v1) |
+|----------|-------------|
+| Browser session | **HTTP-only Secure cookie** after login (magic-link or OAuth TBD in impl) |
+| WSS auth | Cookie sent on same-site upgrade **or** short-lived ticket in first WS control frame (pick one in impl; document in proxy README) |
+| Duration | Access session ≥30 min with sliding idle refresh; hard logout revoke |
+| CSRF / WS | Origin allowlist + SameSite=Strict; no third-party embedding of authenticated WSS without explicit allow |
+
+## Minimum ship checklist (official)
+
+1. Unauthenticated WSS cannot open TCP.
+2. Automated denies: `127.0.0.1`, `10/8`, `169.254.169.254`, non-allowlisted host.
+3. Concurrent session limits enforced.
+4. Audit log has user_id + dest + timestamps + byte counts — **no password strings** in samples.
+5. TLS (WSS) only on public endpoints.
+6. ToS + kill-switch (ban user_id / revoke sessions).
+
+## Explicit non-goals
+
+- Guaranteeing E2E encryption when the target MUD is cleartext telnet.
+- Expecting phone users to run a local proxy app.
+- Browser/WASM raw TCP.
+- Claiming phone UX equals desktop for dense map_d / power-user scripting (we improve mobile; we stay honest).
+===== ADR-002 =====
+# ADR-002 — Multi-surface networking: remote authenticated proxy
+
+- **Date**: 2026-07-21
+- **Status**: accepted (R6 reframes “mobile-first” → **desktop + mobile both in scope**)
+- **Plan**: [2026-07-21-web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) R6
+- **Supersedes wording in**: former “mobile-first” title (same decision, clearer product language)
+
+## Context
+
+Board wants a web client usable on **desktop and phone**. Browsers cannot open arbitrary TCP to MUD ports; in-page WASM does not unlock TCP either. A **localhost-only** proxy is fine for developers on a laptop, but does not cover:
+
+- phone browser (no companion proxy app expected),
+- desktop browser away from a home machine.
+
+Classic MUDs are **hard on small touch screens** (dense ANSI maps, heavy typing, dual-color / VT overlays). We still **design for both surfaces**, without pretending phone UX will match a 32" desktop by default.
+
+## Decision
+
+| Concern | Choice |
+|---------|--------|
+| **Surfaces** | **Desktop and mobile are both first-class** targets (responsive web / optional PWA) |
+| **Networking product path** | **Remote** WSS↔TCP proxy (official and/or self-host) with **login** when exposed beyond localhost |
+| **Dev path** | Localhost proxy on the developer machine (same protocol, different config) |
+| **Desktop advanced** | Optional “local bridge” — power users / max privacy; not required for core journeys |
+| **Phone UX honesty** | Support connect + play; invest in usable input/chrome; accept that **map_d / power scripting** may remain better on desktop until proven otherwise |
+| **Official security** | Auth, allowlist (v1), SSRF blocks, Origin check on WSS, quotas, metadata audit — [threat model](../security/hosted-proxy-threat-model.md) |
+| **Session (v1)** | httpOnly Secure SameSite=Strict cookie (or equivalent ticket on first WS frame); ≥30 min sessions with refresh/revoke |
+| **WASM role** | Compute only — **not** networking |
+
+## Consequences
+
+- Phase 1a still builds **auth-capable remote proxy + WSS** early (needed for phone *and* remote desktop), with localhost as a config profile — not “phone-only roadmap.”
+- UX work is dual-track: **desktop density** (full VT/map, keyboard) and **mobile adequacy** (readable terminal, touch send, avoid requiring a second app).
+- Success metrics should not be only “phone-first KPIs”; include desktop daily-play (especially RW map) and phone connect/smoke.
+- Docs avoid “mobile-first” branding that understates desktop as the natural home of heavy MUD use.
+
+## Alternatives rejected
+
+| Alternative | Why not |
+|-------------|---------|
+| Localhost-only product | Breaks phone and remote desktop |
+| Phone-only / mobile-first identity | Misrepresents Board intent and MUD realities |
+| Require proxy app on phone | Bad UX; not “open a URL” |
+| Browser/WASM raw TCP | Not available on the standard web |
+| Unauthenticated public proxy | Open-relay risk |
+===== OPEN-SOURCE fixtures =====
+## What *is* OK as fixtures
+
+| Fixture type | Rule |
+|--------------|------|
+| Pre-auth public banners | OK if no account data (e.g. `tests/fixtures/streams/rw-banner-4000.bin`) |
+| Synthetic ANSI/map frames | **Preferred — clean-room**: construct bytes from *observed* wire + research notes (`docs/research/rw-ansi-and-map-controls.md`), **not** by copying RWlib sources into the repo |
+| Dual-color / mid-DBCS SGR cells | Hand-built synthetic sequences OK; document construction |
+| Post-login gameplay | Only with **redaction**; never include typed passwords |
+
+**Licensing determination (RWlib/Undine):** public downloads are for learning; full-tree redistribution is out of scope. Fixtures must be clean-room control/wire sequences. Short path citations in research docs are fine; if a fixture would copy substantial copyrighted source text, stop for license review.
+
+Review every new `tests/fixtures/**` in PR description: source, charset, clean-room?, why safe.
+
+## Third-party & research
+
+| Source | How we use it | In repo? |
+|--------|----------------|----------|
+| Revival World site / live banner | Interop probe, fixture | Small binary fixture + notes |
+| RWlib / Undine public downloads | Research for ANSI/map_d | **Notes only** in `docs/research/` — do not vendor full trees |
+| zMUD / cMUD concepts | Feature inspiration | No proprietary binaries or docs dumps |
+| xterm.js / zlib / etc. | Dependencies (later) | Via package manager + LICENSE notices |
+
+If we later need to ship substantial third-party code, add `NOTICE` / `THIRD_PARTY_LICENSES` and keep originals intact.
+
+## Pre-publish gate (maintainer)
+
+Before first public push:
+
+```bash
+# 1) Nothing ignored-but-forced
+git status
+===== ARCHITECTURE proxy + surfaces =====
+# Architecture (draft)
+
+> Living sketch.  
+> Stack: [ADR-001](adr/ADR-001-stack.md) · Networking: [ADR-002](adr/ADR-002-remote-auth-proxy.md)  
+> Plan: [plans/2026-07-21-web-zmud-rw.md](plans/2026-07-21-web-zmud-rw.md) · Threat model: [security/hosted-proxy-threat-model.md](security/hosted-proxy-threat-model.md)
+
+## Goals
+
+- **Desktop and mobile browsers** both supported (same app; responsive / optional PWA).
+- Public path **HTTPS + WSS**; MUD hop **TCP + Telnet** (TLS-to-MUD when available).
+- Depth benchmark: Revival World (Big5, full VT/map_d) — expect **best experience on desktop keyboard**, still **usable connect/play on phone**.
+- Open source; official/self-host deploy **fail-closed** (never an open relay).
+
+## Surface honesty (MUD + phone)
+
+| Surface | Expectation |
+|---------|-------------|
+| Desktop | Full VT/map, triggers, long sessions — primary power-user home |
+| Phone | Connect, read, basic input, sessions on the go; dense map/scripting harder — improve deliberately, don’t over-claim |
+| Tablet | Treat as **wide phone or narrow desktop** via responsive breakpoints (no separate app) |
+
+If we later find UI patterns that make map_d great on phone, treat that as a **win**, not a day-1 promise.
+
+**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+
+## What the browser cannot do
+
+- Raw TCP to `host:4000`.
+- WebAssembly does **not** unlock TCP in the browser sandbox.
+- Networking is always: **browser ↔ (WSS) ↔ process that owns TCP**.
+
+## Runtime topology (product default)
+
+```text
+┌──────────────────┐  WSS + auth (TLS)  ┌─────────────────────────┐  TCP+Telnet  ┌──────────┐
+│ apps/web         │ ─────────────────► │ apps/proxy (remote)     │ ───────────► │ MUD host │
+│ React SPA        │ ◄───────────────── │ login, allowlist, quota │ ◄─────────── │ (RW …)   │
+│ desktop or phone │                    │ audit metadata          │              └──────────┘
+└────────┬─────────┘                    └─────────────────────────┘
+         │ plain TS APIs (no React inside packages)
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ packages/protocol → codec-big5 → vt → terminal + Renderer│
+│                              Canvas2D | WebGPU (later)   │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Secondary topologies
+
+| Mode | When |
+|------|------|
+| **Dev localhost proxy** | Developer laptop; same WSS protocol; bind `127.0.0.1` |
+| **User self-host proxy** | Power user runs the image on their VPS |
+| **Desktop native shell** (optional later) | Tauri/etc. may own TCP — not required for web surfaces |
+
+**Not a product path:** requiring end users to run a proxy process on the phone.
+
+## Package responsibilities
+
+| Package | Role | Replaceable backend |
+|---------|------|---------------------|
+| `protocol` | Telnet IAC, options, framing, reconnect | — |
+| `codec-big5` | Big5/DBCS streaming | JS → **WASM** later |
+| `vt` | CSI/C0 (CUP, ED, DECSTBM, SGR, …) | — |
+| `terminal` | Screen buffer, scrollback | Renderer: Canvas2D → **WebGPU** |
+| `script-engine` | Declarative triggers/aliases/vars | matcher → WASM later |
+| `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
+| `apps/proxy` | WSS↔TCP; authn/z; allowlist; Origin check; quotas; audit | **config profiles**: `remote-prod` (public WSS+auth) \| `localhost-dev` |
+
+## Render / compute plug-ins
+
+```text
+interface Renderer {
+  mount(canvas: HTMLCanvasElement): void;
+  resize(cols: number, rows: number, cssWidth: number, cssHeight: number): void;
+  draw(snapshot: ScreenSnapshot): void;
+  dispose(): void;
+}
+
+interface CharsetCodec {
+  push(bytes: Uint8Array): CellOrControl[];
+}
+```
+
+- v1: `Canvas2DRenderer`, `TsBig5Codec`.
+- Later: WebGPU / WASM behind interfaces; feature-detect; no React state-per-frame.
+
+## Security (official remote proxy)
+
+See [hosted-proxy-threat-model.md](security/hosted-proxy-threat-model.md).
+
+## Testing shape
+
+| Layer | Where |
+|-------|--------|
+| Unit | `packages/*` vitest + fixtures |
+| Integration | proxy policy (deny private IP, deny unauth, allowlist, Origin reject) |
+| UI thin | React Testing Library |
+| E2E | Playwright + mock mud + mock auth; WSS drop → reconnect smoke |
+| Human | desktop RW map walk; phone connect/smoke |

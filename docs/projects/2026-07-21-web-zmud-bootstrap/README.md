@@ -12,7 +12,8 @@
 - [x] North star: desktop + phone both considered; no on-phone proxy app
 - [x] ADR-001 stack (React/Tailwind/pluggable GPU/WASM compute)
 - [x] ADR-002 remote auth proxy + threat model (not “mobile-first” branding)
-- [ ] Plan approved → Phase 1a scaffold
+- [x] Hetero plan review R1+R2 (MiniMax/GLM/Qwen) → R7 fold
+- [ ] Board marks plan `status: approved` → Phase 1a scaffold
 
 ## Locked decisions
 
