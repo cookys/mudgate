@@ -1,0 +1,35 @@
+
+Plan 讀畢。對照 Codex R0 五個 BLOCK 點：
+
+| # | BLOCK 問題 | §1.1/§3 位置 | 狀態 |
+|---|-----------|-------------|------|
+| 1 | resolveWidthMode 先於 isWide；isWide 只收 cjk\|western | `isWide(ch, mode: "cjk" \| "western")` + P2 | ✓ |
+| 2 | RW MOTD golden acceptance 精確（禁模糊「差≤歷史」） | §3 item 4：fixture path、逐列 golden JSON、**明文禁止**模糊條件 | ✓ |
+| 3 | charset switch 時 buffer clear | P5 + §1.4 setWidthMode+clear + §3 item 5 unit test | ✓ |
+| 4 | 不在 W1–W4 宣稱 23 站；seeds≠allowlist 隔離 | §2.1 明文禁令 + §5 Seeds≠allowlist 表 + 技術隔離強制 | ✓ |
+| 5 | IP survey 缺 PROXY/IPv6 分項 | §4.2 新增 E2（PROXY protocol / IPv6 egress）+ 白名單邊界 | ✓ |
+
+**§8 四問回答**
+
+1. **CJK/western dual mode 是否足夠？**  
+   是。session 綁定 + charset defaults（legacy→cjk, utf8→western）+ manual override，形成安全網。EAW+A 誠實聲明邊界。v1 範圍合理。
+
+2. **§4 IP 策略誠實否？有無遺漏？**  
+   誠實。E2 加了 PROXY protocol/IPv6 egress；E「偽造 IP」歸零正確；白名單邊界說明乾淨。唯一 mild gap：未提「住宅代理作為 B 的 fallback（非預設但可行）」——但§4.3「禁止當預設」已蓋住，nit 級。
+
+3. **W1–W4 可獨立 ship 否？**  
+   是。§5 明文「不得因未完成 T1 而 BLOCK 字寬 ship」。W1–W4 + I1 自足。
+
+4. **probe/seeds/allowlist 有 open-relay 風險？**  
+   已緩解。seeds 標 `draft:true`、≠ allowlist；allowlist 有 DNS rebinding 防護（link-local/loopback 後驗）；T1 probe 限 banner read-only。風險可控。
+
+---
+
+```
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: [
+  "§1.2 charset alias table 前加「（以下為常見 alias，非 exhaustive；其餘 map to unknown）」避免未來爭議",
+  "§5 W1–W4+I1 expand 定義可移至 Phases 表頭備註，讓 ship scope 一眼可見"
+]
+```

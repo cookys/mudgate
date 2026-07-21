@@ -1,0 +1,29 @@
+**VERDICT: APPROVE_WITH_NITS**
+
+**MUST_FIX:**
+- §1.2 algorithm: Western mode branch says `EAW in {F, W}` + comment "Ambiguous → 1" — correct. But §3 acceptance #2 說 western mode 下 `─│┌╮` → **不** wide，與 algorithm 一致。**無需修改**。
+
+**NITS:**
+1. **§1.2 演算法**: CJK mode `EAW in {F, W, A}` 把所有 Ambiguous 當 2；但演算法結尾又說「Big5 解出但 EAW=N 罕見符號：仍 1」。建議統一：CJK mode 只在 `EAW in {F, W, A}` + 明確 CJK 區段回 2；其他（含 N）預設 false，以演算法為準。
+
+2. **§1.2 charset 覆蓋**: 演算法 auto fallback 只提 `big5*` / `gbk`；未列入 `euc-kr`（韓文）、`shift-jis`（日文）、`gb2312`（簡中）。這些也是 CJK legacy，可能適用 CJK mode。建議：「auto → cjk if charset in {big5*, gbk, euc-kr, shift-jis, gb2312, iso-2022-cn} else western」，或至少列入風險。
+
+3. **§3 Acceptance #3**: 「RW login MOTD Big5 經 buffer(80) 後圖形列 display width 彼此差 ≤ 歷史 byte-width 設計」— 缺 golden snapshot 位置或命名約定。建議：明確 `fixtures/rw-motd-golden.ts` 或類似，讓 W3 test 可引用。
+
+4. **§1.5 Canvas 視覺**: `fillText` 可能畫成半形 glyph — 這是 v1 已知限制並標記 out of scope，OK。但 acceptance 未明確說「v1 只驗 cell 前進，不驗 glyph render」。建議加一條 acceptance：「cell width 計算正確，但 glyph render quality 不在本 ship scope」。
+
+---
+
+**§8 四題短答：**
+
+1. **§1 CJK/western 雙模式是否足夠？**  
+   足夠。charset → mode binding 正確；CJK mode 涵蓋 Big5/GBK 預期（Ambiguous=2 + CJK 區段）；Western mode 保護 UTF-8/ASCII。缺口是 EUC-KR / Shift-JIS 等其他 CJK legacy charset 未列入 auto fallback。
+
+2. **§4 IP 策略是否誠實？**  
+   誠實。核心結論「TCP source IP 由出口決定，無乾淨客端解法」正確。Survey 覆蓋 A–F，結論 B 自架為一等公民合理。唯一小遺漏：未提「企業/學校內網出口」場景（與 proxy IP 問題類似但非 Web proxy）。
+
+3. **W1–W4 可否 ship 不綁死 T1？**  
+   可以。W1–W4 + I1 自成一 unit，L0–L1 字寬修法與 probe 完全解耦。T1/T2 為平行探索，不阻礙本 ship。
+
+4. **probe / seeds / allowlist 安全風險？**  
+   低風險。probe 是 read-only banner only + 低頻；seeds ≠ allowlist（明確定義）；allowlist 另有目的地政策。唯一潛在風險是 T1 probe 若自動發大量連線可能被視為掃描，但 plan 已列入「失敗跳過」風險。

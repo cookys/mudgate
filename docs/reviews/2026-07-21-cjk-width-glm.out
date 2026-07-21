@@ -1,0 +1,13 @@
+Invalid model "glm-5.2".
+Available models:
+  - Auto
+  - Qwen3.8-Max-Preview
+  - Qwen3.7-Max
+  - Qwen3.7-Plus
+  - Qwen3.6-Flash
+  - DeepSeek-V4-Pro
+  - DeepSeek-V4-Flash
+  - GLM-5.2
+  - Kimi-K2.7-Code
+  - MiniMax-M2.7
+Use /model to see available models.

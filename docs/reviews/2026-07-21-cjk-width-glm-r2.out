@@ -1,0 +1,16 @@
+Verified against the **on-disk** plan (the pasted PLAN text was stale — it lacked §3's precise golden criteria, option E2, and the whitelist-boundary note that the real file contains). All five R0 BLOCK fixes are substantively resolved in the actual file.
+
+```
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: []
+NITS:
+- §3 item 4 fixture path `packages/terminal/tests/fixtures/rw-motd-login.big5.bin` diverges from existing `tests/fixtures/streams/rw-banner-4000.{bin,big5.txt}` — either reuse the existing redacted banner or explicitly mark the new fixture as W3-created.
+- §1.4 leaves `resolveWidthMode` home ambiguous ("profiles 或 terminal"); §3 unit-tests it as public, so pick `packages/profiles` (charset table already lives there) to avoid a cross-package import surprise at impl time.
+- `rw-motd-cols.json` golden table is referenced as an alt-assertion but is uncommitted — fine since byte-cell-width equality is the primary (needs no pre-baked golden), but note W3 must create it before the alt-branch is usable.
+```
+
+Hetero focus answers:
+1. **§1 dual mode sufficient?** Yes — EAW F/W in both modes, +A under cjk; utf8/unknown default western (conservative); euc-kr/shift-jis excluded from auto but manually overridable. Honest v1 scope (`v1.1 可加 DBCS-source bit`). Verified against current mode-less `isWide` (buffer.ts:367) which excludes U+2500 — root cause confirmed.
+2. **§4 IP strategy honest / missing?** No major gap now — A/B/C/D/E/**E2**(PROXY protocol + IPv6 egress)/F covered; whitelist honest-boundary note added (token + per-user limit + audit); residential pool discouraged as default. Correctly states no client-side source-IP spoofing in telnet.
+3. **W1–W4 shippable without T1?** Yes — W1–W4+I1 are width-ship + docs, explicitly decoupled from T1/T2 (§5: T1 depends on network, not W*; T2 seeds marked `draft:true`).
+4. **Security / open-relay?** Probe is read-only low-freq banner-only; seeds ≠ allowlist (§2.3 L3, §6); allowlist is destination policy in abuse plan (§4.4); PROXY protocol gated to "需基建 + 站方支援". No open-relay path.
