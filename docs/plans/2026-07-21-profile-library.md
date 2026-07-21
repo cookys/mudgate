@@ -1,6 +1,6 @@
 # Plan — Connection profile library
 
-> **Status**: **fold R2** (multi-LLM)  
+> **Status**: **SHIP**  
 > **Owner**: cookys  
 > **Seq**: **6** on roadmap  
 > **Backlog**: #1  

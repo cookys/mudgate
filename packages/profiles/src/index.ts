@@ -5,19 +5,60 @@ export {
   normalizeCharset,
   resolveWidthMode,
 } from "./widthMode.js";
+export {
+  loadProfileSecrets,
+  saveProfileSecrets,
+  setProfilePassword,
+  getProfilePassword,
+  clearProfileSecret,
+  type ProfileSecrets,
+} from "./secrets.js";
 import type { WidthMode } from "./widthMode.js";
+
+export type MudCharset = "big5hkscs" | "big5" | "utf8" | "gbk";
 
 export type MudProfile = {
   id: string;
   name: string;
   host: string;
   port: number;
-  charset: "big5hkscs" | "big5" | "utf8" | "gbk";
+  charset: MudCharset;
   /** Optional cell-width override; omit to derive from charset. */
   widthMode?: WidthMode;
   tlsToMud?: boolean;
   notes?: string;
 };
+
+const CHARSETS = new Set<MudCharset>(["big5hkscs", "big5", "utf8", "gbk"]);
+
+/** Strict validate one profile object. */
+export function validateProfile(p: unknown): MudProfile {
+  if (!p || typeof p !== "object") throw new Error("profile not object");
+  const o = p as Record<string, unknown>;
+  if (typeof o.id !== "string" || !o.id.trim()) throw new Error("id required");
+  if (typeof o.name !== "string" || !o.name.trim())
+    throw new Error("name required");
+  if (typeof o.host !== "string" || !o.host.trim())
+    throw new Error("host required");
+  const port = Number(o.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("port 1-65535");
+  const charset = String(o.charset ?? "big5hkscs") as MudCharset;
+  if (!CHARSETS.has(charset)) throw new Error("invalid charset");
+  return sanitizeProfileForExport({
+    id: o.id.trim(),
+    name: o.name.trim(),
+    host: o.host.trim(),
+    port,
+    charset,
+    widthMode:
+      o.widthMode === "cjk" || o.widthMode === "western"
+        ? o.widthMode
+        : undefined,
+    tlsToMud: Boolean(o.tlsToMud) || undefined,
+    notes: typeof o.notes === "string" ? o.notes : undefined,
+  } as MudProfile & Record<string, unknown>);
+}
 
 const KEY = "assmud.profiles.v1";
 
@@ -34,6 +75,13 @@ export const DEFAULT_PROFILES: MudProfile[] = [
     name: "Revival World (5000)",
     host: "mud.revivalworld.org",
     port: 5000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-6000",
+    name: "Revival World (6000)",
+    host: "mud.revivalworld.org",
+    port: 6000,
     charset: "big5hkscs",
   },
 ];
@@ -83,11 +131,13 @@ export function exportProfilesJson(list: MudProfile[]): string {
 }
 
 export function importProfilesJson(json: string): MudProfile[] {
-  const list = JSON.parse(json) as MudProfile[];
+  let list: unknown;
+  try {
+    list = JSON.parse(json);
+  } catch {
+    throw new Error("invalid profiles JSON");
+  }
   if (!Array.isArray(list)) throw new Error("invalid profiles");
-  return list
-    .filter((p) => p.id && p.host && p.port)
-    .map((p) =>
-      sanitizeProfileForExport(p as MudProfile & Record<string, unknown>),
-    );
+  if (list.length === 0) throw new Error("empty profiles");
+  return list.map((p) => validateProfile(p));
 }
