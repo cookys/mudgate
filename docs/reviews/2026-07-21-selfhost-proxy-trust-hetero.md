@@ -10,8 +10,9 @@
 | R0 | **BLOCK** (5 MUST_FIX) | APPROVE_WITH_NITS | APPROVE_WITH_NITS |
 | R1 fold | — | — | — |
 | R2 | **APPROVE** | **APPROVE** | APPROVE_WITH_NITS |
+| R3 | **APPROVE** | **APPROVE** | **APPROVE** |
 
-**Ship claim**: ≥2 families APPROVE*，MUST_FIX 全空 → **plan APPROVED**.
+**Ship claim**: R3 三家 **APPROVE**，MUST_FIX [] NITS []，**ALL_CLEAR: yes** → plan 可 expand/ship。
 
 ## R0 Codex MUST_FIX → plan
 

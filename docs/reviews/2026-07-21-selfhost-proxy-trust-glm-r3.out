@@ -1,0 +1,6 @@
+Plan verified internally consistent: R2 APPROVE* (Codex+MiniMax) with GLM nits (history MUST §3.2, release checklist §3.3/§6#10, CF no-Bypass §3.7/§6#9) all folded. R0 Codex 5 MUSTs folded into §3.2–3.5, U2, T0 naming, T1 TLS. Ship scope D1–D3+D2b+U1+U2+R1 fully specified with acceptance gates in §6.
+
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+ALL_CLEAR: yes

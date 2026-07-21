@@ -1,0 +1,14 @@
+Both Codex and MiniMax R3 returned **APPROVE** with empty MUST_FIX and NITS. GLM's R2 nit fold is already in the plan (review log row 9 confirms it). Let me verify the three R2 GLM nits are folded:
+
+1. **history MUST** → §3.2 Token 顯示行：`set +o history`（**必須**）✓
+2. **release checklist** → §3.3：「Release checklist 必有一欄：`digest pin verified`」；§6 #10 ✓
+3. **CF no Bypass** → §3.7 table：「僅允許自己的 IdP／email」；§6 #9：「Access 禁止 world Bypass」；§7 Risk table ✓
+
+All items for D1–D3 + D2b + U1 + U2 + R1 are addressed. Plan is clean.
+
+```
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+ALL_CLEAR: yes
+```
