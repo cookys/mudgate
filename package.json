@@ -10,11 +10,12 @@
   "scripts": {
     "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
     "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "dev:proxy": "npm run dev -w @assmud/proxy",
     "dev:web": "npm run dev -w @assmud/web",
-    "qc": "npm test",
+    "qc": "npm test && npm run test:e2e",
     "lint": "echo 'lint: no-op until eslint lands'"
   },
   "devDependencies": {
