@@ -17,5 +17,6 @@ Executable plans live here as `YYYY-MM-DD-<slug>.md`.
 | [2026-07-21-i18n-locale.md](./2026-07-21-i18n-locale.md) | **SHIP baseline** (StatusEvent + 三語 shell) |
 | [terminal-fonts.md](../design/terminal-fonts.md) | **baseline SHIP** · F2+ residual |
 | [2026-07-21-backlog-candidates.md](./2026-07-21-backlog-candidates.md) | draft · **Board triage** |
+| [2026-07-21-rw-connect-protocols.md](./2026-07-21-rw-connect-protocols.md) | draft · RW wire / MCCP P1 |
 
 After approval for L-size work, bootstrap into `docs/projects/YYYY-MM-DD-<slug>/` and update `docs/projects/INDEX.md`.
