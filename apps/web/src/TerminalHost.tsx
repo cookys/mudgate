@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import {
   ScreenBuffer,
   Canvas2DRenderer,
@@ -20,12 +26,17 @@ type Props = {
   onEchoMask?: (mask: boolean) => void;
   /**
    * Reliable inject: always include a unique `id` so repeating the same line
-   * (e.g. Enter `n` twice) still fires. Plain string was a React state no-op bug.
+   * still fires. Used for auto-login; interactive Enter uses mudSendRef.
    */
   injectCommand?: { id: number; line: string } | null;
   onInjectConsumed?: () => void;
   expandInput?: (line: string) => string[];
   onServerLine?: (line: string) => void;
+  /**
+   * Imperative send into the live socket (Enter / Send button).
+   * Avoids React state→effect races that drop commands.
+   */
+  mudSendRef?: MutableRefObject<((line: string) => boolean) | null>;
   /**
    * zMUD-style user command path (history + echo + inject).
    * Numpad / hotkeys should use this so echo/history stay consistent.
@@ -82,6 +93,7 @@ export function TerminalHost({
   onInjectConsumed,
   expandInput,
   onServerLine,
+  mudSendRef,
   onUserCommand,
   onRequestFocusCmd,
   localEcho,
@@ -373,22 +385,37 @@ export function TerminalHost({
     };
   }, [wsUrl]);
 
-  // Deliver inject immediately (MudSocket queues if not yet connected)
+  /** Expand + send one user line; MudSocket queues if not connected yet. */
+  const deliverLine = useCallback((line: string): boolean => {
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(line) : [line];
+    const sock = socketRef.current;
+    if (!sock) return false;
+    let any = false;
+    for (const l of lines) {
+      if (sock.send(l)) any = true;
+      else any = true; // queued counts as accepted
+    }
+    return any || lines.length > 0;
+  }, []);
+
+  // Publish imperative sender for App Enter / Send
+  useEffect(() => {
+    if (!mudSendRef) return;
+    mudSendRef.current = deliverLine;
+    return () => {
+      if (mudSendRef.current === deliverLine) mudSendRef.current = null;
+    };
+  }, [mudSendRef, deliverLine, wsUrl]);
+
+  // Auto-login inject path (id-based; still ok for background sends)
   useEffect(() => {
     if (!injectCommand?.line) return;
     if (lastInjectIdRef.current === injectCommand.id) return;
     lastInjectIdRef.current = injectCommand.id;
-    const expand = expandInputRef.current;
-    const lines = expand
-      ? expand(injectCommand.line)
-      : [injectCommand.line];
-    const sock = socketRef.current;
-    for (const line of lines) {
-      if (sock) sock.send(line);
-      // if no sock yet, drop is rare (tab just unmounted); id still advanced
-    }
+    deliverLine(injectCommand.line);
     onInjectConsumedRef.current?.();
-  }, [injectCommand?.id, injectCommand?.line]);
+  }, [injectCommand?.id, injectCommand?.line, deliverLine]);
 
   // zMUD Echo commands: paint a dim › line into the live buffer (not server)
   useEffect(() => {

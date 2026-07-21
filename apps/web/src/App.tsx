@@ -131,6 +131,8 @@ export function App() {
     line: string;
   } | null>(null);
   const injectIdRef = useRef(0);
+  /** Live socket send from TerminalHost (Enter path — no state race). */
+  const mudSendRef = useRef<((line: string) => boolean) | null>(null);
   const [inputDraft, setInputDraft] = useState("");
   const inputDraftRef = useRef("");
   inputDraftRef.current = inputDraft;
@@ -342,7 +344,8 @@ export function App() {
   }, []);
 
   /**
-   * Fire a line to the MUD. Always increments id so React re-sends identical lines.
+   * Fire a line to the MUD.
+   * Prefer imperative mudSendRef (Enter); fall back to inject payload (auto-login).
    * @param secret — password / auto-login: no history, no › echo
    */
   const fireInject = useCallback(
@@ -354,9 +357,19 @@ export function App() {
         cmdHistoryRef.current.push(trimmed);
         if (echoCommands) setLocalEcho(trimmed);
       }
-      injectIdRef.current += 1;
-      setInjectPayload({ id: injectIdRef.current, line: trimmed });
-      if (!opts?.keepDraft) setInputDraft("");
+      // 1) Direct send if TerminalHost has published a sender
+      const direct = mudSendRef.current;
+      if (direct) {
+        direct(trimmed);
+      } else {
+        // 2) Fallback: id-based inject (socket may still be mounting)
+        injectIdRef.current += 1;
+        setInjectPayload({ id: injectIdRef.current, line: trimmed });
+      }
+      if (!opts?.keepDraft) {
+        setInputDraft("");
+        inputDraftRef.current = "";
+      }
       if (!secret) focusCmd();
     },
     [echoCommands, focusCmd],
@@ -707,6 +720,7 @@ export function App() {
                   hello={hello}
                   injectCommand={injectPayload}
                   onInjectConsumed={() => setInjectPayload(null)}
+                  mudSendRef={mudSendRef}
                   expandInput={onSendThroughEngine}
                   onServerLine={handleServerLine}
                   onStatus={handleStatus}
@@ -1207,8 +1221,9 @@ export function App() {
           className="flex gap-2 items-center"
           onSubmit={(e) => {
             e.preventDefault();
-            // Prefer ref so we never send a stale React state snapshot
-            submitCmd(inputDraftRef.current);
+            const el = cmdInputRef.current;
+            const line = el?.value ?? inputDraftRef.current;
+            submitCmd(line);
           }}
         >
           <span
@@ -1220,29 +1235,41 @@ export function App() {
           <input
             ref={cmdInputRef}
             value={inputDraft}
-            onChange={(e) => setInputDraft(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              inputDraftRef.current = v; // sync before next keydown (Enter)
+              setInputDraft(v);
+            }}
             onKeyDown={(e) => {
-              // Enter / NumpadEnter — always handle here (form submit alone is flaky
-              // under IME, some browsers, and when focus tricks fire).
+              // Enter / NumpadEnter — read LIVE DOM value (not React state)
               if (e.key === "Enter" || e.code === "NumpadEnter") {
-                // IME composing: don't send mid-composition
                 if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 e.preventDefault();
                 e.stopPropagation();
-                submitCmd(inputDraftRef.current);
+                const line = (e.currentTarget as HTMLInputElement).value;
+                inputDraftRef.current = line;
+                submitCmd(line);
                 return;
               }
               // zMUD: ↑↓ command history (not movement — movement is numpad)
               if (e.key === "ArrowUp") {
                 e.preventDefault();
-                const next = cmdHistoryRef.current.up(inputDraftRef.current);
-                if (next != null) setInputDraft(next);
+                const next = cmdHistoryRef.current.up(
+                  (e.currentTarget as HTMLInputElement).value,
+                );
+                if (next != null) {
+                  inputDraftRef.current = next;
+                  setInputDraft(next);
+                }
                 return;
               }
               if (e.key === "ArrowDown") {
                 e.preventDefault();
                 const next = cmdHistoryRef.current.down();
-                if (next != null) setInputDraft(next);
+                if (next != null) {
+                  inputDraftRef.current = next;
+                  setInputDraft(next);
+                }
               }
             }}
             type={echoMask ? "password" : "text"}
