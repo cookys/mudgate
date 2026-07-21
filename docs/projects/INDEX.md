@@ -7,7 +7,7 @@
 
 | Seq | Project | Plan | Branch | Status |
 |-----|---------|------|--------|--------|
-| 1 | [mccp2-stream](2026-07-21-mccp2-stream/README.md) | [mccp2-stream](../plans/2026-07-21-mccp2-stream.md) | `feat/mccp2-stream` | 📋 ready · **next implement** |
+| 1 | [mccp2-stream](2026-07-21-mccp2-stream/README.md) | [mccp2-stream](../plans/2026-07-21-mccp2-stream.md) | `feat/mccp2-stream` | ✅ **SHIP** develop |
 | 2 | [ci-e2e-quality](2026-07-21-ci-e2e-quality/README.md) | [ci-e2e-quality](../plans/2026-07-21-ci-e2e-quality.md) | `feat/ci-e2e-quality` | 📋 ready (after/with MCCP fixtures) |
 | 3 | [terminal-fonts-f2](2026-07-21-terminal-fonts-f2/README.md) | [fonts-f2](../plans/2026-07-21-terminal-fonts-f2.md) | `feat/terminal-fonts-f2` | 📋 ready |
 | 4 | [open-source-readiness](2026-07-21-open-source-readiness/README.md) | [oss](../plans/2026-07-21-open-source-readiness.md) | `feat/open-source-readiness` | 📋 ready |
