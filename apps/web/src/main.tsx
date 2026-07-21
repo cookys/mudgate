@@ -4,8 +4,15 @@ import { App } from "./App";
 import { applyAccent, loadAccent } from "./lib/theme";
 import "./index.css";
 
-// iconv-lite (Big5) needs Buffer in the browser
-(globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
+// iconv-lite (Big5/HKSCS) needs Buffer + a Node-like global in the browser
+const g = globalThis as unknown as {
+  Buffer: typeof Buffer;
+  global?: typeof globalThis;
+  process?: { env: Record<string, string> };
+};
+g.Buffer = Buffer;
+g.global ??= globalThis;
+g.process ??= { env: {} };
 
 // restore accent before first paint of themed chrome
 applyAccent(loadAccent());
