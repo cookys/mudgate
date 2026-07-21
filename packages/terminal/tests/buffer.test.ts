@@ -37,6 +37,67 @@ describe("ScreenBuffer", () => {
     expect(b.cells[0]![0]!.attrs.fg).toBe(1);
   });
 
+  it("snapshotCells deep-clones; later writes do not mutate snapshot", () => {
+    const b = new ScreenBuffer(10, 3, "cjk");
+    b.writeDecoded("\x1b[1;31m中\x1b[7mA\x1b[0m");
+    const snap = b.snapshotCells();
+    expect(snap.cols).toBe(10);
+    expect(snap.rows).toBe(3);
+    expect(snap.widthMode).toBe("cjk");
+    expect(snap.cells.length).toBe(30);
+    // lead + wideCont trail for 中
+    expect(snap.cells[0]!.ch).toBe("中");
+    expect(snap.cells[0]!.bold).toBe(true);
+    expect(snap.cells[0]!.fg).toBe(1);
+    expect(snap.cells[0]!.wideCont).toBe(false);
+    expect(snap.cells[1]!.ch).toBe("");
+    expect(snap.cells[1]!.wideCont).toBe(true);
+    // inverse (SGR 7)
+    expect(snap.cells[2]!.ch).toBe("A");
+    expect(snap.cells[2]!.inverse).toBe(true);
+
+    b.writeDecoded("\x1b[H\x1b[2JXXXX");
+    expect(snap.cells[0]!.ch).toBe("中");
+    expect(snap.cells[2]!.inverse).toBe(true);
+    // live buffer changed
+    expect(b.cells[0]![0]!.ch).not.toBe("中");
+  });
+
+  it("snapshotCells after resize uses new dimensions; old snap keeps old size", () => {
+    const b = new ScreenBuffer(8, 2);
+    b.writeDecoded("Hi");
+    const old = b.snapshotCells();
+    b.resize(4, 4);
+    const neu = b.snapshotCells();
+    expect(old.cols).toBe(8);
+    expect(old.rows).toBe(2);
+    expect(neu.cols).toBe(4);
+    expect(neu.rows).toBe(4);
+    expect(neu.cells.length).toBe(16);
+  });
+
+  it("emits cup-abs on absolute CUP; buf-mut only when armed", () => {
+    const events: { type: string; row?: number }[] = [];
+    const b = new ScreenBuffer(20, 10);
+    let t = 1000;
+    b.setNowFn(() => t);
+    b.setCaptureSink((e) => {
+      events.push(
+        e.type === "cup-abs"
+          ? { type: e.type, row: e.row }
+          : { type: e.type },
+      );
+    });
+    b.writeDecoded("\x1b[3;1H");
+    expect(events).toEqual([{ type: "cup-abs", row: 2 }]);
+    b.writeDecoded("x");
+    expect(events).toHaveLength(1); // not armed → no buf-mut
+    b.setMapCaptureArmed(true);
+    b.writeDecoded("y");
+    expect(events.at(-1)).toEqual({ type: "buf-mut" });
+  });
+
+
   it("exports plain without color codes", () => {
     // western still treats 中 as wide (F/W range)
     const b = new ScreenBuffer(40, 5, "western");

@@ -1,6 +1,6 @@
 # Plan — map_d Nav Companion（導航副駕）
 
-> **Status**: **APPROVED · plan-hetero ALL_CLEAR R4** (gpt/GLM/Qwen/MiniMax non-BLOCK · empty MUST_FIX; gemini-3.6-flash-high harness FAIL n/a)  
+> **Status**: **APPROVED · C0 implemented** (unit+build green; manual map_d smoke pending) · plan-hetero ALL_CLEAR R4
 
 
 
@@ -583,8 +583,8 @@ C2 expedition + diff alert
 | Status | When |
 |--------|------|
 | **draft** | now |
-| **approved** | user + optional hetero ALL_CLEAR on this plan text |
-| **impl C0** | after approved |
+| **approved** | **R4 ALL_CLEAR** (2026-07-22) |
+| **impl C0** | **done** (code + unit/e2e; 2026-07-22) |
 | **SHIP C0** | pre-smoke + manual map_d smoke |
 | **impl C1/C2** | after C0 SHIP or parallel if capacity |
 

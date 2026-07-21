@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TerminalHost, type HelloMsg } from "./TerminalHost";
+import { TerminalHost, type HelloMsg, type TerminalCaptureApi } from "./TerminalHost";
 import {
   DEFAULT_PROFILES,
   loadProfiles,
@@ -14,11 +14,14 @@ import {
   getProfileAutoLogin,
   isVaultUnlocked,
 } from "@assmud/profiles";
+import { BurstDetector, getNavStore } from "@assmud/nav-memory";
+import type { VtCaptureEvent } from "@assmud/terminal";
 import { ProfileManager } from "./components/ProfileManager";
 import { ScriptEngine } from "@assmud/script-engine";
 import { RW_STARTER_PACK } from "@assmud/rw-pack";
 import { RoomTracker, parseMoveCommand } from "@assmud/mapper";
 import { MapNavPanel, type MapPanelMode } from "./components/MapNavPanel";
+import { MapCompanion } from "./components/MapCompanion";
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
@@ -159,6 +162,18 @@ export function App() {
   // Board: map open desktop, closed mobile
   const [mapOpen, setMapOpen] = useState(true);
   const bumpMap = useCallback(() => setMapTick((n) => n + 1), []);
+  /** C0 map companion: per-tab lastMapFrameId (memory only) */
+  const lastMapByTabRef = useRef(new Map<string, string | null>());
+  const [lastMapFrameId, setLastMapFrameId] = useState<string | null>(null);
+  const [captureEpoch, setCaptureEpoch] = useState(0);
+  const [autoMapDetect, setAutoMapDetect] = useState(true);
+  const [navToast, setNavToast] = useState<string | null>(null);
+  const captureApiRef = useRef<TerminalCaptureApi | null>(null);
+  const navStore = useMemo(() => getNavStore(), []);
+  const burstRef = useRef<BurstDetector | null>(null);
+  const profileKeyRef = useRef("");
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
   useEffect(() => {
     setMapOpen(isLg);
   }, [isLg]);
@@ -171,6 +186,76 @@ export function App() {
   const profile =
     profiles.find((p) => p.id === (tab?.profileId ?? activeProfile)) ??
     profiles[0]!;
+  profileKeyRef.current = profile.id;
+
+  // Restore lastMapFrameId when switching tabs
+  useEffect(() => {
+    setLastMapFrameId(lastMapByTabRef.current.get(tabId) ?? null);
+  }, [tabId]);
+
+  const setLastMapForTab = useCallback((id: string | null) => {
+    lastMapByTabRef.current.set(tabIdRef.current, id);
+    setLastMapFrameId(id);
+    setCaptureEpoch((n) => n + 1);
+  }, []);
+
+  // BurstDetector v0 — one detector for the live terminal
+  useEffect(() => {
+    const det = new BurstDetector({
+      setMapCaptureArmed: (armed) => {
+        captureApiRef.current?.setMapCaptureArmed(armed);
+      },
+      tryPersist: async () => {
+        const api = captureApiRef.current;
+        if (!api) return { ok: false as const };
+        const cells = api.snapshotCells();
+        const result = await navStore.putFrame({
+          cells,
+          source: "auto-burst",
+          confidence: "inferred",
+          profileKey: profileKeyRef.current,
+          tabId: tabIdRef.current,
+        });
+        if (!result.ok) {
+          if (result.reason === "storageFull" || result.reason === "quota") {
+            setNavToast("storageFull");
+          }
+          return { ok: false as const };
+        }
+        if (result.evicted) setNavToast("frameDeleted");
+        return { ok: true as const, id: result.id };
+      },
+      onCaptured: (id) => {
+        setLastMapForTab(id);
+      },
+    });
+    burstRef.current = det;
+    det.setAutoDetectEnabled(autoMapDetect);
+    return () => {
+      det.dispose();
+      burstRef.current = null;
+    };
+    // recreate only when store identity changes; autoDetect toggled below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navStore, setLastMapForTab]);
+
+  useEffect(() => {
+    burstRef.current?.setAutoDetectEnabled(autoMapDetect);
+  }, [autoMapDetect]);
+
+  useEffect(() => {
+    if (!navToast) return;
+    const msg =
+      navToast === "storageFull" ? "storageFull" : navToast;
+    void msg;
+    const t = window.setTimeout(() => setNavToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [navToast]);
+
+  const onVtCaptureEvent = useCallback((e: VtCaptureEvent) => {
+    burstRef.current?.handleEvent(e);
+  }, []);
+
   const moveDialect = useMemo(
     () => resolveMoveDialect(profile),
     [profile?.moveDialect, profile?.host, profile?.id],
@@ -237,9 +322,6 @@ export function App() {
       return remaining;
     });
   };
-
-  const tabIdRef = useRef(tabId);
-  tabIdRef.current = tabId;
 
   // Stable forever — never recreated, so children cannot loop on identity.
   const setTabStatus = useCallback((id: string, status: StatusEvent) => {
@@ -800,6 +882,8 @@ export function App() {
                   cellWidthScale={termFont.cellWidthScale}
                   lineHeightScale={termFont.lineHeightScale}
                   widthMode={cellWidthMode}
+                  onVtCaptureEvent={onVtCaptureEvent}
+                  captureApiRef={captureApiRef}
                 />
               ) : (
                 <div
@@ -824,7 +908,7 @@ export function App() {
           </div>
         </div>
 
-        {/* Nav shell — nearby HUD (P1) / trail WebGL POC / map_d mirror backlog */}
+        {/* Nav shell — nearby HUD / trail / map companion (C0) */}
         {mapOpen && (
           <MapNavPanel
             mode={mapMode}
@@ -841,11 +925,70 @@ export function App() {
             modeTrail={t("map.mode.trail")}
             modeMirror={t("map.mode.mirror")}
             emptyHint={t("map.empty")}
-            mirrorBacklog={t("map.mirror.backlog")}
             confidenceKnown={t("map.conf.known")}
             confidenceGuessed={t("map.conf.guessed")}
             confidenceUnknown={t("map.conf.unknown")}
+            companion={
+              <MapCompanion
+                store={navStore}
+                profileKey={profile.id}
+                tabId={tabId}
+                lastMapFrameId={lastMapFrameId}
+                onLastMapFrameId={setLastMapForTab}
+                captureApiRef={captureApiRef}
+                captureEpoch={captureEpoch}
+                autoDetectEnabled={autoMapDetect}
+                onAutoDetectChange={setAutoMapDetect}
+                autoDetectLabel={t("map.companion.autoDetect")}
+                onToast={(msg) => setNavToast(msg)}
+                labels={{
+                  empty: t("map.companion.empty"),
+                  storageFull: t("map.companion.storageFull"),
+                  frameDeleted: t("map.companion.frameDeleted"),
+                  frameGone: t("map.companion.frameGone"),
+                  badgeAuto: t("map.companion.badgeAuto"),
+                  badgeManual: t("map.companion.badgeManual"),
+                  badgeFrozen: t("map.companion.badgeFrozen"),
+                  live: t("map.companion.live"),
+                  freeze: t("map.companion.freeze"),
+                  unfreeze: t("map.companion.unfreeze"),
+                  pinTerminal: t("map.companion.pinTerminal"),
+                  pinTerminalHint: t("map.companion.pinTerminalHint"),
+                  clearData: t("map.companion.clearData"),
+                  clearDataConfirm: t("map.companion.clearDataConfirm"),
+                  clearDataTitle: t("map.companion.clearDataTitle"),
+                  privacy: t("map.companion.privacy"),
+                  pinPlaceholder: t("map.companion.pinPlaceholder"),
+                  pinSave: t("map.companion.pinSave"),
+                  pinCancel: t("map.companion.pinCancel"),
+                  pinDelete: t("map.companion.pinDelete"),
+                  pinEditTitle: t("map.companion.pinEditTitle"),
+                  pinNewTitle: t("map.companion.pinNewTitle"),
+                  zoom1x: t("map.companion.zoom1x"),
+                  zoom2x: t("map.companion.zoom2x"),
+                  confirm: t("map.companion.confirm"),
+                  cancel: t("map.companion.cancel"),
+                }}
+              />
+            }
           />
+        )}
+        {navToast && (
+          <div
+            className="fixed bottom-16 left-1/2 -translate-x-1/2 z-40 px-3 py-2 rounded text-xs shadow-lg max-w-sm text-center"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              color: "var(--text)",
+            }}
+            role="status"
+          >
+            {navToast === "storageFull"
+              ? t("map.companion.storageFull")
+              : navToast === "frameDeleted"
+                ? t("map.companion.frameDeleted")
+                : navToast}
+          </div>
         )}
 
         {/* Settings drawer */}

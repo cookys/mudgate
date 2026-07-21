@@ -9,6 +9,31 @@ import { isWide, type WidthMode } from "./width.js";
 export type Cell = { ch: string; attrs: Attrs };
 export type { WidthMode };
 
+/** Flat cell for map_d companion frames (C0). Deep-cloned from live buffer. */
+export type MapFrameCell = {
+  ch: string;
+  /** null = default/unspecified; preserve what ScreenBuffer stores */
+  fg: number | null;
+  bg: number | null;
+  bold: boolean;
+  /** SGR 7 reverse — map_d borders often use this */
+  inverse: boolean;
+  /** wide glyph: lead has ch; trail has ch === "" and wideCont=true */
+  wideCont: boolean;
+};
+
+export type MapFrameCells = {
+  cols: number;
+  rows: number;
+  widthMode: WidthMode;
+  cells: MapFrameCell[];
+};
+
+/** Capture hooks for BurstDetector (nav companion). */
+export type VtCaptureEvent =
+  | { type: "cup-abs"; row: number; at: number }
+  | { type: "buf-mut"; at: number };
+
 /**
  * Full VT screen buffer for map_d-class redraws (Phase 1b+).
  * Supports CUP, ED/EL, DECSTBM, save/restore cursor — not SGR-only.
@@ -33,6 +58,12 @@ export class ScreenBuffer {
   widthMode: WidthMode = "western";
   /** Incomplete ESC/CSI carried across writeDecoded chunks. */
   private ansiResidual = "";
+  /** Optional sink for cup-abs / buf-mut (nav companion BurstDetector). */
+  private captureSink: ((e: VtCaptureEvent) => void) | null = null;
+  /** When true, cell-mutating ops emit buf-mut. Web arms this during CUP burst. */
+  private mapCaptureArmed = false;
+  /** Clock for capture events (injectable in tests). */
+  private nowFn: () => number = () => Date.now();
 
   constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
     this.cols = cols;
@@ -40,6 +71,63 @@ export class ScreenBuffer {
     this.widthMode = widthMode;
     this.scrollBottom = rows - 1;
     this.cells = this.blank();
+  }
+
+  setCaptureSink(sink: ((e: VtCaptureEvent) => void) | null): void {
+    this.captureSink = sink;
+  }
+
+  setMapCaptureArmed(armed: boolean): void {
+    this.mapCaptureArmed = armed;
+  }
+
+  isMapCaptureArmed(): boolean {
+    return this.mapCaptureArmed;
+  }
+
+  /** Test/host clock override for deterministic capture timestamps. */
+  setNowFn(fn: () => number): void {
+    this.nowFn = fn;
+  }
+
+  private emitCapture(e: VtCaptureEvent): void {
+    this.captureSink?.(e);
+  }
+
+  private noteBufMut(): void {
+    if (this.mapCaptureArmed) {
+      this.emitCapture({ type: "buf-mut", at: this.nowFn() });
+    }
+  }
+
+  /**
+   * Deep-clone visible cells for map companion frames (C0.1).
+   * Subsequent writeDecoded must not mutate the returned object.
+   */
+  snapshotCells(): MapFrameCells {
+    const cells: MapFrameCell[] = new Array(this.cols * this.rows);
+    let i = 0;
+    for (let r = 0; r < this.rows; r++) {
+      const row = this.cells[r]!;
+      for (let c = 0; c < this.cols; c++) {
+        const cell = row[c]!;
+        const attrs = cell.attrs;
+        cells[i++] = {
+          ch: cell.ch,
+          fg: attrs.fg,
+          bg: attrs.bg,
+          bold: attrs.bold,
+          inverse: attrs.reverse,
+          wideCont: cell.ch === "",
+        };
+      }
+    }
+    return {
+      cols: this.cols,
+      rows: this.rows,
+      widthMode: this.widthMode,
+      cells,
+    };
   }
 
   /**
@@ -106,11 +194,12 @@ export class ScreenBuffer {
     switch (final) {
       case "H":
       case "f": {
-        // CUP — 1-based row;col
+        // CUP — 1-based row;col (absolute positioning)
         const row = Math.min(this.rows, Math.max(1, p(0, 1))) - 1;
         const col = Math.min(this.cols, Math.max(1, p(1, 1))) - 1;
         this.cursor.r = row;
         this.cursor.c = col;
+        this.emitCapture({ type: "cup-abs", row, at: this.nowFn() });
         break;
       }
       case "A": // CUU
@@ -141,12 +230,15 @@ export class ScreenBuffer {
           for (let c = this.cursor.c; c < this.cols; c++) {
             this.cells[r]![c] = { ch: " ", attrs: defaultAttrs() };
           }
+          this.noteBufMut();
         } else if (mode === 1) {
           for (let c = 0; c <= this.cursor.c; c++) {
             this.cells[r]![c] = { ch: " ", attrs: defaultAttrs() };
           }
+          this.noteBufMut();
         } else if (mode === 2) {
           this.cells[r] = this.blankRow();
+          this.noteBufMut();
         }
         break;
       }
@@ -183,6 +275,7 @@ export class ScreenBuffer {
 
   private eraseAll(): void {
     this.cells = this.blank();
+    this.noteBufMut();
   }
 
   private eraseFromCursorToEnd(): void {
@@ -193,6 +286,7 @@ export class ScreenBuffer {
     for (let row = r + 1; row < this.rows; row++) {
       this.cells[row] = this.blankRow();
     }
+    this.noteBufMut();
   }
 
   private eraseFromStartToCursor(): void {
@@ -203,9 +297,11 @@ export class ScreenBuffer {
     for (let col = 0; col <= c; col++) {
       this.cells[r]![col] = { ch: " ", attrs: defaultAttrs() };
     }
+    this.noteBufMut();
   }
 
   private writePlain(text: string, attrs: Attrs): void {
+    let mutated = false;
     for (const ch of text) {
       if (ch === "\n") {
         this.lineFeed();
@@ -222,6 +318,7 @@ export class ScreenBuffer {
       const wide = isWide(ch, this.widthMode);
       this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
       this.cursor.c += 1;
+      mutated = true;
       if (wide && this.cursor.c < this.cols) {
         // placeholder second cell for dual-color: empty continuation
         this.cells[this.cursor.r]![this.cursor.c] = {
@@ -231,6 +328,7 @@ export class ScreenBuffer {
         this.cursor.c += 1;
       }
     }
+    if (mutated) this.noteBufMut();
   }
 
   /**
@@ -277,6 +375,7 @@ export class ScreenBuffer {
         this.cells[r] = this.cells[r + 1]!;
       }
       this.cells[this.scrollBottom] = this.blankRow();
+      this.noteBufMut();
     }
     this.cursor.c = 0;
   }

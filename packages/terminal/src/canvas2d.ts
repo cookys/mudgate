@@ -1,44 +1,7 @@
 import type { ScreenBuffer } from "./buffer.js";
-import type { Attrs } from "@assmud/vt";
+import { colorFor, VOID_BG } from "./colors.js";
 
-/** Soft ANSI 16 — less 90s VGA, more ink terminal */
-const ANSI_FG = [
-  "#1a1b22",
-  "#e06c75",
-  "#7fd962",
-  "#e5c07b",
-  "#61afef",
-  "#c678dd",
-  "#56b6c2",
-  "#c8cdd5",
-  "#5c6370",
-  "#ff7b86",
-  "#a6e38a",
-  "#f0d48a",
-  "#7dc4ff",
-  "#d9a0ef",
-  "#7ee8f2",
-  "#f5f7fa",
-];
-
-const VOID = "#0a0b0e";
-
-function colorFor(attrs: Attrs): { fg: string; bg: string } {
-  let fg = attrs.fg != null ? ANSI_FG[attrs.fg] ?? "#c8cdd5" : "#c8cdd5";
-  let bg = attrs.bg != null ? ANSI_FG[attrs.bg] ?? VOID : VOID;
-  if (attrs.bold && attrs.fg != null && attrs.fg < 8) {
-    fg = ANSI_FG[attrs.fg + 8] ?? fg;
-  }
-  if (attrs.dim) {
-    fg = fg + "99";
-  }
-  if (attrs.reverse) {
-    const t = fg;
-    fg = bg === VOID ? "#c8cdd5" : bg;
-    bg = t;
-  }
-  return { fg, bg };
-}
+const VOID = VOID_BG;
 
 export type SelectionRange = {
   r0: number;

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { NearbyHud, MoveDialect, CompassDir } from "@assmud/mapper";
 import { commandForDir, labelForDir } from "@assmud/mapper";
 import { MapGraphPoc } from "./MapGraphPoc";
@@ -27,10 +27,13 @@ type Props = {
   modeTrail: string;
   modeMirror: string;
   emptyHint: string;
-  mirrorBacklog: string;
+  /** @deprecated C0: replaced by companion slot */
+  mirrorBacklog?: string;
   confidenceKnown: string;
   confidenceGuessed: string;
   confidenceUnknown: string;
+  /** C0 map companion (城圖 tab) */
+  companion?: ReactNode;
 };
 
 const PAD_ORDER: (CompassDir | null)[] = [
@@ -64,6 +67,7 @@ export function MapNavPanel({
   confidenceKnown,
   confidenceGuessed,
   confidenceUnknown,
+  companion,
 }: Props) {
   const byDir = useMemo(() => {
     const m = new Map<CompassDir, (typeof nearby.exits)[0]>();
@@ -121,7 +125,7 @@ export function MapNavPanel({
               background:
                 mode === id ? "var(--accent-dim)" : "var(--bg-elevated)",
               color: mode === id ? "var(--accent)" : "var(--text-dim)",
-              opacity: id === "mirror" ? 0.75 : 1,
+              opacity: 1,
             }}
             onClick={() => onModeChange(id)}
           >
@@ -131,11 +135,15 @@ export function MapNavPanel({
       </div>
 
       {mode === "mirror" && (
-        <div
-          className="flex-1 p-3 text-[11px] leading-relaxed"
-          style={{ color: "var(--text-faint)" }}
-        >
-          {mirrorBacklog}
+        <div className="flex-1 min-h-0 relative flex flex-col">
+          {companion ?? (
+            <div
+              className="flex-1 p-3 text-[11px] leading-relaxed"
+              style={{ color: "var(--text-faint)" }}
+            >
+              {mirrorBacklog}
+            </div>
+          )}
         </div>
       )}
 

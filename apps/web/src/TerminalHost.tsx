@@ -8,7 +8,9 @@ import {
 import {
   ScreenBuffer,
   Canvas2DRenderer,
+  type MapFrameCells,
   type SelectionRange,
+  type VtCaptureEvent,
   type WidthMode,
 } from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
@@ -17,6 +19,17 @@ import { numpadDirection } from "./lib/numpadDirs";
 import { fitTermSize, TERM_FIT } from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
+
+/** Imperative API for map companion capture (C0). */
+export type TerminalCaptureApi = {
+  snapshotCells: () => MapFrameCells;
+  setMapCaptureArmed: (armed: boolean) => void;
+  getCellMetrics: () => {
+    cellW: number;
+    cellH: number;
+    fontFamily: string;
+  };
+};
 
 type Props = {
   wsUrl: string | null;
@@ -54,6 +67,10 @@ type Props = {
   lineHeightScale?: number;
   /** Effective cell width mode (resolved from profile charset). */
   widthMode?: WidthMode;
+  /** map_d companion: cup-abs / buf-mut stream */
+  onVtCaptureEvent?: (e: VtCaptureEvent) => void;
+  /** Imperative snapshot + arm for BurstDetector */
+  captureApiRef?: MutableRefObject<TerminalCaptureApi | null>;
 };
 
 type CopyMenuMode = "selection" | "screen";
@@ -103,6 +120,8 @@ export function TerminalHost({
   cellWidthScale = 1,
   lineHeightScale = 1.2,
   widthMode = "western",
+  onVtCaptureEvent,
+  captureApiRef,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -113,6 +132,35 @@ export function TerminalHost({
   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
   const widthModeRef = useRef(widthMode);
   widthModeRef.current = widthMode;
+  const onVtCaptureEventRef = useRef(onVtCaptureEvent);
+  onVtCaptureEventRef.current = onVtCaptureEvent;
+
+  // Wire capture sink once; always call latest callback.
+  useEffect(() => {
+    const buf = bufRef.current;
+    buf.setCaptureSink((e) => onVtCaptureEventRef.current?.(e));
+    return () => {
+      buf.setCaptureSink(null);
+      buf.setMapCaptureArmed(false);
+    };
+  }, []);
+
+  // Expose imperative capture API for companion / BurstDetector
+  useEffect(() => {
+    if (!captureApiRef) return;
+    captureApiRef.current = {
+      snapshotCells: () => bufRef.current.snapshotCells(),
+      setMapCaptureArmed: (armed) => bufRef.current.setMapCaptureArmed(armed),
+      getCellMetrics: () => ({
+        cellW: rendererRef.current.cellW,
+        cellH: rendererRef.current.cellH,
+        fontFamily: terminalFontStack ?? "ui-monospace, monospace",
+      }),
+    };
+    return () => {
+      captureApiRef.current = null;
+    };
+  }, [captureApiRef, terminalFontStack]);
   const lineAcc = useRef("");
   const socketRef = useRef<MudSocket | null>(null);
   const selecting = useRef(false);
