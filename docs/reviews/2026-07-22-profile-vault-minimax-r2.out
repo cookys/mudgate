@@ -1,0 +1,34 @@
+Reviewing the folded plan against R1 Codex MUST_FIX criteria.
+
+**R1 MUST_FIX coverage:**
+
+| MUST_FIX | Status |
+|----------|--------|
+| §1 threat model — unlock 當下可被同 origin 攔截 | ✓ Row 2 now explicitly: 「輸入主密碼當下 → 不擋 (可攔截 master password 或之後記憶體 key)」 |
+| §3.6 原子遷移 | ✓ 7-step ordered; step 5 round-trip verify before delete; step 7 rollback |
+| §3.7 multi-tab/corruption | ✓ 4-row table covers clobber detection, GCM fail-closed, storage event, atomic write |
+
+**Remaining review surface:**
+
+- §2.2 `autoLogin` decision: vault-only, locked UI hides true state — correct, avoids profile-envelope inference. ✓
+- §3.6 step 5 wording: "unlock/decrypt 驗證 round-trip 成功" — in practice `unlock()` both derives key and tries decrypt; if GCM fails it throws before key is held. The verification is implicit in the operation; wording is fine.
+- §3.6 vault-exists merge: two options given to user — good guard against silent clobber. ✓
+- §3.3 payload size limit: constant named + test required, listed in §3.3 text, but not in §3.5 test table. Minor gap.
+- UTF-8 encoding: mentioned at §3.1 but no impl note. Minor nit.
+- `clearVault()` is listed in API but no UX path from the unlock modal shown — obvious but worth a line. Minor.
+
+---
+
+**VERDICT: APPROVE_WITH_NITS**
+
+**MUST_FIX: []**
+
+**NITS:**
+1. §3.5 測試表格缺少「解密 payload size limit enforced」一項（§3.3 有提到 ≤ 256 KiB 常數）
+2. §3.1 加一行實作備註：「`new TextEncoder().encode(password)` 再送入 PBKDF2」
+3. §2.3 或 §2.4 加一行：「unlock modal 需有『清除 vault（不可恢復）』按鈕」
+
+**ALL_CLEAR: yes**
+
+Plan is solid. All R1 blockers resolved. Ready for implementation once three NITS are patched.
+MINIMAX_R2_DONE

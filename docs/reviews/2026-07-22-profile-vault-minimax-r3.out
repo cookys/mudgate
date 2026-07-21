@@ -1,0 +1,18 @@
+R3 re-review：完整重讀 plan，對照 R2 fold 的三個 MUST_FIX 是否都有落實。
+
+**§3.7 寫入協議** — Web Locks `exclusive` + `rev` check + 再讀偵測他 tab mutation，完整。degraded fallback 有標記 TOCTOU 窗口，可接受。
+
+**§3.3 size bounds** — 512 KiB JSON / 384 KiB ciphertext / 256 KiB 明文，都在 PBKDF2 之前做，隔離畸形輸入。✓
+
+**§3.6 finish-delete** — 雙份時 unlock vault → 驗證 imported profileIds 可讀 → 刪 legacy；vault 無法驗證則保 legacy + 報錯。邏輯完整。
+
+其他無新問題：envelope rev 遞增、`locked → throw`、`clearVault` 也走同協議論（正確）、storage event 清他 tab key + toast、crash 單 key 原子寫入，全部到位。
+
+---
+
+```
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+ALL_CLEAR: yes
+```

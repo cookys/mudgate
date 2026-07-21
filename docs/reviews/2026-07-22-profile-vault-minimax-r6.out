@@ -1,0 +1,12 @@
+Codex R6 returned APPROVE. The plan document correctly contains the R6 requirement in §3.6:
+
+**VERDICT: APPROVE**  
+**MUST_FIX: []**  
+**NITS: []**  
+**ALL_CLEAR: yes**
+
+The plan document already includes the R6 change at lines 225-250:
+- Condition (2): `keySet(currentLegacy) === keySet(migration.entries)` ✓
+- Condition (3): Full three-way deepEqual (vault↔entries AND legacy↔entries) ✓
+
+Codex confirmed both reviews pass with zero issues. The only gap that remained (keySet symmetry in deleteLegacy) has been properly addressed. Plan is ready for implementation.

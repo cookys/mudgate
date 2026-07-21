@@ -1,0 +1,21 @@
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: []
+
+NITS:
+1. **autoLogin flag UX when vault locked**: §2.2 says store in vault ciphertext, but §2.1 drawer needs to show "auto-login enabled" for visible profiles. A locked vault hides the autoLogin state from the drawer UI entirely — need one sentence explaining the UX trade-off or that profile rows show a "🔒" lock icon instead of the toggle when vault is locked.
+2. **Migration UX flow**: §V3 says "prompt 匯入 vault" but doesn't sketch the dialog/state. If a user with old plaintext opens the app, does it auto-migrate on vault create? Show a one-step "Import existing secrets?" dialog? Minor but worth a line so implementer doesn't freestyle it.
+3. **Unlock failure UX**: `unlock()` throws on wrong password — fine — but how many attempts before a cooldown or "clear vault" shortcut is offered? Mention briefly (e.g., "no hard lockout, user can clear vault at any time").
+
+One short paragraph rationale: The plan is well-scoped, phases are correctly ordered (UX before crypto), the threat model is refreshingly honest (especially the "WSS≠E2E" line), and the crypto choices (AES-256-GCM, PBKDF2, per-write IV) are standard and defensible. Non-goals are clearly enumerated. The only gaps are minor: the locked-state UX for the autoLogin toggle needs explicit acknowledgment, the migration dialog needs a sentence, and brute-force retry UX deserves one line. None of these are ship-blocks.
+
+---
+
+**§8 open questions — my preferences:**
+
+1. **iter count**: Don't hardcode. Read from the envelope (already does via `iter` field in schema). Default to 600k (OWASP 2023 current rec for PBKDF2-SHA256), but let the envelope carry whatever the user created with so old vaults don't need re-keying on regen.
+
+2. **autoLogin in vault ciphertext**: Yes, vault-encrypted. Reason: if a profile has `autoLogin: false` stored in plaintext profiles, an attacker with localStorage read (no master password) learns which profiles the user intended to auto-login — information leakage. Keeping it inside the vault envelope closes that small-but-free leak.
+
+3. **Force vault or compat mode**: Force vault on first secret save. The compat mode (plaintext with opt-in) has already caused the problem being solved. Migration path from old plaintext only; no new plaintext profiles after this ships. One exception worth considering: if the user never enters a password, don't force vault creation (avoids "I just wanted to set host/port and now I'm prompted for a master password" friction).
+MINIMAX_DONE

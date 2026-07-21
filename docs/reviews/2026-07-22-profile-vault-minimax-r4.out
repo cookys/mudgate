@@ -1,0 +1,21 @@
+需要你授权编辑。修复内容：§3.7 协议伪代码的 TOCTOU 比较锚点错误（setSecret 的 rev 必然 +1，不能用 `expected === actual`），以及 VaultSnap 类型缺少 `present` 无 gen/rev 的变体。
+
+```
+VERDICT: BLOCK
+MUST_FIX: [
+  "§3.7 协议伪代码 TOCTOU：snapEqual(expected, actual) 比较锚点错误。
+    setSecret 后 actual.rev = expected.rev + 1，snapEqual 恒返 false。
+    正确逻辑：snapEqual 应比较 actual 与'刚刚写入的状态'（由 before + mutation type 重建），
+    而非比较 before === actual。
+    表格（正确）已体现此语义；伪代码（错误）需修正。
+    另：VaultSnap type 缺少 'present' 无 gen/rev 变体（表格 present|present 行依赖此）。
+]
+NITS: [
+  "§3.7 'raw 可選 hash' 描述不清：raw 是 raw JSON string，
+    不是 hash；snapEqual 比的是 gen/rev（任何写都改 rev）+ 可选 string equality on raw。
+"
+]
+ALL_CLEAR: no
+```
+
+修复后重审可给 ALL_CLEAR。当前版本表格正确但伪代码实现会出错，开发时会困惑。

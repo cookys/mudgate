@@ -1,0 +1,260 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f85b5-0648-7e83-b781-0f339c1357cb
+--------
+user
+Review assmud PLAN (not code) for ship readiness:
+
+docs/plans/2026-07-22-profile-secrets-vault.md
+
+Scope: visible profile manager UX (in-session, not only ConnectGate) + WebCrypto AES-GCM vault at rest + master password + migrate from plaintext localStorage + auto-login only when unlocked. Wire E2E is out of scope (honest threat model).
+
+Return EXACTLY:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+one short paragraph rationale.
+Also answer plan §8 open questions if you have a preference.
+
+FULL PLAN:
+# Plan — Profile manager UX + secrets vault (encrypt at rest)
+
+> **Status**: **draft** → hetero loop until ALL_CLEAR  
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Supersedes / extends**: `2026-07-21-profile-library.md` (SHIP skeleton; secrets were **plaintext opt-in**)  
+> **Related**: `docs/research/zmud-input-ux.md` auto-login; trust modes T0–T3  
+
+## 0. Problem (user report)
+
+1. **「沒看到 profile」** — CRUD / 帳密 UI **只掛在 ConnectGate**（未連線畫面）。連上後 ⚙ drawer 只有 **profile 下拉**，沒有 Edit / New / 密碼欄 → 功能「像沒做」。  
+2. **密碼存哪** — 今日：`localStorage` key `assmud.profileSecrets`，**明文 JSON**（有 opt-in 勾選，**無** AES / WebCrypto）。  
+3. 需要把 **可見的 profile 管理 + 加密 vault + auto-login** 合成一案，hetero 過再 impl。
+
+### 0.1 已落地（勿重做）
+
+| 能力 | 狀態 | 位置 |
+|------|------|------|
+| Profile schema + validate + RW seeds | done | `@assmud/profiles` |
+| Export 不含 secrets | done | `sanitizeProfileForExport` |
+| 明文 secrets + opt-in | done（**將被 vault 取代**） | `secrets.ts` |
+| ConnectGate `ProfileEditor` | done 但 **僅 pre-connect** | `ConnectGate.tsx` |
+| Auto-login：account 延遲 + password on WILL ECHO | done | `App.tsx`（依 secret 旗標） |
+| 指令 inject `{id,line}` | done | Enter 可靠送出 |
+
+### 0.2 本 plan 交付
+
+| ID | 交付 | 驗收 |
+|----|------|------|
+| **U1** | **連線中也可開 Profile 管理**（drawer 或 modal） | 連上後不需斷線即可 New/Edit/Delete、改帳密、auto-login |
+| **U2** | ConnectGate 與 in-session 共用同一 `ProfileEditor` | 單一路徑、無雙份 UI 漂移 |
+| **U3** | i18n 標籤（中/英）「設定檔 / Profiles」入口明確 | 不靠英文 `+ New profile` 藏在連線頁 |
+| **V1** | **Vault 加密 at rest**（WebCrypto AES-GCM） | localStorage 只見 ciphertext / salt / iv；明文不落盤 |
+| **V2** | **主密碼（vault password）** 解鎖 session | 開 app / 重載後需 unlock 才可 auto-login 或讀密 |
+| **V3** | 遷移：偵測舊明文 `assmud.profileSecrets` → 提示匯入 vault 後刪明文 | 測試覆蓋 |
+| **V4** | Export 仍永不含密；unlock 狀態不寫入 export | 單元測試 |
+| **A1** | Auto-login 只在 vault unlocked + autoLogin 旗標 | 鎖上時不送帳密 |
+| **D1** | Threat model 一段寫進 plan + deploy/docs | 誠實：at-rest ≠ E2E on wire |
+
+---
+
+## 1. Threat model（必寫死）
+
+| 威脅 | Vault 能擋？ | 說明 |
+|------|-------------|------|
+| 本機讀 localStorage 的閒雜腳本 / 擴充（無主密碼） | **擋密文** | 無主密碼無法還原 |
+| XSS 在已 unlock session | **不擋** | 記憶體內已有明文 |
+| 本機攻擊者 + 使用者已輸入主密碼的瀏覽器 session | **不擋** | 同左 |
+| Proxy / MUD 營運者看 cleartext telnet | **不擋** | 線上永遠可能被看；WSS≠E2E |
+| 匯出 JSON 外洩 | **擋**（設計） | export 永不帶 vault blob 內密碼欄 |
+| 忘記主密碼 | 密文不可恢復 | UI 明確；可「清除 vault 重來」 |
+
+**不是目標**：完整 password-manager 等級（Argon2id 硬體綁定、同步雲端）。目標是 **優於明文 localStorage 的 at-rest**，且 UX 可玩 auto-login。
+
+---
+
+## 2. UX
+
+### 2.1 入口（解決「看不到」）
+
+| 畫面 | 入口 |
+|------|------|
+| ConnectGate | 既有 profile 區 + **「管理設定檔…」** 開同一 editor（強化可見） |
+| Play shell（已連線） | ⚙ drawer 在 profile 下拉 **下方** 放 **「管理設定檔…」** 按鈕 → 開 `ProfileManager` modal/panel |
+| 可選 | 頂欄快捷（P2，非 ship-block） |
+
+### 2.2 ProfileManager / ProfileEditor 欄位
+
+| 欄位 | 必填 | 存哪 |
+|------|------|------|
+| id, name, host, port, charset, widthMode | 是（validate） | profiles v1（明文 OK） |
+| account | 否 | **vault** |
+| password | 否 | **vault** |
+| autoLogin | 否 | **vault**（或 profiles 非密旗標二選一；**建議 vault 旁 metadata 密文內**） |
+| store opt-in | 改為「我了解 at-rest 加密仍非 E2E」+ 主密碼 | UI |
+
+### 2.3 Vault unlock UX
+
+1. 首次啟用：設 **主密碼**（二次確認）→ 建立 salt + 空 vault。  
+2. 之後啟動：若 vault 存在且 locked → **解鎖** modal（可略過 → 當 session 無密；不可 auto-login）。  
+3. 鎖定：tab 隱藏可選 auto-lock（P2）；手動「鎖定 vault」。  
+4. 變更主密碼：unlock 後 re-wrap（P2 可延）。
+
+### 2.4 Auto-login（沿用協定語意，不改 trigger）
+
+- **不要** 用畫面 `Password:` 文字 trigger 當主路徑。  
+- 維持：`autoLogin` + account 於 connected 後短延遲送出；password 於 **WILL ECHO / echoMask** 送一次。  
+- 前置：`vault.isUnlocked()` 否則 skip 並可 toast「請先解鎖設定檔密碼庫」。
+
+---
+
+## 3. 加密設計（V1）
+
+### 3.1 演算法（瀏覽器 WebCrypto）
+
+| 步驟 | 選擇 |
+|------|------|
+| KDF | **PBKDF2-HMAC-SHA-256**，iterations ≥ **310_000**（或實作時對齊 OWASP 當年度建議；寫死常數 + 可調 env 僅 dev） |
+| 對稱 | **AES-256-GCM** |
+| Salt | 16+ bytes random per vault |
+| IV/nonce | 12 bytes random **每 write** |
+| 包裝格式 | JSON envelope 存 localStorage（見下） |
+
+### 3.2 Storage keys
+
+| Key | 內容 |
+|-----|------|
+| `assmud.profiles.v1` | 非密 profiles（可 export） |
+| `assmud.vault.v1` | 密文 envelope（見 schema） |
+| ~~`assmud.profileSecrets`~~ | **遷移後刪除**；讀到則 migrate 流程 |
+
+### 3.3 Envelope schema（illustrative）
+
+```json
+{
+  "v": 1,
+  "kdf": "PBKDF2-SHA256",
+  "iter": 310000,
+  "salt_b64": "...",
+  "iv_b64": "...",
+  "ct_b64": "..."
+}
+```
+
+明文 payload（僅記憶體 / decrypt 後）：
+
+```json
+{
+  "profiles": {
+    "rw-4000": { "account": "...", "password": "...", "autoLogin": true }
+  }
+}
+```
+
+### 3.4 API 邊界（`@assmud/profiles` 或 `apps/web` vault 模組）
+
+| API | 行為 |
+|-----|------|
+| `vaultExists()` | boolean |
+| `createVault(masterPassword)` | 建空 vault |
+| `unlock(masterPassword)` | 失敗 throw；成功 cache key in memory |
+| `lock()` | 清 memory key + plaintext cache |
+| `getSecret(profileId)` / `setSecret(...)` | 需 unlocked |
+| `migratePlaintextSecrets(masterPassword)` | 讀舊 key → encrypt → remove 舊 key |
+
+**禁止**：把 master password 或 raw AES key 寫入 localStorage / sessionStorage。
+
+### 3.5 測試
+
+| 測試 | |
+|------|--|
+| round-trip encrypt/decrypt | node 用 webcrypto polyfill 或只測 pure helpers |
+| wrong master password fails closed | |
+| export profiles never contains password strings | 既有 + vault |
+| migrate deletes plaintext key | |
+| locked → getSecret empty / throws documented | |
+
+> 註：Vitest 環境若無 `crypto.subtle`，用 `node:crypto` webcrypto 或條件 skip + 瀏覽器 e2e 備註。
+
+---
+
+## 4. 非目標（本 plan 不做）
+
+- 雲端同步 vault  
+- 硬體 key / WebAuthn 綁定（可列 P3）  
+- 加密整份 profiles JSON（host/port 明文無妨，方便 export）  
+- 端到端加密到 MUD（不可能在 cleartext telnet 下宣稱）  
+- 完整 zMUD character DB 相容檔  
+
+---
+
+## 5. Phases & ship gate
+
+| Phase | 工作 | Gate |
+|-------|------|------|
+| **A** | U1–U3：in-session Profile manager 可見 + i18n | 連線中可編輯帳密；手動測試 checklist |
+| **B** | V1–V4 + D1：vault 實作、遷移、threat 文案 | 單元測試；localStorage 無明文 password 字串（migrate 後） |
+| **C** | A1：auto-login 接 vault unlock | lock 時不送；unlock 後行為與現況一致 |
+| **D** | 文件：更新 `zmud-input-ux.md`、profile-library plan status、RELEASE 註記 | doc-sync |
+
+**Ship claim**：A+B+C green + hetero ALL_CLEAR on **this plan** + depth-0 `npm test` + web build。
+
+### 手動 checklist
+
+1. 未連線：ConnectGate 看得到「管理設定檔」  
+2. 連線中：⚙ → 管理設定檔 → 建 profile / 設帳密 / auto-login  
+3. 設主密碼 → 重載頁 → 未解鎖時 auto-login 不送  
+4. 解鎖 → 連線 → account + password 自動送  
+5. Export JSON 不含 password  
+6. 舊明文 secrets 遷移後 `assmud.profileSecrets` 消失  
+
+---
+
+## 6. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| PBKDF2 在低端機 unlock 慢 | iter 常數可調；UI 顯示「解鎖中…」 |
+| 使用者忘記主密碼 | 明確「清除 vault」；無法救密文 |
+| 實作誤把 key 持久化 | code review + 測試掃 storage keys |
+| UI 仍藏太深 | U1 強制 drawer 按鈕文案 i18n |
+
+---
+
+## 7. Review log
+
+| Round | Engines | Result |
+|-------|---------|--------|
+| R0 | — | draft authored 2026-07-22 |
+| R1 | （pending hetero） | |
+
+---
+
+## 8. Open questions for hetero（請審）
+
+1. PBKDF2 iter 310k vs 600k 是否強制寫死？  
+2. autoLogin 旗標放 vault 內 vs profiles 明文 metadata？  
+3. 是否允許「無主密碼模式」繼續明文（compat）還是 **強制 vault** 一步到位？  
+   - **作者建議**：首次存密即強制建 vault；唯讀舊明文僅遷移路徑，不新增長期明文模式。  
+
+codex
+VERDICT: BLOCK
+MUST_FIX: ["Correct the threat model: the vault protects offline/localStorage disclosure, but same-origin malicious code or a privileged extension can capture the master password during a future unlock; it is not limited to already-unlocked sessions.", "Specify an atomic, failure-safe migration: write encrypted vault, decrypt/verify it, then delete legacy plaintext; on any failure preserve the legacy data, report the error, and never overwrite an existing vault without an explicit merge/conflict policy.", "Define vault corruption and concurrent-tab behavior so writes cannot silently overwrite secrets or leave users with an unrecoverable malformed envelope."]
+NITS: ["Prefer a fixed, versioned 600,000-iteration PBKDF2-SHA-256 baseline, with parameters stored in the envelope for future upgrades; benchmark against supported low-end devices before finalizing.", "Keep autoLogin inside the encrypted vault because it reveals credential presence and is useless while locked.", "Do not retain a plaintext compatibility mode: require vault creation when saving secrets, and permit legacy plaintext only as a clearly warned migration source.", "Specify UTF-8 password encoding, strict envelope/payload validation, maximum decoded sizes, and deterministic locked-API behavior—prefer throwing over returning an ambiguous empty value."]
+The UX and cryptographic direction are sound, and the §8 choices should be 600k/versioned, encrypted autoLogin metadata, and mandatory vault use. Ship readiness is blocked primarily by an overstated threat model and unspecified migration, corruption, and multi-tab semantics that could expose or lose credentials.
+tokens used
+10,990
+VERDICT: BLOCK
+MUST_FIX: ["Correct the threat model: the vault protects offline/localStorage disclosure, but same-origin malicious code or a privileged extension can capture the master password during a future unlock; it is not limited to already-unlocked sessions.", "Specify an atomic, failure-safe migration: write encrypted vault, decrypt/verify it, then delete legacy plaintext; on any failure preserve the legacy data, report the error, and never overwrite an existing vault without an explicit merge/conflict policy.", "Define vault corruption and concurrent-tab behavior so writes cannot silently overwrite secrets or leave users with an unrecoverable malformed envelope."]
+NITS: ["Prefer a fixed, versioned 600,000-iteration PBKDF2-SHA-256 baseline, with parameters stored in the envelope for future upgrades; benchmark against supported low-end devices before finalizing.", "Keep autoLogin inside the encrypted vault because it reveals credential presence and is useless while locked.", "Do not retain a plaintext compatibility mode: require vault creation when saving secrets, and permit legacy plaintext only as a clearly warned migration source.", "Specify UTF-8 password encoding, strict envelope/payload validation, maximum decoded sizes, and deterministic locked-API behavior—prefer throwing over returning an ambiguous empty value."]
+The UX and cryptographic direction are sound, and the §8 choices should be 600k/versioned, encrypted autoLogin metadata, and mandatory vault use. Ship readiness is blocked primarily by an overstated threat model and unspecified migration, corruption, and multi-tab semantics that could expose or lose credentials.
+CODEX_DONE

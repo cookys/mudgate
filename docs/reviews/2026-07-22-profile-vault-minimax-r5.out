@@ -1,0 +1,21 @@
+R5 re-review 逐項核查：
+
+| 核查項 | 位置 | 結果 |
+|--------|------|------|
+| VaultSnap absent 必含 metaGen | §3.7 line 240 | ✓ |
+| VaultSnap present 必含 metaGen | §3.7 line 241 | ✓ |
+| clearVault 只增 meta.gen，不歸零 | §3.7 line 252, §3.3 line 136 | ✓ |
+| snapEqual 全欄嚴格，含 `raw` 字串全等 | §3.7 line 245, 242 | ✓ |
+| 寫入：before read → compute intended → before===still check → persist → intended===after check | §3.7 line 266-289 | ✓ |
+| migration 三路：vault===receipt AND legacy===receipt AND receipt存在非空 | §3.6 line 225-229 | ✓ |
+
+---
+
+```
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+ALL_CLEAR: yes
+```
+
+全部 R5 folded items 已正確落實。Plan 可進入 implementation。

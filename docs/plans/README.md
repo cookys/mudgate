@@ -34,6 +34,7 @@ Impl hetero: **[queue-impl-hetero-all-clear](../reviews/2026-07-21-queue-impl-he
 | 5 | [proxy-abuse-limits](./2026-07-21-proxy-abuse-limits.md) | [project](../projects/2026-07-21-proxy-abuse-limits/) | **SHIP** |
 | 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) | **SHIP** |
 | 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) | **SHIP** docs |
+| 8 | [profile-secrets-vault](./2026-07-22-profile-secrets-vault.md) | (expand next) | **APPROVED** plan · ALL_CLEAR R6 · not impl |
 
 ## Research / triage
 
