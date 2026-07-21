@@ -19,20 +19,21 @@ Executable plans live here as `YYYY-MM-DD-<slug>.md`.
 | [2026-07-21-i18n-locale.md](./2026-07-21-i18n-locale.md) | SHIP baseline |
 | [terminal-fonts.md](../design/terminal-fonts.md) | baseline SHIP · F2 → separate plan |
 
-## Implement queue (approved · projects bootstrapped)
+## Implement queue — **SHIP on develop** (2026-07-22)
 
-See **[roadmap-priority](./2026-07-21-roadmap-priority.md)** + **[projects INDEX](../projects/INDEX.md)**.
+See **[roadmap-priority](./2026-07-21-roadmap-priority.md)** + **[projects INDEX](../projects/INDEX.md)**.  
+Impl hetero: **[queue-impl-hetero-all-clear](../reviews/2026-07-21-queue-impl-hetero-all-clear.md)** (Codex+MiniMax r3).
 
-| Seq | Plan | Project |
-|-----|------|---------|
-| 0 | [roadmap-priority](./2026-07-21-roadmap-priority.md) | meta |
-| 1 | [mccp2-stream](./2026-07-21-mccp2-stream.md) | [project](../projects/2026-07-21-mccp2-stream/) |
-| 2 | [ci-e2e-quality](./2026-07-21-ci-e2e-quality.md) | [project](../projects/2026-07-21-ci-e2e-quality/) |
-| 3 | [terminal-fonts-f2](./2026-07-21-terminal-fonts-f2.md) | [project](../projects/2026-07-21-terminal-fonts-f2/) |
-| 4 | [open-source-readiness](./2026-07-21-open-source-readiness.md) | [project](../projects/2026-07-21-open-source-readiness/) |
-| 5 | [proxy-abuse-limits](./2026-07-21-proxy-abuse-limits.md) | [project](../projects/2026-07-21-proxy-abuse-limits/) |
-| 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) |
-| 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) |
+| Seq | Plan | Project | Status |
+|-----|------|---------|--------|
+| 0 | [roadmap-priority](./2026-07-21-roadmap-priority.md) | meta | approved order |
+| 1 | [mccp2-stream](./2026-07-21-mccp2-stream.md) | [project](../projects/2026-07-21-mccp2-stream/) | **SHIP** |
+| 2 | [ci-e2e-quality](./2026-07-21-ci-e2e-quality.md) | [project](../projects/2026-07-21-ci-e2e-quality/) | **SHIP** |
+| 3 | [terminal-fonts-f2](./2026-07-21-terminal-fonts-f2.md) | [project](../projects/2026-07-21-terminal-fonts-f2/) | **SHIP** |
+| 4 | [open-source-readiness](./2026-07-21-open-source-readiness.md) | [project](../projects/2026-07-21-open-source-readiness/) | **SHIP** |
+| 5 | [proxy-abuse-limits](./2026-07-21-proxy-abuse-limits.md) | [project](../projects/2026-07-21-proxy-abuse-limits/) | **SHIP** |
+| 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) | **SHIP** |
+| 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) | **SHIP** docs |
 
 ## Research / triage
 

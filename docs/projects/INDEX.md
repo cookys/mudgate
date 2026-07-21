@@ -18,7 +18,8 @@
 | 6 | [profile-library](2026-07-21-profile-library/README.md) | [profiles](../plans/2026-07-21-profile-library.md) | `feat/profile-library-real` | ✅ **SHIP** develop |
 | 7 | [research-spikes](2026-07-21-research-spikes/README.md) | [spikes](../plans/2026-07-21-research-spikes.md) | docs | ✅ **SHIP** docs-only |
 
-**Roadmap**: [`docs/plans/2026-07-21-roadmap-priority.md`](../plans/2026-07-21-roadmap-priority.md)
+**Roadmap**: [`docs/plans/2026-07-21-roadmap-priority.md`](../plans/2026-07-21-roadmap-priority.md)  
+**Impl ALL_CLEAR**: [`docs/reviews/2026-07-21-queue-impl-hetero-all-clear.md`](../reviews/2026-07-21-queue-impl-hetero-all-clear.md) (Codex+MiniMax r3 · commit `99b8d3a`)
 
 ## 已完成 (Completed)
 

@@ -15,17 +15,19 @@
 | i18n baseline + StatusEvent | `2026-07-21-i18n-locale.md` |
 | Font stack baseline + TC chain | `terminal-fonts.md` (baseline) |
 
-## Ordered queue (implement after plan hetero OK)
+## Ordered queue — **SHIP complete on develop** (2026-07-22)
 
-| Seq | Plan slug | Size | Why this order |
-|-----|-----------|------|----------------|
-| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質（**hetero 共識第 1**） |
-| **2** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 驗 MCCP/VT 回歸；**在 fonts/OSS 前** |
-| **3** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選 |
-| **4** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + LICENSE + deploy 食譜 |
-| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | hosted 安全 |
-| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 深度 |
-| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | 研究 only |
+Impl multi-family ALL_CLEAR: [`queue-impl-hetero-all-clear`](../reviews/2026-07-21-queue-impl-hetero-all-clear.md).
+
+| Seq | Plan slug | Size | Why this order | Status |
+|-----|-----------|------|----------------|--------|
+| **1** | [`mccp2-stream`](./2026-07-21-mccp2-stream.md) | L | RW WILL MCCP2；連線品質（**hetero 共識第 1**） | **SHIP** |
+| **2** | [`ci-e2e-quality`](./2026-07-21-ci-e2e-quality.md) | L | 驗 MCCP/VT 回歸；**在 fonts/OSS 前** | **SHIP** |
+| **3** | [`terminal-fonts-f2`](./2026-07-21-terminal-fonts-f2.md) | L | 試掘 UX／1:2／自選 | **SHIP** |
+| **4** | [`open-source-readiness`](./2026-07-21-open-source-readiness.md) | S–L | secret scan + LICENSE + deploy 食譜 | **SHIP** |
+| **5** | [`proxy-abuse-limits`](./2026-07-21-proxy-abuse-limits.md) | L | hosted 安全 | **SHIP** |
+| **6** | [`profile-library`](./2026-07-21-profile-library.md) | L | multi-MUD 深度 | **SHIP** |
+| **7** | [`research-spikes`](./2026-07-21-research-spikes.md) | S | 研究 only | **SHIP** docs |
 
 ## Deferred (P2 / not formal plan yet)
 
