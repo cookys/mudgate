@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { MudProfile } from "@assmud/profiles";
 import { isVaultUnlocked, vaultExists } from "@assmud/profiles";
 import { ProfileEditor } from "./ProfileEditor";
@@ -14,7 +14,7 @@ type Props = {
 };
 
 /**
- * Shared profile manager (ConnectGate + in-session drawer).
+ * Shared profile manager (ConnectGate + in-session tab gear).
  * Vault unlock required before editing account/password/auto-login.
  */
 export function ProfileManager({
@@ -25,11 +25,28 @@ export function ProfileManager({
   onChange,
   onSelect,
 }: Props) {
-  const [tick, setTick] = useState(0);
-  const refresh = () => setTick((t) => t + 1);
-  void tick;
+  const [vaultEpoch, setVaultEpoch] = useState(0);
+  const [editing, setEditing] = useState(false);
   const unlocked = isVaultUnlocked();
   const exists = vaultExists();
+
+  const onVaultChange = useCallback(() => {
+    setVaultEpoch((n) => n + 1);
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (editing) {
+      if (
+        !confirm(
+          "正在編輯設定檔，關閉會丟掉未儲存的變更。確定關閉？",
+        )
+      ) {
+        return;
+      }
+    }
+    setEditing(false);
+    onClose();
+  }, [editing, onClose]);
 
   if (!open) return null;
 
@@ -40,7 +57,10 @@ export function ProfileManager({
       role="dialog"
       aria-modal
       aria-label="設定檔管理"
-      onClick={onClose}
+      // Only close on true backdrop click — not while editing without confirm
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
     >
       <div
         className="w-full sm:max-w-lg max-h-[90vh] overflow-auto rounded-t-[var(--radius)] sm:rounded-[var(--radius)] border shadow-xl"
@@ -48,7 +68,7 @@ export function ProfileManager({
           background: "var(--bg-panel)",
           borderColor: "var(--border)",
         }}
-        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <div
           className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10"
@@ -64,13 +84,13 @@ export function ProfileManager({
             type="button"
             className="text-xs px-2 py-1 rounded border"
             style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
-            onClick={onClose}
+            onClick={requestClose}
           >
             關閉
           </button>
         </div>
         <div className="p-4 space-y-4">
-          <VaultPanel onChange={refresh} />
+          <VaultPanel onChange={onVaultChange} />
           {!unlocked && exists && (
             <p className="text-[11px]" style={{ color: "var(--text-faint)" }}>
               🔒 解鎖後可編輯帳號／密碼／自動登入。host/port 仍可先改。
@@ -81,12 +101,19 @@ export function ProfileManager({
               若要存密碼或自動登入，請先建立密碼庫。
             </p>
           )}
+          {/*
+            key only on selectedId — NOT vaultEpoch, or edit form remounts and
+            "jumps" back to view when vault unlock refreshes.
+          */}
           <ProfileEditor
+            key={selectedId}
             profiles={profiles}
             selectedId={selectedId}
             onChange={onChange}
             onSelect={onSelect}
             secretsEnabled={unlocked}
+            vaultEpoch={vaultEpoch}
+            onEditingChange={setEditing}
           />
         </div>
       </div>

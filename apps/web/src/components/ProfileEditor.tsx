@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MudProfile } from "@assmud/profiles";
 import {
   getProfilePassword,
@@ -18,6 +18,9 @@ type Props = {
   onSelect: (id: string) => void;
   /** When false, host/port still editable; secrets fields disabled */
   secretsEnabled?: boolean;
+  /** Bumps when vault lock/unlock — reload secrets without leaving edit mode */
+  vaultEpoch?: number;
+  onEditingChange?: (editing: boolean) => void;
 };
 
 const emptyDraft = (): Partial<MudProfile> => ({
@@ -34,6 +37,8 @@ export function ProfileEditor({
   onChange,
   onSelect,
   secretsEnabled = true,
+  vaultEpoch = 0,
+  onEditingChange,
 }: Props) {
   const selected = profiles.find((p) => p.id === selectedId);
   const [draft, setDraft] = useState<Partial<MudProfile>>(
@@ -61,19 +66,37 @@ export function ProfileEditor({
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
   const [busy, setBusy] = useState(false);
+  /** Avoid clobbering password the user is mid-typing when vaultEpoch bumps. */
+  const [secretsDirty, setSecretsDirty] = useState(false);
 
-  const loadSecretsIntoForm = (id: string) => {
+  const loadSecretsIntoForm = (id: string, force = false) => {
     if (!isVaultUnlocked()) {
-      setAccount("");
-      setPassword("");
-      setAutoLogin(false);
+      if (force || !secretsDirty) {
+        setAccount("");
+        setPassword("");
+        setAutoLogin(false);
+      }
       return;
     }
+    if (secretsDirty && !force) return;
     const s = getProfileSecret(id);
     setAccount(s?.account ?? "");
     setPassword(s?.password ?? "");
     setAutoLogin(Boolean(s?.autoLogin));
   };
+
+  useEffect(() => {
+    onEditingChange?.(mode !== "view");
+  }, [mode, onEditingChange]);
+
+  // Vault unlock: load secrets into open form without leaving edit mode
+  useEffect(() => {
+    if (mode === "view") return;
+    if (!selected) return;
+    if (!secretsEnabled) return;
+    loadSecretsIntoForm(selected.id, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- vaultEpoch is the intentional trigger
+  }, [vaultEpoch, secretsEnabled]);
 
   const startCreate = () => {
     setMode("create");
@@ -83,6 +106,7 @@ export function ProfileEditor({
     setAccount("");
     setPassword("");
     setAutoLogin(false);
+    setSecretsDirty(false);
     setErr(null);
   };
 
@@ -91,17 +115,19 @@ export function ProfileEditor({
     setMode("edit");
     setDraft({ ...selected });
     setPortText(String(selected.port));
-    loadSecretsIntoForm(selected.id);
+    setSecretsDirty(false);
+    loadSecretsIntoForm(selected.id, true);
     setErr(null);
   };
 
   const cancel = () => {
     setMode("view");
     setErr(null);
+    setSecretsDirty(false);
     if (selected) {
       setDraft({ ...selected });
       setPortText(String(selected.port));
-      loadSecretsIntoForm(selected.id);
+      loadSecretsIntoForm(selected.id, true);
     }
   };
 
@@ -148,6 +174,7 @@ export function ProfileEditor({
       }
 
       onSelect(p.id);
+      setSecretsDirty(false);
       setMode("view");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "invalid");
@@ -299,8 +326,12 @@ export function ProfileEditor({
           }}
           value={account}
           disabled={!secretsEnabled}
-          onChange={(e) => setAccount(e.target.value)}
+          onChange={(e) => {
+            setSecretsDirty(true);
+            setAccount(e.target.value);
+          }}
           autoComplete="off"
+          name="assmud-profile-account"
           placeholder={secretsEnabled ? "連線後送出" : "先解鎖密碼庫"}
         />
       </label>
@@ -316,8 +347,16 @@ export function ProfileEditor({
           }}
           value={password}
           disabled={!secretsEnabled}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="off"
+          onChange={(e) => {
+            setSecretsDirty(true);
+            setPassword(e.target.value);
+          }}
+          // Deter browser/password-manager hijack that clears/jumps focus
+          autoComplete="new-password"
+          name="assmud-profile-secret"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
         />
       </label>
       <label
@@ -328,7 +367,10 @@ export function ProfileEditor({
           type="checkbox"
           checked={autoLogin}
           disabled={!secretsEnabled}
-          onChange={(e) => setAutoLogin(e.target.checked)}
+          onChange={(e) => {
+            setSecretsDirty(true);
+            setAutoLogin(e.target.checked);
+          }}
         />
         啟用自動登入（帳號延遲送出；密碼在伺服器開 ECHO mask 時送出）
       </label>
