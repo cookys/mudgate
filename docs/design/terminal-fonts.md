@@ -64,6 +64,68 @@ width(ASCII) ≈ cellW
 width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
 ```
 
+## 1.1 三件事：無中文字型 · TC fallback chain · 使用者自選（**必須支援**）
+
+> 早期 draft 偏「選一個 dual-width 全家」；產品現實是：**西文好看字常常沒中文**，中文要 **TC 鏈** 接住，且 **user 一定要能自己填**。
+
+### A. 字型「不含中文」（Latin-only mono）
+
+| 行為 | 規格 |
+|------|------|
+| 允許當 **主西文字** | ✅ 可選 JetBrains / Cascadia / Iosevka / 自訂 Latin mono |
+| 單獨當 **唯一** canvas family | ❌ 試掘紅燈：CJK 會吃系統亂 fallback，map 必歪 |
+| 正確用法 | **主字（Latin）+ TC CJK fallback chain** 組成 stack（§1.2） |
+| 探測 | `measureText` / 缺字：對 `中`、`國`、`▲`、框線抽樣；coverage &lt; 閾值 → 標「無／少中文，將用 fallback」 |
+
+### B. TC fallback chain（正體優先鏈，不是單一 family）
+
+Canvas / CSS 最終永遠是 **有序 stack**，不是一個名字：
+
+```
+fontStack = [
+  primary,           // user 選的主字（可 Latin-only 或 CJK mono）
+  ...userExtras[],   // user 自訂後備（可空）
+  ...tcChain,        // 產品內建正體 dual-width 鏈（可配置）
+  "monospace"
+]
+```
+
+**預設 `tcChain`（正體 / Big5 / map 友善，前到後）：**
+
+1. `Sarasa Term TC`（若已 bundle / 已載入）  
+2. `Sarasa Mono TC`  
+3. `MingLiU` / `細明體` / `PMingLiU` / `新細明體`（系統）  
+4. `MingLiU_HKSCS`（若在）  
+5. `Source Han Mono TW` / `Noto Sans Mono CJK TC`  
+6. `Noto Sans Mono CJK` / `Noto Sans CJK TC`（最後防線，可能 1:2 較差 → 試掘黃燈）
+
+- **zh-CN UI** 時 `tcChain` 可換成 SC 變體在前，但 **TC 鏈仍保留在後**（繁簡混服、RW 仍可能出繁中）。  
+- **alignScore** 必須對 **整條 stack 解析後實際繪出的字** 測（canvas 用第一個有 glyph 的 face——實作時用 offscreen 分 face 測 primary vs fallback 兩段分數並顯示）。  
+- Catalog 每一列可顯示：`primary` + `chain preview` 字串。
+
+### C. 使用者自行選擇字體
+
+| 能力 | 規格 |
+|------|------|
+| Catalog 點選 | ✅ bundled + 系統 detected |
+| **自訂 primary** | ✅ 輸入任意 CSS `font-family` 名（本機已安裝即可） |
+| **自訂整段 stack** | ✅ 進階：逗號分隔 family 列表，覆寫／插在 tcChain 前 |
+| **關閉內建 tcChain** | ✅ 進階開關「僅用我指定的字」（警告：缺中文會豆腐／歪 map） |
+| 持久化 | `assmud.termFont.primary` + `extras[]` + `useDefaultTcChain: boolean` + metrics sliders |
+| 試掘 | 自訂也可進 A/B；套用前必跑 coverage + alignScore |
+
+**最小設定模型（實作）：**
+
+```ts
+type TermFontConfig = {
+  primary: string;              // e.g. "JetBrains Mono" | "Sarasa Term TC" | custom
+  extras?: string[];            // user fallbacks before product chain
+  useDefaultTcChain?: boolean;  // default true
+  // + fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx, ligatures
+};
+// resolvedCss = [primary, ...extras, ...(useDefaultTcChain ? tcChain : []), "monospace"]
+```
+
 ## 2. Catalog — 正體中文可用 mono（盡量列全，給 user 自選）
 
 > **原則**：catalog **全列**；「★ 推薦」只是排序權重與預設，不是唯一選項。  
