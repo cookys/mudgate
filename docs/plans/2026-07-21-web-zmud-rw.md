@@ -1,6 +1,7 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: approved  
+> **Status**: **done / SHIP** (P0–P5 bootstrap on develop; further KR as separate plans)  
+
 > **Approved**: 2026-07-21 — Board GO; implementer grok-4.5 medium; multi-family review after  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
