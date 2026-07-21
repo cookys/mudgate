@@ -7,6 +7,7 @@ import {
 } from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+import { numpadDirection } from "./lib/numpadDirs";
 
 export type { HelloMsg, StatusEvent };
 
@@ -83,10 +84,14 @@ export function TerminalHost({
   const socketRef = useRef<MudSocket | null>(null);
   const selecting = useRef(false);
   const selRef = useRef<SelectionRange | null>(null);
+  /** Lines above live bottom; 0 = follow live. */
+  const scrollOffsetRef = useRef(0);
+  const echoMaskRef = useRef(false);
 
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
 
   const helloRef = useRef(hello);
   helloRef.current = hello;
@@ -102,19 +107,39 @@ export function TerminalHost({
   onInjectConsumedRef.current = onInjectConsumed;
 
   const redraw = useCallback(() => {
-    rendererRef.current.draw(bufRef.current, selRef.current);
+    rendererRef.current.draw(
+      bufRef.current,
+      selRef.current,
+      scrollOffsetRef.current,
+    );
   }, []);
+
+  const setViewOffset = useCallback(
+    (next: number) => {
+      const max = bufRef.current.scrollbackDepth();
+      const o = Math.max(0, Math.min(Math.floor(next), max));
+      scrollOffsetRef.current = o;
+      setScrollOffset(o);
+      redraw();
+    },
+    [redraw],
+  );
 
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 1600);
   };
 
-  const copyText = async (kind: "plain" | "ansi", scope: "selection" | "screen") => {
+  const copyText = async (
+    kind: "plain" | "ansi",
+    scope: "selection" | "screen" | "history",
+  ) => {
     const buf = bufRef.current;
     const sel = selRef.current;
     let text: string;
-    if (scope === "selection" && sel) {
+    if (scope === "history") {
+      text = buf.snapshotScrollbackPlain();
+    } else if (scope === "selection" && sel) {
       text =
         kind === "ansi"
           ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
@@ -126,9 +151,11 @@ export function TerminalHost({
     setMenuMode(null);
     flash(
       ok
-        ? kind === "ansi"
-          ? "已複製（含色碼）"
-          : "已複製（純文字）"
+        ? scope === "history"
+          ? "已複製歷史"
+          : kind === "ansi"
+            ? "已複製（含色碼）"
+            : "已複製（純文字）"
         : "複製失敗",
     );
   };
@@ -173,6 +200,9 @@ export function TerminalHost({
     bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
     decoderRef.current.reset();
     lineAcc.current = "";
+    scrollOffsetRef.current = 0;
+    setScrollOffset(0);
+    echoMaskRef.current = false;
 
     const sock = new MudSocket(wsUrl, () => helloRef.current);
     socketRef.current = sock;
@@ -182,7 +212,18 @@ export function TerminalHost({
         const text = decoderRef.current.push(bytes);
         if (!text) return;
         bufRef.current.writeDecoded(text);
-        redraw();
+        // Follow live if user is at bottom; stay put while reading history
+        if (scrollOffsetRef.current === 0) {
+          redraw();
+        } else {
+          // Cap offset if history grew past max (still stay scrolled)
+          const max = bufRef.current.scrollbackDepth();
+          if (scrollOffsetRef.current > max) {
+            scrollOffsetRef.current = max;
+            setScrollOffset(max);
+          }
+          redraw();
+        }
         lineAcc.current += text;
         const parts = lineAcc.current.split(/\r?\n/);
         lineAcc.current = parts.pop() ?? "";
@@ -191,6 +232,7 @@ export function TerminalHost({
         }
       },
       onEchoMask: (mask) => {
+        echoMaskRef.current = mask;
         onEchoMaskRef.current?.(mask);
       },
     });
@@ -219,26 +261,88 @@ export function TerminalHost({
     onInjectConsumedRef.current?.();
   }, [injectCommand]);
 
-  // Keyboard: Ctrl/Cmd+C copies plain (or opens choice if shift)
+  // Keyboard: copy shortcuts, PageUp/Down scrollback, zMUD numpad dirs
   useEffect(() => {
+    const isMudCommandField = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag !== "INPUT" && tag !== "TEXTAREA") return false;
+      const al = el.getAttribute("aria-label") ?? "";
+      return al === "command" || al === "password";
+    };
+
+    const isOtherFormField = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "SELECT" || tag === "TEXTAREA") return !isMudCommandField(el);
+      if (tag === "INPUT") return !isMudCommandField(el);
+      return Boolean(el.isContentEditable);
+    };
+
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
-      // if page has other selection, don't steal
-      const native = window.getSelection()?.toString();
-      if (native && native.length > 0) return;
-      if (!selRef.current && !e.shiftKey) return;
-      e.preventDefault();
-      if (e.shiftKey) {
-        // Shift+Ctrl+C → ANSI
-        void copyText("ansi", selRef.current ? "selection" : "screen");
-      } else {
-        void copyText("plain", selRef.current ? "selection" : "screen");
+      // ── Copy ────────────────────────────────────────────────────
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const native = window.getSelection()?.toString();
+        if (native && native.length > 0) return;
+        if (!selRef.current && !e.shiftKey) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          void copyText("ansi", selRef.current ? "selection" : "screen");
+        } else {
+          void copyText("plain", selRef.current ? "selection" : "screen");
+        }
+        return;
       }
+
+      // ── Scrollback navigation ───────────────────────────────────
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const page = Math.max(1, bufRef.current.rows - 2);
+        if (e.key === "PageUp") {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(scrollOffsetRef.current + page);
+          return;
+        }
+        if (e.key === "PageDown") {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(scrollOffsetRef.current - page);
+          return;
+        }
+        if (e.key === "End" && e.location !== 3) {
+          // main End → jump to live (numpad End is sw)
+          if (isOtherFormField(e.target)) return;
+          if (scrollOffsetRef.current > 0) {
+            e.preventDefault();
+            setViewOffset(0);
+          }
+          return;
+        }
+        if (e.key === "Home" && e.location !== 3 && e.shiftKey) {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(bufRef.current.scrollbackDepth());
+          return;
+        }
+      }
+
+      // ── zMUD numpad directions ──────────────────────────────────
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (echoMaskRef.current) return; // password entry — don't steal digits
+      if (isOtherFormField(e.target)) return;
+      if (!socketRef.current) return;
+
+      const dir = numpadDirection(e);
+      if (!dir) return;
+      e.preventDefault();
+      // If reading history, snap to live when moving
+      if (scrollOffsetRef.current > 0) setViewOffset(0);
+      socketRef.current.send(dir);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setViewOffset]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -285,18 +389,58 @@ export function TerminalHost({
     setMenuMode(selRef.current ? "selection" : "screen");
   };
 
+  const onWheel = (e: React.WheelEvent) => {
+    const depth = bufRef.current.scrollbackDepth();
+    if (depth === 0 && scrollOffsetRef.current === 0) return;
+    e.preventDefault();
+    // deltaY > 0 → scroll down toward live; < 0 → up into history
+    const step = e.deltaMode === 1 ? e.deltaY * 3 : e.deltaY / 40;
+    const lines = Math.trunc(step) || (e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0);
+    if (!lines) return;
+    setViewOffset(scrollOffsetRef.current - lines);
+  };
+
   return (
     <div
       ref={wrapRef}
       lang="und"
-      className="relative h-full min-h-0 w-full overflow-auto touch-pan-y"
+      className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
       onContextMenu={onContextMenu}
+      onWheel={onWheel}
     >
       {/* toolbar */}
       <div
-        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,20rem)]"
+        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,22rem)]"
         style={{ pointerEvents: "auto" }}
       >
+        {scrollOffset > 0 && (
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-[11px] font-mono"
+            style={{
+              background: "var(--accent-dim)",
+              borderColor: "var(--accent)",
+              color: "var(--accent)",
+            }}
+            title="Jump to live (End)"
+            onClick={() => setViewOffset(0)}
+          >
+            ↓ 即時 · {scrollOffset}
+          </button>
+        )}
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy scrollback + screen"
+          onClick={() => void copyText("plain", "history")}
+        >
+          複製歷史
+        </button>
         <button
           type="button"
           className="rounded border px-2 py-1 text-[11px] font-mono"

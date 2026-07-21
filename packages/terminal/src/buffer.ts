@@ -243,25 +243,54 @@ export class ScreenBuffer {
     this.cells[r]![c + 1] = { ch: "", attrs: { ...right } };
   }
 
+  private rowPlain(r: number): string {
+    return this.cells[r]!.map((c) => c.ch).join("").replace(/\s+$/, "");
+  }
+
+  private pushScrollbackLine(line: string): void {
+    this.scrollback.push(line);
+    if (this.scrollback.length > this.maxScrollback) this.scrollback.shift();
+  }
+
+  private pushSessionLine(line: string): void {
+    if (!line.length) return;
+    this.sessionLog.push(line);
+    if (this.sessionLog.length > this.maxSessionLog) this.sessionLog.shift();
+  }
+
   private lineFeed(): void {
-    const line = this.cells[this.cursor.r]!.map((c) => c.ch).join("").replace(/\s+$/, "");
-    if (line.length) {
-      this.scrollback.push(line);
-      this.sessionLog.push(line);
-      if (this.scrollback.length > this.maxScrollback) this.scrollback.shift();
-      if (this.sessionLog.length > this.maxSessionLog) this.sessionLog.shift();
-    }
+    // Session log: every completed line (LF), even if still on-screen.
+    this.pushSessionLine(this.rowPlain(this.cursor.r));
 
     if (this.cursor.r < this.scrollBottom) {
       this.cursor.r += 1;
     } else {
-      // scroll within region
+      // True terminal scrollback: line scrolled off the top of the region.
+      this.pushScrollbackLine(this.rowPlain(this.scrollTop));
       for (let r = this.scrollTop; r < this.scrollBottom; r++) {
         this.cells[r] = this.cells[r + 1]!;
       }
       this.cells[this.scrollBottom] = this.blankRow();
     }
     this.cursor.c = 0;
+  }
+
+  /** How many lines above the live screen can be scrolled. */
+  scrollbackDepth(): number {
+    return this.scrollback.length;
+  }
+
+  /**
+   * Plain text for one viewport row when scrolled up `offset` lines (0 = live).
+   * Returns null when the row should come from live `cells[r]`.
+   */
+  scrollbackViewLine(offset: number, viewRow: number): string | null {
+    const off = Math.max(0, Math.min(offset, this.scrollback.length));
+    if (off === 0) return null;
+    const idx = this.scrollback.length - off + viewRow;
+    if (idx < 0) return "";
+    if (idx >= this.scrollback.length) return null; // live cell row
+    return this.scrollback[idx] ?? "";
   }
 
   /** Visible screen, plain text (no ANSI). Wide-char trail cells skipped. */

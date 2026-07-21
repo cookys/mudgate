@@ -136,7 +136,15 @@ export class Canvas2DRenderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
-  draw(buf: ScreenBuffer, selection?: SelectionRange | null): void {
+  /**
+   * @param scrollOffset lines above live bottom (0 = follow live screen).
+   * When > 0, top rows are filled from plain scrollback history.
+   */
+  draw(
+    buf: ScreenBuffer,
+    selection?: SelectionRange | null,
+    scrollOffset = 0,
+  ): void {
     const ctx = this.ctx;
     const canvas = this.canvas;
     if (!ctx || !canvas) return;
@@ -155,9 +163,31 @@ export class Canvas2DRenderer {
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
 
+    const off = Math.max(0, Math.min(scrollOffset, buf.scrollbackDepth()));
+
     for (let r = 0; r < buf.rows; r++) {
+      // Continuous history: [scrollback tail…] then live cells[0…]
+      const hist = buf.scrollbackViewLine(off, r);
+      if (hist != null) {
+        ctx.fillStyle = "#7a808c";
+        let col = 0;
+        for (const ch of hist) {
+          if (col >= buf.cols) break;
+          if (ch !== " ") {
+            ctx.fillText(
+              ch,
+              Math.round(col * this.cellW),
+              Math.round(r * this.cellH + 1),
+            );
+          }
+          col += 1;
+        }
+        continue;
+      }
+      const cr = r - off;
+      if (cr < 0 || cr >= buf.rows) continue;
       for (let c = 0; c < buf.cols; c++) {
-        const cell = buf.cells[r]![c]!;
+        const cell = buf.cells[cr]![c]!;
         const { fg, bg } = colorFor(cell.attrs);
         const x = c * this.cellW;
         const y = r * this.cellH;
@@ -172,7 +202,8 @@ export class Canvas2DRenderer {
       }
     }
 
-    if (selection) {
+    // Selection only on live viewport
+    if (selection && off === 0) {
       this.paintSelection(ctx, buf, selection);
     }
   }

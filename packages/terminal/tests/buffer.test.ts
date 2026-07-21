@@ -86,6 +86,28 @@ describe("ScreenBuffer", () => {
     expect(plain.includes("\n")).toBe(true);
   });
 
+  it("pushes scrolled-off top lines into scrollback", () => {
+    const b = new ScreenBuffer(20, 3, "western");
+    b.writeDecoded("line0\r\nline1\r\nline2\r\nline3\r\n");
+    // rows=3: after filling 0,1,2 then LF on bottom scrolls off line0
+    expect(b.scrollbackDepth()).toBeGreaterThan(0);
+    expect(b.scrollback.some((l) => l.includes("line0"))).toBe(true);
+    // live top should no longer be line0
+    expect(b.snapshotText()).not.toMatch(/^line0/);
+  });
+
+  it("scrollbackViewLine maps history then live", () => {
+    const b = new ScreenBuffer(20, 4, "western");
+    for (let i = 0; i < 8; i++) b.writeDecoded(`L${i}\r\n`);
+    const off = b.scrollbackDepth();
+    expect(off).toBeGreaterThan(0);
+    // top of fully-scrolled view is oldest scrollback still retained
+    const top = b.scrollbackViewLine(off, 0);
+    expect(typeof top).toBe("string");
+    // at offset 0 everything is live cells
+    expect(b.scrollbackViewLine(0, 0)).toBeNull();
+  });
+
   it("RW MOTD: committed golden cols under cjk mode", () => {
     const goldenPath = join(
       dirname(fileURLToPath(import.meta.url)),
