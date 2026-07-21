@@ -75,6 +75,37 @@ export class Canvas2DRenderer {
     this.fontFamily = family;
   }
 
+  /**
+   * Apply typography for dual-width mono stacks.
+   * fontFamily should already be a full CSS stack (primary + TC fallbacks).
+   */
+  setTypography(opts: {
+    fontFamily: string;
+    fontSizePx?: number;
+    cellWidthScale?: number;
+    lineHeightScale?: number;
+    letterSpacingPx?: number;
+  }): void {
+    this.fontFamily = opts.fontFamily;
+    const size = opts.fontSizePx ?? 15;
+    const lineScale = opts.lineHeightScale ?? 1.2;
+    const widthScale = opts.cellWidthScale ?? 1;
+    this.cellH = Math.max(12, Math.round(size * lineScale));
+    // half-width cell ≈ 0.6em of font size (mono heuristic), then scale
+    this.cellW = Math.max(6, Math.round(size * 0.6 * widthScale + (opts.letterSpacingPx ?? 0)));
+  }
+
+  /** alignScore ≈ width(中)/width(M); ideal ~2.0 for dual-width. */
+  measureAlignScore(): number {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const fontPx = Math.max(10, this.cellH - 4);
+    ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
+    const wM = ctx.measureText("M").width || 1;
+    const wC = ctx.measureText("中").width || 0;
+    return wC / wM;
+  }
+
   /** Map pointer client coords → cell index. */
   hitTest(clientX: number, clientY: number): { r: number; c: number } | null {
     const canvas = this.canvas;

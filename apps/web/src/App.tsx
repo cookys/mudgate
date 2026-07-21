@@ -14,12 +14,21 @@ import { ClientMap } from "@assmud/mapper";
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
+import { LocaleSwitch } from "./components/LocaleSwitch";
+import { applyAccent, loadAccent, type AccentId } from "./lib/theme";
 import {
-  applyAccent,
-  loadAccent,
-  pickTagline,
-  type AccentId,
-} from "./lib/theme";
+  statusEventsEqual,
+  type StatusEvent,
+} from "./lib/mudSocket";
+import { useLocale, useT } from "./i18n";
+import {
+  STATIC_CATALOG,
+  applyPreset,
+  loadTermFont,
+  resolveFontStack,
+  saveTermFont,
+  type TermFontConfig,
+} from "./termFonts/catalog";
 
 function newTabId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -28,11 +37,13 @@ function newTabId(): string {
 const DEFAULT_WS =
   import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
 
+const IDLE: StatusEvent = { code: "idle" };
+
 type Tab = {
   id: string;
   profileId: string;
   connected: boolean;
-  status: string;
+  status: StatusEvent;
   log: string[];
 };
 
@@ -58,12 +69,18 @@ function useIsLg() {
 }
 
 export function App() {
+  const t = useT();
+  const { locale } = useLocale();
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
+  const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
+  const fontStack = useMemo(
+    () => resolveFontStack(termFont, locale),
+    [termFont, locale],
+  );
   const [token, setToken] = useState(
     () => localStorage.getItem("assmud_token") ?? "",
   );
   const [accent, setAccent] = useState<AccentId>(() => loadAccent());
-  const [tagline] = useState(() => pickTagline());
   const [activeProfile, setActiveProfile] = useState(
     profiles[0]?.id ?? "rw-4000",
   );
@@ -74,7 +91,7 @@ export function App() {
         id,
         profileId: "rw-4000",
         connected: false,
-        status: "idle",
+        status: IDLE,
         log: [],
       },
     ];
@@ -127,7 +144,7 @@ export function App() {
           id: newTabId(),
           profileId: activeProfile,
           connected: false,
-          status: "idle",
+          status: IDLE,
           log: [],
         };
         // switch after state settles
@@ -148,17 +165,17 @@ export function App() {
   tabIdRef.current = tabId;
 
   // Stable forever — never recreated, so children cannot loop on identity.
-  const setTabStatus = useCallback((id: string, status: string) => {
+  const setTabStatus = useCallback((id: string, status: StatusEvent) => {
     setTabs((ts) => {
-      const cur = ts.find((t) => t.id === id);
-      if (!cur || cur.status === status) return ts;
-      return ts.map((t) => (t.id === id ? { ...t, status } : t));
+      const cur = ts.find((x) => x.id === id);
+      if (!cur || statusEventsEqual(cur.status, status)) return ts;
+      return ts.map((x) => (x.id === id ? { ...x, status } : x));
     });
   }, []);
 
   const handleStatus = useCallback(
-    (s: string) => {
-      setTabStatus(tabIdRef.current, s);
+    (e: StatusEvent) => {
+      setTabStatus(tabIdRef.current, e);
     },
     [setTabStatus],
   );
@@ -167,8 +184,8 @@ export function App() {
     engine.onServerLine(line);
     const id = tabIdRef.current;
     setTabs((ts) =>
-      ts.map((t) =>
-        t.id === id ? { ...t, log: [...t.log.slice(-5000), line] } : t,
+      ts.map((x) =>
+        x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
       ),
     );
   }, []);
@@ -236,14 +253,14 @@ export function App() {
 
   const connectTab = () => {
     setTabs((ts) =>
-      ts.map((t) => (t.id === tabId ? { ...t, connected: true } : t)),
+      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
     );
   };
 
   const disconnectTab = () => {
     setTabs((ts) =>
-      ts.map((t) =>
-        t.id === tabId ? { ...t, connected: false, status: "idle" } : t,
+      ts.map((x) =>
+        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
       ),
     );
   };
@@ -259,7 +276,6 @@ export function App() {
   if (!anyConnected) {
     return (
       <ConnectGate
-        tagline={tagline}
         profiles={profiles.length ? profiles : DEFAULT_PROFILES}
         profileId={tab.profileId}
         token={token}
@@ -267,12 +283,12 @@ export function App() {
         onProfile={(id) => {
           setActiveProfile(id);
           setTabs((ts) =>
-            ts.map((t) => (t.id === tabId ? { ...t, profileId: id } : t)),
+            ts.map((x) => (x.id === tabId ? { ...x, profileId: id } : x)),
           );
         }}
-        onToken={(t) => {
-          setToken(t);
-          localStorage.setItem("assmud_token", t);
+        onToken={(tok) => {
+          setToken(tok);
+          localStorage.setItem("assmud_token", tok);
         }}
         onAccent={(a) => {
           setAccent(a);
@@ -293,14 +309,15 @@ export function App() {
     >
       <ConfirmModal
         open={closeTargetId != null}
-        title="Close session?"
+        title={t("tab.close.title")}
         body={
           closeTarget?.connected
-            ? `「${closeTargetName}」仍在線上。關閉會斷線並丟掉此分頁的即時連線（log 一併清除）。`
-            : `關閉分頁「${closeTargetName}」？未儲存的 session log 會一併清除。`
+            ? t("tab.close.body.connected", { name: closeTargetName })
+            : t("tab.close.body.idle", { name: closeTargetName })
         }
-        confirmLabel="Close"
-        cancelLabel="Keep"
+        confirmLabel={t("tab.close.confirm")}
+        cancelLabel={t("tab.close.cancel")}
+        dismissLabel={t("modal.dismiss")}
         danger
         onConfirm={confirmCloseTab}
         onCancel={() => setCloseTargetId(null)}
@@ -319,16 +336,16 @@ export function App() {
           className="font-mono text-xs font-semibold tracking-widest uppercase shrink-0"
           style={{ color: "var(--accent)" }}
         >
-          assmud
+          {t("app.name")}
         </span>
 
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
-          {tabs.map((t) => {
-            const p = profiles.find((x) => x.id === t.profileId);
-            const active = t.id === tabId;
+          {tabs.map((tb) => {
+            const p = profiles.find((x) => x.id === tb.profileId);
+            const active = tb.id === tabId;
             return (
               <div
-                key={t.id}
+                key={tb.id}
                 className="inline-flex items-stretch shrink-0 rounded-[var(--radius-sm)] border overflow-hidden"
                 style={{
                   borderColor: active ? "var(--accent)" : "var(--border)",
@@ -341,11 +358,11 @@ export function App() {
                   type="button"
                   className="px-2.5 py-1 text-xs font-mono transition max-w-[8rem] truncate"
                   style={{ color: "var(--text)" }}
-                  onClick={() => setTabId(t.id)}
-                  title={p?.name ?? t.id}
+                  onClick={() => setTabId(tb.id)}
+                  title={p?.name ?? tb.id}
                 >
-                  {p?.name?.slice(0, 12) ?? t.id}
-                  {t.connected ? (
+                  {p?.name?.slice(0, 12) ?? tb.id}
+                  {tb.connected ? (
                     <span
                       className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
                       style={{ background: "var(--ok)" }}
@@ -360,11 +377,11 @@ export function App() {
                     borderColor: active ? "var(--accent)" : "var(--border)",
                     color: "var(--text-dim)",
                   }}
-                  aria-label={`Close ${p?.name ?? t.id}`}
-                  title="Close session"
+                  aria-label={`${t("shell.closeTab")}: ${p?.name ?? tb.id}`}
+                  title={t("shell.closeTab")}
                   onClick={(e) => {
                     e.stopPropagation();
-                    requestCloseTab(t.id);
+                    requestCloseTab(tb.id);
                   }}
                 >
                   ×
@@ -388,19 +405,21 @@ export function App() {
                   id,
                   profileId: activeProfile,
                   connected: false,
-                  status: "idle",
+                  status: IDLE,
                   log: [],
                 },
               ]);
               setTabId(id);
             }}
-            title="New tab"
+            title={t("shell.newTab")}
           >
             +
           </button>
         </div>
 
         <StatusPill status={tab.status} />
+
+        <LocaleSwitch compact className="hidden lg:inline-flex" />
 
         <button
           type="button"
@@ -412,7 +431,7 @@ export function App() {
           }}
           onClick={() => setMapOpen((v) => !v)}
         >
-          map
+          {t("shell.map")}
         </button>
         <button
           type="button"
@@ -423,7 +442,7 @@ export function App() {
             color: "var(--text)",
           }}
           onClick={() => setDrawerOpen((v) => !v)}
-          aria-label="Settings"
+          aria-label={t("shell.settings")}
         >
           ⚙
         </button>
@@ -451,13 +470,15 @@ export function App() {
                   expandInput={onSendThroughEngine}
                   onServerLine={handleServerLine}
                   onStatus={handleStatus}
+                  terminalFontStack={fontStack}
+                  fontSizePx={termFont.fontSizePx}
                 />
               ) : (
                 <div
                   className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
                   style={{ color: "var(--text-dim)" }}
                 >
-                  <p className="font-mono text-sm">Session idle — not on the wire.</p>
+                  <p className="font-mono text-sm">{t("shell.session.idle")}</p>
                   <button
                     type="button"
                     className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
@@ -467,7 +488,7 @@ export function App() {
                     }}
                     onClick={connectTab}
                   >
-                    Connect →
+                    {t("shell.connect")}
                   </button>
                 </div>
               )}
@@ -488,7 +509,7 @@ export function App() {
               className="flex items-center justify-between px-3 py-2 border-b text-xs"
               style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
             >
-              <span className="font-mono tracking-wide">client map</span>
+              <span className="font-mono tracking-wide">{t("map.title")}</span>
               <button
                 type="button"
                 className="px-1.5 py-0.5 rounded border text-[11px]"
@@ -513,7 +534,7 @@ export function App() {
             <button
               type="button"
               className="absolute inset-0 z-20 bg-black/50 lg:bg-black/30"
-              aria-label="Close settings"
+              aria-label={t("drawer.closeSettings")}
               onClick={() => setDrawerOpen(false)}
             />
             <aside
@@ -527,20 +548,26 @@ export function App() {
                 className="flex items-center justify-between px-4 py-3 border-b"
                 style={{ borderColor: "var(--border)" }}
               >
-                <h2 className="text-sm font-semibold">Session</h2>
+                <h2 className="text-sm font-semibold">{t("drawer.session")}</h2>
                 <button
                   type="button"
                   className="text-xs px-2 py-1 rounded border"
                   style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
                   onClick={() => setDrawerOpen(false)}
                 >
-                  close
+                  {t("drawer.close")}
                 </button>
               </div>
               <div className="flex-1 overflow-auto p-4 space-y-4 text-sm">
                 <div>
+                  <div className="text-xs mb-1.5" style={{ color: "var(--text-dim)" }}>
+                    {t("locale.label")}
+                  </div>
+                  <LocaleSwitch />
+                </div>
+                <div>
                   <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
-                    Profile
+                    {t("drawer.profile")}
                   </div>
                   <select
                     className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
@@ -555,8 +582,8 @@ export function App() {
                       const pid = e.target.value;
                       setActiveProfile(pid);
                       setTabs((ts) =>
-                        ts.map((t) =>
-                          t.id === tabId ? { ...t, profileId: pid } : t,
+                        ts.map((x) =>
+                          x.id === tabId ? { ...x, profileId: pid } : x,
                         ),
                       );
                     }}
@@ -570,7 +597,7 @@ export function App() {
                 </div>
                 <div>
                   <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
-                    Auth token
+                    {t("drawer.token")}
                   </div>
                   <input
                     className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
@@ -589,13 +616,13 @@ export function App() {
                 </div>
                 <div>
                   <div className="text-xs mb-1.5" style={{ color: "var(--text-dim)" }}>
-                    Accent
+                    {t("drawer.accent")}
                   </div>
                   <div className="flex gap-2">
                     {(
                       [
-                        { id: "mint" as const, label: "Mint", swatch: "#3dffa8" },
-                        { id: "blue" as const, label: "Blue", swatch: "#5b9dff" },
+                        { id: "mint" as const, labelKey: "accent.mint" as const, swatch: "#3dffa8" },
+                        { id: "blue" as const, labelKey: "accent.blue" as const, swatch: "#5b9dff" },
                       ] as const
                     ).map((opt) => (
                       <button
@@ -619,10 +646,61 @@ export function App() {
                           className="h-2.5 w-2.5 rounded-full"
                           style={{ background: opt.swatch }}
                         />
-                        {opt.label}
+                        {t(opt.labelKey)}
                       </button>
                     ))}
                   </div>
+                </div>
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
+                    Terminal font
+                  </div>
+                  <select
+                    className="w-full rounded-[var(--radius-sm)] border px-3 py-2 text-sm"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                      color: "var(--text)",
+                    }}
+                    value={termFont.presetId}
+                    onChange={(e) => {
+                      const next = applyPreset(e.target.value);
+                      setTermFont(next);
+                      saveTermFont(next);
+                    }}
+                  >
+                    {STATIC_CATALOG.filter((c) => c.id !== "custom").map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                        {c.latinOnly ? " (+TC chain)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <label
+                    className="mt-2 flex items-center gap-2 text-[11px]"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={termFont.useDefaultTcChain}
+                      onChange={(e) => {
+                        const next = {
+                          ...termFont,
+                          useDefaultTcChain: e.target.checked,
+                        };
+                        setTermFont(next);
+                        saveTermFont(next);
+                      }}
+                    />
+                    TC fallback chain
+                  </label>
+                  <p
+                    className="mt-1 text-[10px] font-mono truncate"
+                    style={{ color: "var(--text-faint)" }}
+                    title={fontStack}
+                  >
+                    {fontStack.slice(0, 80)}…
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {tab.connected ? (
@@ -635,7 +713,7 @@ export function App() {
                       }}
                       onClick={disconnectTab}
                     >
-                      Disconnect
+                      {t("drawer.disconnect")}
                     </button>
                   ) : (
                     <button
@@ -644,7 +722,7 @@ export function App() {
                       style={{ background: "var(--accent)", color: "#0a0b0e" }}
                       onClick={connectTab}
                     >
-                      Connect
+                      {t("drawer.connect")}
                     </button>
                   )}
                   <button
@@ -653,7 +731,7 @@ export function App() {
                     style={{ borderColor: "var(--border)" }}
                     onClick={() => setShowLog((v) => !v)}
                   >
-                    {showLog ? "Hide log" : "Show log"}
+                    {showLog ? t("drawer.hideLog") : t("drawer.showLog")}
                   </button>
                   <button
                     type="button"
@@ -661,7 +739,7 @@ export function App() {
                     style={{ borderColor: "var(--border)" }}
                     onClick={downloadLog}
                   >
-                    Save log
+                    {t("drawer.saveLog")}
                   </button>
                   <button
                     type="button"
@@ -669,13 +747,13 @@ export function App() {
                     style={{ borderColor: "var(--border)" }}
                     onClick={exportProfiles}
                   >
-                    Export profiles
+                    {t("drawer.export")}
                   </button>
                   <label
                     className="rounded-[var(--radius-sm)] border px-3 py-2 text-xs cursor-pointer"
                     style={{ borderColor: "var(--border)" }}
                   >
-                    Import
+                    {t("drawer.import")}
                     <input
                       type="file"
                       accept="application/json"
@@ -696,7 +774,7 @@ export function App() {
                       color: "var(--text-dim)",
                     }}
                   >
-                    {tab.log.slice(-100).join("\n") || "(empty log)"}
+                    {tab.log.slice(-100).join("\n") || t("drawer.emptyLog")}
                   </pre>
                 )}
                 <p className="text-[11px]" style={{ color: "var(--text-faint)" }}>
@@ -744,7 +822,11 @@ export function App() {
               // @ts-expect-error css var
               "--tw-ring-color": "var(--accent-glow)",
             }}
-            placeholder={tab.connected ? "command / alias…" : "connect first"}
+            placeholder={
+              tab.connected
+                ? t("shell.cmd.placeholder")
+                : t("shell.cmd.placeholder.idle")
+            }
           />
           <button
             type="submit"
@@ -755,7 +837,7 @@ export function App() {
               color: "#0a0b0e",
             }}
           >
-            Send
+            {t("shell.send")}
           </button>
         </form>
 
@@ -796,7 +878,7 @@ export function App() {
             }}
             onClick={() => setMapOpen((v) => !v)}
           >
-            map
+            {t("shell.map")}
           </button>
         </div>
       </footer>
