@@ -1,6 +1,6 @@
 # Plan — Research spikes (non-product)
 
-> **Status**: **APPROVE** multi-LLM (Grok+Codex) — research only
+> **Status**: **SHIP** (docs-only research outputs in `docs/research/`)
 > **Owner**: cookys  
 > **Seq**: **7** on roadmap  
 > **Backlog**: #2, #15, #16  
