@@ -295,11 +295,19 @@ export function TerminalHost({
     redraw();
   }, [widthMode, redraw]);
 
+  // Socket lifecycle: ONLY depends on wsUrl. Do NOT depend on applyFit/redraw —
+  // those change identity and would stop() the socket (killing auto-reconnect).
+  const applyFitRef = useRef(applyFit);
+  applyFitRef.current = applyFit;
+  const redrawRef = useRef(redraw);
+  redrawRef.current = redraw;
+  const lastInjectIdRef = useRef(0);
+
   useEffect(() => {
     if (!wsUrl) return;
 
     // Measure before hello so NAWS matches the real viewport
-    const size = applyFit({ notifyMud: false });
+    const size = applyFitRef.current({ notifyMud: false });
     bufRef.current = new ScreenBuffer(
       size.cols,
       size.rows,
@@ -310,6 +318,7 @@ export function TerminalHost({
     scrollOffsetRef.current = 0;
     setScrollOffset(0);
     echoMaskRef.current = false;
+    lastInjectIdRef.current = 0;
 
     const sock = new MudSocket(wsUrl, () => ({
       ...helloRef.current,
@@ -325,7 +334,7 @@ export function TerminalHost({
         bufRef.current.writeDecoded(text);
         // Follow live if user is at bottom; stay put while reading history
         if (scrollOffsetRef.current === 0) {
-          redraw();
+          redrawRef.current();
         } else {
           // Cap offset if history grew past max (still stay scrolled)
           const max = bufRef.current.scrollbackDepth();
@@ -333,7 +342,7 @@ export function TerminalHost({
             scrollOffsetRef.current = max;
             setScrollOffset(max);
           }
-          redraw();
+          redrawRef.current();
         }
         lineAcc.current += text;
         const parts = lineAcc.current.split(/\r?\n/);
@@ -362,10 +371,9 @@ export function TerminalHost({
       decoderRef.current.reset();
       lineAcc.current = "";
     };
-  }, [wsUrl, redraw, applyFit]);
+  }, [wsUrl]);
 
   // Deliver inject immediately (MudSocket queues if not yet connected)
-  const lastInjectIdRef = useRef(0);
   useEffect(() => {
     if (!injectCommand?.line) return;
     if (lastInjectIdRef.current === injectCommand.id) return;

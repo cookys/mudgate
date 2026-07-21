@@ -236,11 +236,21 @@ export function App() {
         e.code === "disconnected" ||
         e.code === "idle" ||
         e.code === "connecting" ||
+        e.code === "reconnect_wait" ||
+        e.code === "handshaking" ||
         e.code === "max_retries" ||
         e.code === "proxy_error" ||
         e.code === "error"
       ) {
         setEchoMask(false);
+      }
+      // New wire hop (incl. MudSocket auto-reconnect): re-allow auto-login
+      if (
+        e.code === "connecting" ||
+        e.code === "reconnect_wait" ||
+        e.code === "handshaking"
+      ) {
+        autoLoginRef.current = { accountSent: false, passwordSent: false };
       }
     },
     [setTabStatus],
@@ -383,8 +393,9 @@ export function App() {
   );
 
   // Auto-login: requires vault unlocked (A1). NOT text "Password:" trigger.
-  // 1) After connect → send stored account once
-  // 2) When Telnet WILL ECHO (mask) → send password once
+  // 1) After connected → send account once per wire hop
+  // 2) When Telnet WILL ECHO (mask) → send password once per hop
+  // Flags reset on connecting/reconnect_wait/handshaking (see handleStatus).
   useEffect(() => {
     if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) return;
@@ -394,11 +405,12 @@ export function App() {
     const t = window.setTimeout(() => {
       if (autoLoginRef.current.accountSent) return;
       if (!isVaultUnlocked()) return;
+      if (tabIdRef.current !== tab.id) return;
       autoLoginRef.current.accountSent = true;
       fireInject(account, { secret: true, keepDraft: true });
     }, 700);
     return () => window.clearTimeout(t);
-  }, [tab.connected, tab.status.code, profile.id, fireInject]);
+  }, [tab.connected, tab.status.code, tab.id, profile.id, fireInject]);
 
   useEffect(() => {
     if (!echoMask) return;
