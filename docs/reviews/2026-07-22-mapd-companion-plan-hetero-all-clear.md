@@ -41,3 +41,11 @@ Post-R4 nits (non-blocking) folded lightly into plan (retry fire path, setMapCap
 ## Next
 
 **Implement C0** per plan; no further plan-hetero required unless C0 scope expands.
+
+## Gemini flash postmortem (2026-07-22 later)
+
+R1–R4 gemini seats were **false FAIL**: `agy -p --model … "prompt"` makes `-p` swallow `--model` as the prompt (`promptLength=7`). See `2026-07-22-agy-flash-fail-diagnosis.md`.
+
+**Fixed invocation**: `agy --model gemini-3.6-flash-high --print-timeout 3m0s -p "$PROMPT"`
+
+**Re-run** (`mapd-companion-plan-gemini36-fixed.out`): **APPROVE_WITH_NITS**, MUST_FIX none, C0_SHIP_OK yes — consistent with R4 panel.
