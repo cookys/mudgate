@@ -1,0 +1,25 @@
+```text
+ENGINE: QoderCN
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- C0.3 auto-detect threshold is unquantified. "map_d-like paint burst" has no numeric definition (how many CUP sequences in what window?). Plan should either state a concrete default (e.g. ≥8 CUP absolute-address writes within 500ms) OR explicitly declare "any reasonable heuristic is acceptable; threshold is a tunable constant; false positives are cheap (§2.2 error-cost argument) so precision is NOT a C0 acceptance gate." Without one of these, implementers will either over-engineer detection or block waiting for §10 Q1 resolution.
+- LRU eviction limit "最近 N 幀" leaves N undefined. State a default (e.g. 30 frames) and whether it is user-configurable. Implementer cannot write a passing test for "quota handled" without a number.
+- C0.5 "縮放平移（基礎）" is too vague to accept or reject. Specify minimum: e.g. integer zoom 1×/2×/3× + drag-pan clamped to frame bounds; or explicitly "scroll-only at native cell size, zoom deferred to C1."
+
+NITS:
+- §10 Q2 (idb lib vs hand-rolled wrapper) is a C0.2 dependency; resolve it in the plan body or state "implementer's choice, no new runtime dep > 5 kB" so it doesn't stall the first PR.
+- Multi-tab pin conflict: "pins per-profile 共享" is stated but no write-conflict policy (last-write-wins? IDB version stamp?). One sentence suffices for C0; full CRDT is overkill.
+- C0.8 fixture spec should explicitly require the SAVEC→CUP-rows→REST sequence (not just "1 synthetic city frame") so the auto-detect path in C0.3 is exercised in CI.
+- Manual "釘住目前終端畫面" captures whatever is on screen (possibly chat/tells, not a map). Privacy is local-only so low risk, but a one-line UX note ("釘住會保存當前可見文字") avoids surprise.
+- C0.4 acceptance "與終端雙寬 mode 一致" — add a concrete check: render a known 25×9 CJK fixture and assert cell (r,c) glyph matches ScreenBuffer output at same coordinate.
+- No schema-version / migration field on MapFrame. Add `v: 1` now; costs nothing, saves a breaking IDB migration in C1.
+
+C0_SHIP_OK: yes — manual pin + snapshot + Companion render is fully specified and independently shippable; auto-detect is best-effort with explicit cheap-error semantics.
+FALSE_SHIP_RISKS:
+- Implementer interprets C0.3 as requiring a reliable SAVEC state machine (because §10 Q1 is still "open") and delays C0 by a week; mitigation: close Q1 in plan body with the "crude burst is fine" decision.
+- Unbounded frame storage ships because N was never pinned; user hits IDB quota on day 3.
+- "基礎" zoom/pan accepted as "done" at scroll-only, then users complain; or over-built as pinch-zoom canvas, blowing C0 timeline.
+
+ONE_LINE_SUMMARY: Solid, well-bounded plan with correct stance and clean phase gates; needs three numeric/behavioral pin-downs (burst threshold, frame cap, zoom scope) before an implementer can start C0 without guessing.
+```

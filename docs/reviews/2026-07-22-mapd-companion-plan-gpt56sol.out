@@ -1,0 +1,37 @@
+ENGINE: gpt-5.6-sol
+VERDICT: BLOCK
+
+MUST_FIX:
+- Specify the C0 auto-detection contract: exact CUP-burst window/threshold, qualifying distinct rows, capture boundary, debounce/cooldown, viewport/ROI rules, and rejection cases. “map_d-like burst” is currently implementation-by-guess; a full SAVEC state machine is not mandatory if a deterministic, fixture-backed CUP detector is defined.
+- Resolve C0 storage decisions instead of offering alternatives: choose IndexedDB implementation, define schema/versioning, transactions, frame byte/count quota, LRU eligibility, quota-error behavior, and whether manually frozen/pinned frames may ever be evicted.
+- Define multi-tab ownership and conflict semantics. Optional `tabId` plus shared per-profile pins does not specify which tab updates `lastMapFrame`, whether frames survive tab closure, how concurrent deletion/pinning behaves, or how cross-tab changes propagate.
+- Clarify manual capture semantics. “釘住目前終端畫面” can persist an arbitrary non-map screen but labels it as an official/map frame; define its source/confidence labeling, confirmation UX, and whether it may become `lastMapFrame`.
+- Make C0 acceptance testable with a detector truth table and fixtures: positive CUP-only map_d, positive SAVEC/CUP/REST, ordinary cursor-addressed UI false-positive, normal scrolling output, partial/interrupted burst, resize, reconnect, CJK double-width/wide-continuation cells, colors/attributes, and auto-detection-disabled behavior.
+- Define snapshot fidelity precisely: cell representation must preserve blank cells, wide-character continuation state, effective/default colors, relevant attributes, cursor exclusion, viewport dimensions, and resize behavior. The current `ch + fg/bg/bold subset` is insufficient to guarantee terminal-equivalent rendering.
+- Define retention/privacy controls for location memory: default retention, per-profile clear versus global clear, what “清除” deletes, profile/account isolation, export contents, deletion of pins with frames, and disclosure that shared-browser users can inspect persisted frames and annotations.
+- Remove C1 journey work from C0 QC. The C0 manual smoke currently requires recording and replaying three journey steps even though C0 explicitly excludes journey replay, making the ship gate internally contradictory.
+- Resolve the “live” Companion contract for C0: whether it displays periodically captured qualifying frames or a continuously mirrored read-only buffer, how freeze changes subscriptions, what happens after map_d exits, and whether ordinary terminal output can replace the displayed official frame.
+
+NITS:
+- Rename `source: "manual-pin"` because frame capture and pin creation are separate operations.
+- Specify deterministic profile identity normalization; raw `host:port or profile id` permits accidental cross-profile mixing.
+- State whether `clear` is recoverable or requires confirmation when it cascades to pins.
+- Move fingerprint and journey serialization tests to their actual phases unless shared infrastructure genuinely lands in C0.
+- Define accessibility behavior for canvas rendering and pin interaction, even if full mobile long-press remains C1.
+- Replace “至少 1 synthetic city frame” with named fixture coverage and expected captured cells/hash.
+- Clarify dependency ownership: terminal should expose generic snapshot/write metadata; map_d policy should live outside terminal so terminal does not acquire nav-memory semantics.
+- Pin coordinates should explicitly be zero- or one-based and validated against frame bounds.
+
+C0_SHIP_OK: no — the product boundary is sound, but detector, persistence, multi-tab, snapshot-fidelity, privacy, and acceptance contracts still require implementer guesswork.
+
+FALSE_SHIP_RISKS:
+- A permissive CUP heuristic can silently persist full-screen menus, editors, or other cursor-addressed content as an “official” map.
+- LRU may delete manually curated frames and cascade-delete pins because protected-frame eviction rules are absent.
+- Concurrent tabs can overwrite `lastMapFrame` or delete frames still referenced by another tab.
+- Lossy snapshots can pass basic tests while rendering CJK wide cells or terminal colors differently from map_d.
+- “Live” may ship as a stale last snapshot because refresh and freeze state transitions are undefined.
+- Synthetic-only regression coverage may miss the real SAVEC/REST and wide-cell sequences whose preservation is the central zero-regression claim.
+- Persisted location annotations may remain indefinitely or leak across profiles/accounts on a shared browser.
+- The contradictory journey smoke gate can either block C0 incorrectly or be silently skipped, producing a false green ship decision.
+
+ONE_LINE_SUMMARY: Strong product stance and phase boundary, but C0 is not implementable without guessing until detection, snapshot fidelity, IndexedDB/multi-tab behavior, privacy lifecycle, and fixture-backed acceptance are made deterministic.

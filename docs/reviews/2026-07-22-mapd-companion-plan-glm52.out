@@ -1,0 +1,23 @@
+```text
+ENGINE: QoderCN
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- C0.3 接收標準不完整：僅測試非回歸（"不影響終端 paint"），缺少正向偵測驗證。§6 已有 fixture（SAVEC+CUP+REST → lastMapFrame 更新；普通文字 → 不更新），但 C0.3 的 acceptance row 未引用它。不修此項，實作者可讓 auto-detection 永不觸發仍通過 C0.3 驗收。
+
+NITS:
+- MapFrame.cells attrs subset（{ch, fg, bg, bold}）遺漏 reverse-video（SGR 7），map_d 邊框常用；需標明是否刻意排除或應納入，smoke test 會暴露保真度缺口。
+- profileKey 定義為 "host:port or profile id"（§2.3）——擇一。同 host:port 不同帳號不應共用幀，profile id 更安全。
+- tabId 生命週期未定義：關閉分頁後的幀無清理策略，僅靠 LRU 最終回收，可能累積。
+- Companion tab 無幀時的空狀態 UX 未定義（auto 未觸發 + 無手動釘住）；實作者會猜，至少應指向 i18n key。
+- C0.6 pin CRUD 用 "cell 點選"——未聲明 C0 是否僅桌面（手機長按是 C1 per §4.4），應明說。
+- widthMode（"cjk"|"western"）來源未指定——從 profile moveDialect？從 VT stream？有歧義。
+- fingerprint 演算法（§2.4）"sample grid at fixed strides"無具體步幅/coarse fg 量化定義，但屬 C1 範圍，不阻擋 C0。
+
+C0_SHIP_OK: no — 須先修 C0.3 acceptance 加入正向偵測驗證（引用 §6 fixture）方可 ship
+FALSE_SHIP_RISKS:
+- C0.3 可通過現有 acceptance（"不影響終端 paint"）但 auto-detection 從未觸發；手動釘住（C0.2）遮蔽此失敗，auto companion 靜默失效。
+- Companion tab 無幀時顯示未定義空狀態；使用者可能誤認功能損壞。
+
+ONE_LINE_SUMMARY: 計畫結構紮實、邊界清晰、C0 無 scope creep，但 C0.3 acceptance 僅驗非回歸——須補正向偵測測試並綁定 §6 fixture 後 C0 方可 ship。
+```

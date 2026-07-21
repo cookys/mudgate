@@ -1,0 +1,5 @@
+Currently active model: **Gemini 3.6 Flash (High)**.
+
+If you were looking to configure or switch models:
+* In the UI/Settings: Select your desired model under **Model Selection**.
+* In `agy` CLI startup: Pass `--model <model-name>` when starting `agy`.

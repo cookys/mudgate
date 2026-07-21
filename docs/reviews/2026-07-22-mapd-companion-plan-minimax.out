@@ -1,0 +1,20 @@
+```text
+ENGINE: qoderclicn-1.0.45
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- (none) — C0 is implementable from this plan text alone
+
+NITS:
+- C0.1: "deep clone cells+attrs subset" is underspecified — what attrs matter for map_d fidelity? Clarify which ScreenBuffer cell fields are included (ch, fg, bg, bold, dim, italic, underline, blink, inverse, hide, charset, rawChar?). A MapFrameCell type alias or JSDoc would eliminate guesswork.
+- C0.4: "與終端雙寬 mode 一致" — what does "consistent" mean for CJK vs halfwidth? Define a simple render-fidelity check (e.g., cell ch + wcwidth match, or explicit golden pixel diff is out of scope).
+- C0.8: "至少 1 synthetic city frame" is thin — consider adding SAVEC-REST pattern as a second fixture to cover §2.2 signal B, since §10 Q1 leaves SAVEC state machine open.
+- C0.9: "既有 golden-streams / map-vt tests 全過" — name the specific test files or CI targets so implementers can confirm pre-smoke before claiming pass.
+
+C0_SHIP_OK: yes — C0 deliverables are scoped, testable, and have clear non-goals to prevent creep.
+
+FALSE_SHIP_RISKS:
+- §10 Q1 & Q2 are open questions but neither blocks C0. P0 "manual + CUP burst" is explicit; IndexedDB idb package is a standard dep. These can be resolved in parallel or deferred to C1 without blocking current implementation.
+
+ONE_LINE_SUMMARY: C0 is well-bounded, anti-features are explicit, phased scope is clean — minor spec gaps on snapshot API surface and dual-width fidelity check are the only improvement opportunities.
+```
