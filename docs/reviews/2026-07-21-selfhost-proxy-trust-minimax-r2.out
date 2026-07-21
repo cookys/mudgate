@@ -1,0 +1,22 @@
+Checking if R0 Codex MUST_FIX items are now folded into the plan.
+
+Verifying each item:
+1. **installer SHA-256 → image digest pin chain** → §3.3 with exact INSTALLER_SHA256, `sha256:DEADBEEF` docker pull, no `:latest` in prod
+2. **default bind 127.0.0.1:7788** → §3.2 table + §3.1 compose row both state loopback only
+3. **token 0600, not in URL/log** → §3.2 token row: `0600 root-owned`, "禁出現: URL query、cloud-init userdata 明文、CI log"
+4. **Origin fail-closed** → §3.2: "空 → fail closed 拒啟動 prod"
+5. **T1 domain TLS not raw IP** → §3.4 table: "不推薦當預設", IP path requires "私有 CA/mkcert"
+
+Additional checks:
+- **T0a vs T0b** → §2 table with clear distinction; §0 Non-goals: "T0b 僅開發文件"
+- **T1b Cloudflare Tunnel** → §3.7 full diagram, exit=home ISP (not CF), explicit "不要: 把 Tunnel 講成換出口 IP"
+- **U2 token not export** → §4.3: "禁止進 profile export JSON", §4.4 acceptance: "Export profile 不含 proxy token"
+- **WSS≠E2E copy** → §0 hard constraint blockquote + §2 T3 modal copy: "WSS 只加密到 proxy，不代表 proxy 看不到密碼"
+
+All R0 Codex MUST_FIX items are present and correctly placed.
+
+---
+
+**VERDICT: APPROVE**
+
+All five R0 Codex MUST_FIX items (installer digest chain, loopback bind, token 0600/safe retrieve, Origin fail-closed, T1 domain TLS) plus the additional items (T0a/T0b split, T1b CF Tunnel architecture, U2 token export block, WSS≠E2E hard constraint) are correctly folded into §3.2–3.5, §4, and §0. The plan is internally consistent: the hard-limit blockquote in §0 prevents any future copy from implying E2E, and §3.7 explicitly corrects the CF exit-IP misconception. No remaining structural gaps.

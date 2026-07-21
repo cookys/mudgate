@@ -9,6 +9,9 @@
 |-------|-------|---------|---------|
 | R0 | **BLOCK** (5 MUST_FIX) | APPROVE_WITH_NITS | APPROVE_WITH_NITS |
 | R1 fold | — | — | — |
+| R2 | **APPROVE** | **APPROVE** | APPROVE_WITH_NITS |
+
+**Ship claim**: ≥2 families APPROVE*，MUST_FIX 全空 → **plan APPROVED**.
 
 ## R0 Codex MUST_FIX → plan
 
@@ -29,6 +32,12 @@
 
 家用配合 Cloudflare Zero Trust：**建議**作為 T1b；解決「安全暴露家裡 proxy」，**不**改變 MUD 出口 IP。
 
+## R2 residual nits（已 fold 進 plan，不擋 ship）
+
+- 互動 install `set +o history` 改 MUST  
+- Release checklist：`digest pin verified`  
+- CF Access：禁止 world Bypass 寫進 acceptance  
+
 ## Next
 
-R2 hetero re-review after fold → APPROVE* then `/ship selfhost-proxy-trust` or expand D1–U2.  
+`/ship selfhost-proxy-trust` → expand **D1–D3 + D2b + U1 + U2 + R1**.

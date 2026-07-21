@@ -1,6 +1,38 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8545-2451-70a1-a953-783b4690542e
+--------
+user
+Re-review FOLDED plan docs/plans/2026-07-21-selfhost-proxy-trust.md (status fold R1).
+
+R0 Codex MUST_FIX that should now be in plan:
+1) installer SHA-256 → image digest pin chain
+2) default bind 127.0.0.1:7788 only; TLS/tunnel in front
+3) token 0600, not in URL/cloud-init log; safe retrieve
+4) Origin empty fail-closed; Origin ≠ auth
+5) T1 public needs domain TLS not raw IP default
+Also: T0a vs T0b, T1b Cloudflare Tunnel/Zero Trust, U2 token not export, WSS≠E2E copy.
+
+Return EXACTLY:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: []
+NITS: []
+one short paragraph.
+
+
+FULL PLAN:
 # Plan — 自架 proxy 一鍵部屬 + 連線信任／密碼 UX
 
-> **Status**: **APPROVED**（hetero R2 ≥2 families APPROVE*；可 `/ship`）  
+> **Status**: **fold R1**（Codex BLOCK 已寫入；待 R2 APPROVE*）  
 > **Owner**: cookys  
 > **Why**: 台灣 MUD 多開靠 **出口 IP**；共用 hosted 易撞。自架（Oracle／任意 VPS／**家用 + Cloudflare Tunnel·Zero Trust**／本機）是 **一等公民**。明文 telnet 下 **proxy 營運者必可見密碼**——用 UX／預設／一鍵安全預設處理，不能假裝 E2E。  
 > **North**: 玩家 **極簡** 起「只服務自己」的 proxy；產品 **極難** 把不知情玩家導向陌生人 proxy。  
@@ -101,7 +133,7 @@
 | 對外 | **僅** Caddy／nginx／**cloudflared**  terminat TLS 後轉 loopback |
 | Mode | `remote-prod`（自架對外）或本機日常模式（另名，見 T0a） |
 | Token | `openssl rand -hex 24` → 檔案 **`0600` root-owned**（如 `/etc/assmud/auth_token`） |
-| Token 顯示 | **互動 install**：先 `set +o history`（**必須**）→ 終端顯示 **一次** → 提示勿複製進聊天 |
+| Token 顯示 | **互動 install**：終端顯示 **一次**（勿寫入 shell history 指引：`set +o history` 可選） |
 | cloud-init | **禁止**把 token echo 到 console log；只寫 0600 檔；文件寫 **SSH 後 `sudo cat` 安全取回** |
 | Token 禁出現 | **URL query、cloud-init userdata 明文、CI log、install 持久 log 檔** |
 | Origin | **空 → fail closed 拒啟動 prod**；cloud-init 非互動：必須用 user-data 注入 `ASSMUD_ORIGIN_ALLOWLIST`（如 `https://mud.example.com`），缺則服務 **不 start** |
@@ -128,7 +160,6 @@
 ```
 
 - R2 cosign 可延後；**本版至少 digest + installer SHA-256**。  
-- **Release checklist 必有一欄**：`digest pin verified`（人工或 CI 勾選，在 cosign 前也要）。  
 - 禁止「無 pin 的 curl|bash」當唯一官方路徑。  
 
 ### 3.4 TLS／域名（T1a）
@@ -250,8 +281,6 @@
 6. threat-model 含硬限制與 CF 入口／家用出口說明。  
 7. `npm test` + web build 綠。  
 8. **無**公共 proxy 目錄。  
-9. HOME-CF 文件明示：**Access 禁止 world Bypass**；範例政策 = 僅自己的 email／IdP。  
-10. Release checklist 含 **digest pin verified**。  
 
 ---
 
@@ -279,10 +308,21 @@
 |-------|---------|--------|
 | R0 | Codex / MiniMax / GLM-5.2 | Codex **BLOCK**；MM/GLM APPROVE_WITH_NITS |
 | R1 fold | — | pin 鏈、loopback、token 0600、Origin fail-closed、T1 域名 TLS、T1b CF、U2 必要 |
-| R2 | Codex **APPROVE**；MiniMax **APPROVE**；GLM APPROVE_WITH_NITS | MUST_FIX 空；nits → history MUST、release checklist、CF no Bypass |
 
 ## 10. References
 
 - Session：Oracle／Colab／free PaaS egress；密碼明文；**家用 Cloudflare Zero Trust**  
 - `docs/deploy/SELF-HOSTED-PROXY.md`、`docs/security/hosted-proxy-threat-model.md`  
 - `apps/proxy` policy token / Origin  
+
+codex
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+R1 已完整 fold R0 五項 MUST_FIX，並清楚納入 T0a/T0b、T1b Cloudflare Tunnel/Zero Trust、U2 token 排除 export，以及 WSS 不等於 E2E 的強制文案；各項亦有對應產物、phase 與 acceptance gate。
+tokens used
+22,954
+VERDICT: APPROVE
+MUST_FIX: []
+NITS: []
+R1 已完整 fold R0 五項 MUST_FIX，並清楚納入 T0a/T0b、T1b Cloudflare Tunnel/Zero Trust、U2 token 排除 export，以及 WSS 不等於 E2E 的強制文案；各項亦有對應產物、phase 與 acceptance gate。

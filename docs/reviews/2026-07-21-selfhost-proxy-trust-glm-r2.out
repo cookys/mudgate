@@ -1,0 +1,5 @@
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: []
+NITS: ["§3.2 interactive install: make `set +o history` MUST (not 可選) since token shows once in terminal", "§3.3 until R2 cosign lands, add explicit release-checklist line 'digest pin verified' so the interim gate is not just prose", "§6 acceptance: add one criterion 'CF Access policy has no world-Bypass rule' to back §3.7/§7"]
+
+All five R0 Codex MUST_FIX items are clearly folded in: §3.3 carries the full SHA-256→digest pin chain; §3.2 locks bind to `127.0.0.1:7788` with TLS/tunnel-only exposure; token is 0600 root-owned, banned from URL/cloud-init userdata/CI-log with SSH-`sudo cat` safe retrieve; Origin empty fail-closed and explicitly ≠ token auth (雙寫); §3.4 makes domain+TLS the recommended T1a path and downgrades raw-IP `wss` to private-CA/test only. The extra asks also land: T0a/T0b split is in §2, T1b Cloudflare Tunnel/Zero Trust has its own §3.7, U2 marks token-not-exported as ship-necessary in §4.3/§5, and the WSS≠E2E sentence is repeated across §0/T3-modal/i18n/§7 so it can't drift. Nits above are hardening/traceability only.
