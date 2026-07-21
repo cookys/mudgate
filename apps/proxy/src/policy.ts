@@ -93,18 +93,48 @@ export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boole
   return cfg.originAllowlist.includes(origin);
 }
 
-export function checkAuth(url: URL, cfg: ProxyConfig, cookieHeader?: string): boolean {
+/** Constant-time string compare for tokens (equal length after pad). */
+export function safeEqual(a: string, b: string): boolean {
+  const max = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < max; i++) {
+    const ca = i < a.length ? a.charCodeAt(i) : 0;
+    const cb = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= ca ^ cb;
+  }
+  return diff === 0;
+}
+
+export function checkAuth(
+  url: URL,
+  cfg: ProxyConfig,
+  cookieHeader?: string,
+  authorization?: string,
+): boolean {
   if (cfg.mode === "localhost-dev" && !cfg.authToken) return true;
   const token = cfg.authToken;
   if (!token) return false;
-  const q = url.searchParams.get("token");
-  if (q && q === token) return true;
+
+  // Prefer Authorization: Bearer (not logged in query string)
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    const t = authorization.slice(7).trim();
+    if (safeEqual(t, token)) return true;
+  }
+
   if (cookieHeader) {
     const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
-    if (m && decodeURIComponent(m[1]!) === token) return true;
+    if (m) {
+      try {
+        if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
+      } catch {
+        /* ignore */
+      }
+    }
   }
-  const auth = url.searchParams.get("auth");
-  if (auth && auth === token) return true;
+
+  // Query token still accepted for local smoke; prefer header/cookie in prod
+  const q = url.searchParams.get("token") ?? url.searchParams.get("auth");
+  if (q && safeEqual(q, token)) return true;
   return false;
 }
 

@@ -27,6 +27,8 @@ describe("policy", () => {
     expect(checkAuth(url, prod)).toBe(false);
     const ok = new URL("http://x/ws?token=secret");
     expect(checkAuth(ok, prod)).toBe(true);
+    expect(checkAuth(url, prod, undefined, "Bearer secret")).toBe(true);
+    expect(checkAuth(url, prod, undefined, "Bearer wrong")).toBe(false);
   });
 
   it("requires Origin in prod", () => {

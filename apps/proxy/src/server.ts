@@ -38,7 +38,7 @@ export function createProxyServer(cfg: ProxyConfig): http.Server {
         return;
       }
 
-      if (!checkAuth(url, cfg, req.headers.cookie)) {
+      if (!checkAuth(url, cfg, req.headers.cookie, req.headers.authorization)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;

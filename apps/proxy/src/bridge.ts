@@ -15,12 +15,22 @@ export type BridgeOptions = {
   rows?: number;
 };
 
+function escapeIac(buf: Uint8Array): Uint8Array {
+  let extra = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) extra += 1;
+  if (!extra) return buf;
+  const out = new Uint8Array(buf.length + extra);
+  let j = 0;
+  for (let i = 0; i < buf.length; i++) {
+    out[j++] = buf[i]!;
+    if (buf[i] === 0xff) out[j++] = 0xff;
+  }
+  return out;
+}
+
 /**
  * Bridge one WebSocket client to one TCP MUD connection.
- * WS messages: binary or text frames are raw client→mud bytes (usually UTF-8 typed commands as latin1/utf8).
- * Server→client: binary frames of mud bytes (after IAC handling still includes app data only? 
- * We forward negotiated stream: strip IAC for client display path — actually client may want raw.
- * Phase 1a: forward application data only to browser; handle IAC in proxy.
+ * Phase 1a: handle IAC in proxy; forward application data as binary to browser.
  */
 export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   const parser = new TelnetParser();
@@ -40,12 +50,10 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
       } else if (ev.type === "will" || ev.type === "do") {
         const reply = replyToNegotiation(ev.type, ev.option);
         if (reply) sendTcp(reply);
-        if (ev.type === "do" && ev.option === OPT.TTYPE) {
-          // wait for SB SEND typically; some servers just DO
-        }
       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
-        // SEND = 1
-        if (ev.payload[0] === 1) sendTcp(ttypeIs("ANSI"));
+        if (ev.payload.length > 0 && ev.payload[0] === 1) {
+          sendTcp(ttypeIs("ANSI"));
+        }
       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
         sendTcp(naws(cols, rows));
       }
@@ -54,7 +62,10 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
 
   sock.on("error", (err) => {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "error", message: String(err.message) }));
+      const msg = String(err.message)
+        .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+        .slice(0, 200);
+      ws.send(JSON.stringify({ type: "error", message: msg || "tcp error" }));
       ws.close(1011, "tcp error");
     }
   });
@@ -64,17 +75,18 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   });
 
   ws.on("message", (data, isBinary) => {
-    const buf = isBinary
-      ? new Uint8Array(data as Buffer)
-      : new TextEncoder().encode(String(data));
-    // client text is command line — append CR LF if missing for classic telnet muds
     if (!isBinary) {
       const s = String(data);
-      const line = s.endsWith("\n") || s.endsWith("\r") ? s : s + "\r\n";
+      if (s.length > 16_384) return;
+      const cleaned = s.replace(/\xff/g, "");
+      const line =
+        cleaned.endsWith("\n") || cleaned.endsWith("\r") ? cleaned : cleaned + "\r\n";
       sendTcp(new TextEncoder().encode(line));
-    } else {
-      sendTcp(buf);
+      return;
     }
+    const buf = new Uint8Array(data as Buffer);
+    if (buf.length > 16_384) return;
+    sendTcp(escapeIac(buf));
   });
 
   ws.on("close", () => {

@@ -38,15 +38,21 @@ export function TerminalHost({ wsUrl, onStatus }: Props) {
     ws.onclose = () => onStatus?.("disconnected");
     ws.onerror = () => onStatus?.("error");
     ws.onmessage = (ev) => {
+      // Proxy sends mud as binary; JSON control only as text starting with '{'
       if (typeof ev.data === "string") {
-        // control JSON errors from proxy
-        try {
-          const j = JSON.parse(ev.data) as { type?: string; message?: string };
-          if (j.type === "error") onStatus?.(j.message ?? "error");
-        } catch {
-          bufRef.current.writeDecoded(ev.data);
-          paint();
+        const s = ev.data;
+        if (s.startsWith("{")) {
+          try {
+            const j = JSON.parse(s) as { type?: string; message?: string };
+            if (j.type === "error") {
+              const msg = (j.message ?? "error").replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "").slice(0, 200);
+              onStatus?.(msg || "error");
+            }
+          } catch {
+            onStatus?.("bad control frame");
+          }
         }
+        // ignore non-JSON text from proxy (mud must be binary)
         return;
       }
       const bytes = new Uint8Array(ev.data as ArrayBuffer);
