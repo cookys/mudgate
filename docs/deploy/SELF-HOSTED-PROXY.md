@@ -20,7 +20,20 @@
 1. **預設心智**：自架／本機 proxy = **一等公民**；hosted = 便利層。  
 2. Hosted 必須有 token、per-user 連線上限、目的地 allowlist（見 threat model / abuse plan）。  
 3. **不要**用住宅代理池當預設解法。  
-4. 站方白名單官方 proxy IP 只能 **放寬容量**，不能還原「每個瀏覽器真人」身分。
+4. 站方白名單官方 proxy IP 只能 **放寬容量**，不能還原「每個瀏覽器真人」身分。  
+
+## 信任分級（摘要）
+
+| 模式 | 出口 IP | 文件 |
+|------|---------|------|
+| T0 本機 | 家用 ISP | 下方 localhost-dev |
+| T1a VPS | VPS IP | [ORACLE-ALWAYS-FREE.md](./ORACLE-ALWAYS-FREE.md) |
+| T1b 家用+CF Tunnel | 家用 ISP | [HOME-CLOUDFLARE-TUNNEL.md](./HOME-CLOUDFLARE-TUNNEL.md) |
+| T2 官方 | 共用 | ToS；密碼會經過官方 |
+| T3 自訂 wss | 未知 | **管理員可見密碼**；web 強制警告 |
+
+**WSS 只保護瀏覽器↔proxy**，不是端到端藏 MUD 密碼。  
+完整 plan：[`docs/plans/2026-07-21-selfhost-proxy-trust.md`](../plans/2026-07-21-selfhost-proxy-trust.md)。
 
 ## 本機（localhost-dev）
 

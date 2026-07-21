@@ -1,0 +1,59 @@
+#cloud-config
+# Oracle Always Free / any cloud-init host.
+# REQUIRED user-data env via write_files or runcmd exports:
+#   ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:...
+#   ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com
+#   ASSMUD_INSTALLER_URL + ASSMUD_INSTALLER_SHA256 when using remote installer
+#
+# Token is written 0600 and NEVER echoed to console log.
+
+package_update: true
+packages:
+  - docker.io
+  - openssl
+  - curl
+
+write_files:
+  - path: /etc/assmud/bootstrap.env
+    permissions: "0600"
+    content: |
+      # Fill before first boot or replace via user-data:
+      # ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:REPLACE
+      # ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com
+
+runcmd:
+  - systemctl enable --now docker || true
+  - mkdir -p /etc/assmud /opt/assmud
+  - |
+    set -euo pipefail
+    # shellcheck disable=SC1091
+    if [[ -f /etc/assmud/bootstrap.env ]]; then set -a; . /etc/assmud/bootstrap.env; set +a; fi
+    if [[ -z "${ASSMUD_PROXY_IMAGE:-}" || -z "${ASSMUD_ORIGIN_ALLOWLIST:-}" ]]; then
+      echo "assmud: missing ASSMUD_PROXY_IMAGE or ASSMUD_ORIGIN_ALLOWLIST — not starting" >&2
+      exit 0
+    fi
+    TOKEN=$(openssl rand -hex 24)
+    printf '%s' "$TOKEN" >/etc/assmud/auth_token
+    chmod 600 /etc/assmud/auth_token
+    # Do NOT echo TOKEN to cloud-init output
+    cat >/opt/assmud/.env <<EOF
+    ASSMUD_PROXY_IMAGE=${ASSMUD_PROXY_IMAGE}
+    ASSMUD_AUTH_TOKEN=$(cat /etc/assmud/auth_token)
+    ASSMUD_ORIGIN_ALLOWLIST=${ASSMUD_ORIGIN_ALLOWLIST}
+    EOF
+    chmod 600 /opt/assmud/.env
+    cat >/opt/assmud/docker-compose.yml <<'YAML'
+    services:
+      proxy:
+        image: ${ASSMUD_PROXY_IMAGE}
+        restart: unless-stopped
+        env_file: .env
+        environment:
+          ASSMUD_PROXY_MODE: remote-prod
+          ASSMUD_BIND_HOST: "127.0.0.1"
+          PORT: "7788"
+        network_mode: host
+    YAML
+    docker pull "$ASSMUD_PROXY_IMAGE"
+    cd /opt/assmud && docker compose up -d
+    echo "assmud: proxy up on 127.0.0.1:7788 — retrieve token: sudo cat /etc/assmud/auth_token"

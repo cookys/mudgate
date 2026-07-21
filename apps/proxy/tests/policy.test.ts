@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   assertDestinationAllowed,
+  assertProdConfig,
   checkAuth,
   checkOrigin,
   defaultConfig,
@@ -57,5 +58,34 @@ describe("policy", () => {
   it("dev still blocks random private IPs even with relax", async () => {
     const r = await assertDestinationAllowed("10.1.2.3", 4000, dev);
     expect(r.ok).toBe(false);
+  });
+
+  it("remote-prod defaults to loopback bind", () => {
+    const p = defaultConfig("remote-prod");
+    expect(p.bindHost).toBe("127.0.0.1");
+  });
+
+  it("assertProdConfig fails closed without token or origin", () => {
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: null,
+        originAllowlist: ["https://x.example"],
+      }),
+    ).toMatch(/TOKEN/);
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: "x",
+        originAllowlist: [],
+      }),
+    ).toMatch(/ORIGIN/);
+    expect(
+      assertProdConfig({
+        ...defaultConfig("remote-prod"),
+        authToken: "x",
+        originAllowlist: ["https://mud.example.com"],
+      }),
+    ).toBeNull();
   });
 });

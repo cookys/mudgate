@@ -1,0 +1,11 @@
+**VERDICT: ALL_CLEAR — NITS only**
+
+All four MUST_FIX items are correctly implemented:
+
+1. **digest-only image** ✅ — `docker-compose.proxy.yml:8` uses `${ASSMUD_PROXY_IMAGE:?set digest-pinned...}` requiring digest-pinned env var
+2. **export sanitize real path** ✅ — `packages/profiles/src/index.ts:67-82` strips `SECRET_KEYS` (including `proxyToken`, `assmud_token`) on both export and import; test verifies round-trip at `export-sanitize.test.ts:26-39`
+3. **T3 ack clears on URL change** ✅ — `trustMode.ts:32-35` removes `CUSTOM_ACK_KEY` when `saveCustomWs()` detects URL change
+4. **canConnect validates wss** ✅ — `trustMode.ts:98` enforces `wss:` for non-loopback hosts
+
+**NITS (non-blocking):**
+- `cli.ts:25` logs `ws://` but server may listen on `wss://` in production — cosmetic only, not a bug

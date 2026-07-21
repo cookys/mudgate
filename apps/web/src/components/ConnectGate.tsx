@@ -3,15 +3,23 @@ import type { MudProfile } from "@assmud/profiles";
 import type { AccentId } from "../lib/theme";
 import { pickTagline, useLocale, useT } from "../i18n";
 import { LocaleSwitch } from "./LocaleSwitch";
+import type { TrustMode } from "../lib/trustMode";
+import { canConnect, readOfficialProxyUrl } from "../lib/trustMode";
 
 type Props = {
   profiles: MudProfile[];
   profileId: string;
   token: string;
   accent: AccentId;
+  trustMode: TrustMode;
+  customWs: string;
+  customAck: boolean;
   onProfile: (id: string) => void;
   onToken: (t: string) => void;
   onAccent: (a: AccentId) => void;
+  onTrustMode: (m: TrustMode) => void;
+  onCustomWs: (u: string) => void;
+  onCustomAck: (ok: boolean) => void;
   onConnect: () => void;
   onImportProfiles: (file: File) => void;
   onExportProfiles: () => void;
@@ -22,9 +30,15 @@ export function ConnectGate({
   profileId,
   token,
   accent,
+  trustMode,
+  customWs,
+  customAck,
   onProfile,
   onToken,
   onAccent,
+  onTrustMode,
+  onCustomWs,
+  onCustomAck,
   onConnect,
   onImportProfiles,
   onExportProfiles,
@@ -37,6 +51,17 @@ export function ConnectGate({
   }, [locale]);
 
   const p = profiles.find((x) => x.id === profileId) ?? profiles[0];
+  const officialUrl = readOfficialProxyUrl();
+  const showOfficial = Boolean(officialUrl);
+  const needsWs =
+    trustMode === "selfhost" || trustMode === "custom" || trustMode === "official";
+  const endpoint =
+    trustMode === "official"
+      ? officialUrl ?? ""
+      : trustMode === "local"
+        ? "ws://127.0.0.1:7788/ws"
+        : customWs;
+  const connectOk = canConnect(trustMode, customAck, endpoint);
 
   return (
     <div className="min-h-full flex items-center justify-center p-4 sm:p-8">
@@ -80,6 +105,122 @@ export function ConnectGate({
         </div>
 
         <div className="space-y-4">
+          <fieldset>
+            <legend
+              className="text-xs font-medium mb-1.5"
+              style={{ color: "var(--text-dim)" }}
+            >
+              {t("trust.mode.label")}
+            </legend>
+            <div className="space-y-1.5">
+              {(
+                [
+                  ["local", "trust.mode.local"],
+                  ["selfhost", "trust.mode.selfhost"],
+                  ...(showOfficial
+                    ? ([["official", "trust.mode.official"]] as const)
+                    : []),
+                  ["custom", "trust.mode.custom"],
+                ] as const
+              ).map(([id, key]) => (
+                <label
+                  key={id}
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                  style={{ color: "var(--text)" }}
+                >
+                  <input
+                    type="radio"
+                    name="trustMode"
+                    checked={trustMode === id}
+                    onChange={() => onTrustMode(id as TrustMode)}
+                  />
+                  {t(key)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {trustMode === "selfhost" && (
+            <p className="text-[11px] space-x-2" style={{ color: "var(--text-faint)" }}>
+              <a
+                className="underline"
+                href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open(
+                    "https://github.com/search?q=assmud+ORACLE-ALWAYS-FREE",
+                    "_blank",
+                  );
+                }}
+              >
+                {t("trust.selfhost.cta")}
+              </a>
+              <span>·</span>
+              <span>{t("trust.home.cf")}</span>
+            </p>
+          )}
+
+          {trustMode === "official" && (
+            <p
+              className="text-xs rounded border p-2"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-dim)",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              {t("trust.warn.official")}
+            </p>
+          )}
+
+          {trustMode === "custom" && (
+            <div
+              className="rounded border p-3 space-y-2"
+              style={{
+                borderColor: "var(--accent)",
+                background: "var(--accent-dim)",
+              }}
+            >
+              <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>
+                {t("trust.warn.custom")}
+              </p>
+              <label
+                className="flex items-center gap-2 text-sm"
+                style={{ color: "var(--text)" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={customAck}
+                  onChange={(e) => onCustomAck(e.target.checked)}
+                />
+                {t("trust.warn.ack")}
+              </label>
+            </div>
+          )}
+
+          {needsWs && trustMode !== "official" && (
+            <label
+              className="block text-xs font-medium"
+              style={{ color: "var(--text-dim)" }}
+            >
+              {t("trust.ws")}
+              <input
+                className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none"
+                style={{
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border)",
+                  color: "var(--text)",
+                }}
+                value={customWs}
+                onChange={(e) => onCustomWs(e.target.value)}
+                placeholder={t("trust.ws.placeholder")}
+                autoComplete="off"
+              />
+            </label>
+          )}
+
           <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
             {t("connect.profile")}
             <select
@@ -88,8 +229,6 @@ export function ConnectGate({
                 background: "var(--bg-elevated)",
                 borderColor: "var(--border)",
                 color: "var(--text)",
-                // @ts-expect-error css var ring
-                "--tw-ring-color": "var(--accent-glow)",
               }}
               value={profileId}
               onChange={(e) => onProfile(e.target.value)}
@@ -106,7 +245,7 @@ export function ConnectGate({
             {t("connect.token")}
             <span className="font-normal" style={{ color: "var(--text-faint)" }}>
               {" "}
-              {t("connect.token.hint")}
+              {t("trust.token.secret")}
             </span>
             <input
               className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
@@ -144,8 +283,6 @@ export function ConnectGate({
                     background:
                       accent === opt.id ? "var(--accent-dim)" : "var(--bg-elevated)",
                     color: "var(--text)",
-                    boxShadow:
-                      accent === opt.id ? `0 0 0 1px var(--accent-glow)` : undefined,
                   }}
                 >
                   <span
@@ -161,7 +298,8 @@ export function ConnectGate({
           <button
             type="button"
             onClick={onConnect}
-            className="w-full rounded-[var(--radius-sm)] py-3 text-sm font-semibold tracking-wide transition active:scale-[0.99]"
+            disabled={!connectOk}
+            className="w-full rounded-[var(--radius-sm)] py-3 text-sm font-semibold tracking-wide transition active:scale-[0.99] disabled:opacity-40"
             style={{
               background: "var(--accent)",
               color: "#0a0b0e",
