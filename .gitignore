@@ -1,0 +1,5 @@
+# autopilot runtime state (keep .claude/*-config.md tracked)
+.claude/tasks/
+.claude/*-state.json
+.claude/knowledge/
+.claude/.qc/
