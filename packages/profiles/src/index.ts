@@ -86,12 +86,20 @@ export function validateProfile(p: unknown): MudProfile {
 
 const KEY = "assmud.profiles.v1";
 
+/** Built-in seeds. Users can always add custom host:port via ProfileManager. */
 export const DEFAULT_PROFILES: MudProfile[] = [
   {
     id: "rw-4000",
     name: "Revival World",
     host: "mud.revivalworld.org",
     port: 4000,
+    charset: "big5hkscs",
+  },
+  {
+    id: "rw-4001",
+    name: "Revival World (wiz 4001)",
+    host: "mud.revivalworld.org",
+    port: 4001,
     charset: "big5hkscs",
   },
   {
@@ -110,6 +118,10 @@ export const DEFAULT_PROFILES: MudProfile[] = [
   },
 ];
 
+/**
+ * Load profiles; merge in any missing DEFAULT seed ids (e.g. new rw-4001)
+ * without overwriting user-edited entries of the same id.
+ */
 export function loadProfiles(): MudProfile[] {
   if (typeof localStorage === "undefined") return [...DEFAULT_PROFILES];
   try {
@@ -129,7 +141,15 @@ export function loadProfiles(): MudProfile[] {
         /* skip invalid entry */
       }
     }
-    return out.length ? out : [...DEFAULT_PROFILES];
+    if (!out.length) return [...DEFAULT_PROFILES];
+    // Append new built-in seeds the user does not have yet (wiz 4001, etc.)
+    for (const seed of DEFAULT_PROFILES) {
+      if (!seen.has(seed.id)) {
+        out.push({ ...seed });
+        seen.add(seed.id);
+      }
+    }
+    return out;
   } catch {
     return [...DEFAULT_PROFILES];
   }

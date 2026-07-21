@@ -49,10 +49,39 @@ describe("policy", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("allows RW on allowlist", async () => {
-    const r = await assertDestinationAllowed("mud.revivalworld.org", 4000, prod);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+  it("allows RW on allowlist including wiz 4001", async () => {
+    for (const port of [4000, 4001, 5000, 6000]) {
+      const r = await assertDestinationAllowed(
+        "mud.revivalworld.org",
+        port,
+        prod,
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
+    }
+  });
+
+  it("parses ASSMUD_ALLOWLIST extra destinations", async () => {
+    const { parseAllowlistEnv, defaultConfig: dc } = await import(
+      "../src/policy.js"
+    );
+    expect(parseAllowlistEnv("other.mud:9999,other.mud:10000")).toEqual([
+      { host: "other.mud", ports: [9999, 10000] },
+    ]);
+    const prev = process.env.ASSMUD_ALLOWLIST;
+    process.env.ASSMUD_ALLOWLIST = "mud.example.org:1234";
+    try {
+      const cfg = dc("remote-prod");
+      expect(
+        cfg.allowlist.some(
+          (e) =>
+            e.host === "mud.example.org" && e.ports.includes(1234),
+        ),
+      ).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.ASSMUD_ALLOWLIST;
+      else process.env.ASSMUD_ALLOWLIST = prev;
+    }
   });
 
   it("dev still blocks random private IPs even with relax", async () => {

@@ -13,17 +13,82 @@ export type ProxyConfig = {
   originAllowlist: string[];
 };
 
+/** Default RW host ports (player + wiz). Extra destinations: ASSMUD_ALLOWLIST. */
+export const RW_DEFAULT_PORTS = [4000, 4001, 5000, 6000] as const;
+
+/**
+ * Parse ASSMUD_ALLOWLIST=host:port,host:port2
+ * Multiple ports for same host are merged.
+ */
+export function parseAllowlistEnv(
+  raw: string | undefined,
+): Array<{ host: string; ports: number[] }> {
+  if (!raw?.trim()) return [];
+  const map = new Map<string, Set<number>>();
+  for (const part of raw.split(",")) {
+    const s = part.trim();
+    if (!s) continue;
+    const idx = s.lastIndexOf(":");
+    if (idx <= 0) continue;
+    const host = s.slice(0, idx).trim().toLowerCase();
+    const port = Number(s.slice(idx + 1));
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+    let set = map.get(host);
+    if (!set) {
+      set = new Set();
+      map.set(host, set);
+    }
+    set.add(port);
+  }
+  return [...map.entries()].map(([host, ports]) => ({
+    host,
+    ports: [...ports].sort((a, b) => a - b),
+  }));
+}
+
+function mergeAllowlist(
+  base: Array<{ host: string; ports: number[] }>,
+  extra: Array<{ host: string; ports: number[] }>,
+): Array<{ host: string; ports: number[] }> {
+  const map = new Map<string, Set<number>>();
+  for (const e of [...base, ...extra]) {
+    const h = e.host.toLowerCase();
+    let set = map.get(h);
+    if (!set) {
+      set = new Set();
+      map.set(h, set);
+    }
+    for (const p of e.ports) set.add(p);
+  }
+  return [...map.entries()].map(([host, ports]) => ({
+    host,
+    ports: [...ports].sort((a, b) => a - b),
+  }));
+}
+
 export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
+  const envExtra = parseAllowlistEnv(process.env.ASSMUD_ALLOWLIST);
+  const rwBase = [
+    {
+      host: "mud.revivalworld.org",
+      ports: [...RW_DEFAULT_PORTS],
+    },
+  ];
+
   if (mode === "localhost-dev") {
     return {
       mode,
       bindHost: "127.0.0.1",
       bindPort: 7788,
       authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
-      allowlist: [
-        { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
-        { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
-      ],
+      allowlist: mergeAllowlist(
+        [
+          ...rwBase,
+          { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests
+        ],
+        envExtra,
+      ),
+      // Dev: any public host:port still ok when not listed (custom MUD probe)
       relaxAllowlist: true,
       originAllowlist: ["http://127.0.0.1:5173", "http://localhost:5173"],
     };
@@ -34,7 +99,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     bindHost: process.env.ASSMUD_BIND_HOST ?? "127.0.0.1",
     bindPort: Number(process.env.PORT ?? 7788),
     authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
-    allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
+    allowlist: mergeAllowlist(rwBase, envExtra),
     relaxAllowlist: false,
     originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
       .split(",")
