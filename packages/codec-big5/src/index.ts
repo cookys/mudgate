@@ -1,0 +1,52 @@
+import * as iconv from "iconv-lite";
+import { Buffer } from "buffer";
+
+/**
+ * Streaming Big5-family decoder (HKSCS-capable via iconv-lite 'big5hkscs').
+ * Holds a pending lead byte across chunks.
+ */
+export class Big5StreamDecoder {
+  private pending: number | null = null;
+  private readonly encoding: string;
+
+  constructor(encoding: "big5hkscs" | "big5" = "big5hkscs") {
+    this.encoding = encoding;
+  }
+
+  push(bytes: Uint8Array): string {
+    const parts: number[] = [];
+    let i = 0;
+    if (this.pending !== null) {
+      if (bytes.length === 0) return "";
+      parts.push(this.pending, bytes[0]!);
+      this.pending = null;
+      i = 1;
+    }
+    while (i < bytes.length) {
+      const b = bytes[i]!;
+      if (b < 0x80) {
+        parts.push(b);
+        i += 1;
+      } else if (i + 1 < bytes.length) {
+        parts.push(b, bytes[i + 1]!);
+        i += 2;
+      } else {
+        this.pending = b;
+        break;
+      }
+    }
+    if (!parts.length) return "";
+    return iconv.decode(Buffer.from(parts), this.encoding);
+  }
+
+  reset(): void {
+    this.pending = null;
+  }
+}
+
+export function decodeBig5(
+  bytes: Uint8Array,
+  encoding: "big5hkscs" | "big5" = "big5hkscs",
+): string {
+  return iconv.decode(Buffer.from(bytes), encoding);
+}

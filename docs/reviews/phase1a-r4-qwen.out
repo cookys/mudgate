@@ -1,0 +1,10 @@
+VERDICT: SHIP-AS-IS
+
+FINDINGS (no Critical remains; hardening notes for Phase 1b):
+- Prior Critical is closed: hello-frame auth (no token in URL/query in remote-prod), Origin enforced (prod requires allowlisted Origin, no prefix tricks — verified by tests), destination pinned to validated IPv4 (lookup family:4 + connect to dest.address, kills DNS-rebind), metadata/private/CGNAT/ULA blocked, IAC injection blocked (escapeIac on binary, 0xFF strip on text), 16 KB client->server caps, 5 s hello timeout, constant-time token compare (safeEqual accumulates length diff — correct).
+- Non-blocking: WebSocketServer has no maxPayload (ws default ~100 MiB/frame). The 16 KB caps in bridge.ts apply after the frame is already buffered, and hello is pre-auth, so a remote client can force large buffer + JSON.parse per connection. Set maxPayload (~64 KB) on the WSS.
+- Non-blocking: isPrivateOrBlockedIp IPv6 coverage is partial — misses IPv4-compatible (::a.b.c.d), 6to4 (2002::), Teredo (2001:0::). Low risk today because DNS is pinned to family 4 and loopback forms are covered; worth closing if IPv6 destinations are ever allowed.
+- Non-blocking: no per-IP connection/rate limit on upgrade; each accepted hello spawns an outbound TCP to the allowlisted MUD (amplification is bounded to one allowlisted public host, so nuisance-level only).
+- Note (accepted risk): token persisted in localStorage is readable by any future XSS; keep the XSS ship-gate from ba53bb1 in place.
+
+Ship it; file the maxPayload cap as a fast-follow.

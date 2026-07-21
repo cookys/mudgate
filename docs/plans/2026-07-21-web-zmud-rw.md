@@ -1,6 +1,7 @@
 # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
 
-> **Status**: draft (R7 post–hetero review fold; ready for Board approve)  
+> **Status**: approved  
+> **Approved**: 2026-07-21 — Board GO; implementer grok-4.5 medium; multi-family review after  
 > **Owner**: cookys  
 > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
 > **North star (Board)**: **電腦與手機**都能用網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩（兩表面都要考慮；不假裝 MUD 天生適合手機）。  

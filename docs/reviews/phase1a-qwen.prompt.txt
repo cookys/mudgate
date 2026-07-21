@@ -1,0 +1,1921 @@
+# Code review brief — Phase 1a (assmud)
+
+You are reviewing a **git unified diff** implementing Phase 1a of the approved plan for assmud (web multi-MUD client).
+
+## Implementer
+grok-4.5 medium on branch feat/phase-1a-connect
+
+## Phase 1a acceptance (check against diff)
+
+- Monorepo packages: protocol, codec-big5, vt, terminal, apps/proxy, apps/web
+- Proxy: auth token, Origin check, allowlist, SSRF private IP deny, DONT MCCP2
+- Big5-HKSCS banner path; XSS sanitize helpers; SGR terminal buffer
+- React+Vite+Tailwind TerminalHost (no per-cell React nodes)
+- Unit tests present
+
+## Output format
+
+```
+VERDICT: SHIP-AS-IS | FIX-THEN-SHIP | REVISE
+
+## Findings
+### Critical
+### Major
+### Minor
+
+## Must-fix before merge
+1. ...
+```
+
+Cite paths. Focus security (proxy open-relay/SSRF/Origin/auth) and RW Big5 correctness.
+
+===== DIFF =====
+diff --git a/.env.example b/.env.example
+index a3b5a01..bf5d70c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,21 +1,11 @@
+ # Copy to `.env` for local development. Never commit `.env`.
+-# All values below are non-secret placeholders.
+ 
+-# Public web origin (production must be https://)
+-# PUBLIC_ORIGIN=https://mud.example.com
++# Proxy
++ASSMUD_PROXY_MODE=localhost-dev
++# ASSMUD_PROXY_MODE=remote-prod
++# ASSMUD_AUTH_TOKEN=change-me
++# ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com
++# PORT=7788
+ 
+-# WebSocket bridge (production must be wss://)
+-# BRIDGE_URL=wss://mud.example.com/ws
+-
+-# Local TCP bridge bind (dev)
+-# BRIDGE_HOST=127.0.0.1
+-# BRIDGE_PORT=7788
+-
+-# Default MUD target for smoke (no credentials)
+-# DEFAULT_MUD_HOST=mud.revivalworld.org
+-# DEFAULT_MUD_PORT=4000
+-# DEFAULT_MUD_CHARSET=big5
+-
+-# Relay mode: deny open connections to arbitrary hosts unless allowlisted
+-# RELAY_ALLOWLIST=mud.revivalworld.org,localhost
+-# RELAY_REQUIRE_AUTH=true
++# Web (Vite)
++# VITE_PROXY_WS=ws://127.0.0.1:7788/ws
+diff --git a/.gitignore b/.gitignore
+index f4e8aa2..eb819b5 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -35,9 +35,6 @@ profiles/
+ *.char
+ **/passwords.*
+ **/accounts.*
+-
+-# Live captures may include passwords typed after login banners.
+-# Only commit anonymized fixtures under tests/fixtures/ (reviewed).
+ tmp-captures/
+ *.live.bin
+ *.live.log
+@@ -62,9 +59,6 @@ coverage/
+ .vite/
+ *.tsbuildinfo
+ 
+-# --- package manager locks optional policy: keep lockfiles when stack lands ---
+-# (do not ignore package-lock.json / pnpm-lock.yaml / yarn.lock once chosen)
+-
+ # --- logs & debug ---
+ logs/
+ *.log
+@@ -72,7 +66,6 @@ npm-debug.log*
+ yarn-debug.log*
+ yarn-error.log*
+ pnpm-debug.log*
+-.pnpm-debug.log*
+ 
+ # --- editors / OS ---
+ .DS_Store
+diff --git a/README.md b/README.md
+index a70288b..8255695 100644
+--- a/README.md
++++ b/README.md
+@@ -13,7 +13,7 @@
+ | 非路徑 | 瀏覽器/WASM raw TCP；要求用戶在手機跑本機 proxy |
+ | Stack | **React + Vite + TS + Tailwind**；terminal 無框架 package |
+ | Hot path | Canvas2D 預設；**WebGPU / WASM** 可插拔（算力，不是網路） |
+-| 狀態 | Bootstrap — 文件與計劃；應用尚未 scaffold |
++| 狀態 | **Phase 1a in progress** (`feat/phase-1a-connect`) — monorepo scaffold + tests green |
+ | 授權 | **MIT**（[LICENSE](LICENSE)）— 打算開源 |
+ 
+ ## 為什麼需要 proxy？
+@@ -41,6 +41,18 @@
+ | [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | 開源衛生 |
+ | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | 安全與貢獻 |
+ 
++## Dev (Phase 1a)
++
++```bash
++npm install
++npm test
++# terminal 1
++ASSMUD_PROXY_MODE=localhost-dev npm run dev:proxy
++# terminal 2
++npm run dev:web
++# open http://127.0.0.1:5173 — Connect to mud.revivalworld.org:4000
++```
++
+ ## License
+ 
+ [MIT](LICENSE) © 2026 Cookys Lin
+diff --git a/apps/proxy/package.json b/apps/proxy/package.json
+new file mode 100644
+index 0000000..b951079
+--- /dev/null
++++ b/apps/proxy/package.json
+@@ -0,0 +1,21 @@
++{
++  "name": "@assmud/proxy",
++  "version": "0.1.0",
++  "type": "module",
++  "bin": {
++    "assmud-proxy": "./dist/cli.js"
++  },
++  "scripts": {
++    "build": "tsc -p tsconfig.json",
++    "dev": "tsx src/cli.ts",
++    "start": "node dist/cli.js"
++  },
++  "dependencies": {
++    "@assmud/protocol": "0.1.0",
++    "ws": "^8.18.0"
++  },
++  "devDependencies": {
++    "@types/ws": "^8.5.13",
++    "tsx": "^4.19.2"
++  }
++}
+diff --git a/apps/proxy/src/bridge.ts b/apps/proxy/src/bridge.ts
+new file mode 100644
+index 0000000..336f4f0
+--- /dev/null
++++ b/apps/proxy/src/bridge.ts
+@@ -0,0 +1,83 @@
++import net from "node:net";
++import type WebSocket from "ws";
++import {
++  TelnetParser,
++  replyToNegotiation,
++  ttypeIs,
++  naws,
++  OPT,
++} from "@assmud/protocol";
++
++export type BridgeOptions = {
++  host: string;
++  port: number;
++  cols?: number;
++  rows?: number;
++};
++
++/**
++ * Bridge one WebSocket client to one TCP MUD connection.
++ * WS messages: binary or text frames are raw client→mud bytes (usually UTF-8 typed commands as latin1/utf8).
++ * Server→client: binary frames of mud bytes (after IAC handling still includes app data only? 
++ * We forward negotiated stream: strip IAC for client display path — actually client may want raw.
++ * Phase 1a: forward application data only to browser; handle IAC in proxy.
++ */
++export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
++  const parser = new TelnetParser();
++  const cols = opts.cols ?? 80;
++  const rows = opts.rows ?? 24;
++  const sock = net.connect({ host: opts.host, port: opts.port });
++
++  const sendTcp = (buf: Uint8Array) => {
++    if (!sock.destroyed) sock.write(Buffer.from(buf));
++  };
++
++  sock.on("data", (chunk: Buffer) => {
++    const events = parser.push(new Uint8Array(chunk));
++    for (const ev of events) {
++      if (ev.type === "data") {
++        if (ws.readyState === ws.OPEN) ws.send(ev.bytes);
++      } else if (ev.type === "will" || ev.type === "do") {
++        const reply = replyToNegotiation(ev.type, ev.option);
++        if (reply) sendTcp(reply);
++        if (ev.type === "do" && ev.option === OPT.TTYPE) {
++          // wait for SB SEND typically; some servers just DO
++        }
++      } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
++        // SEND = 1
++        if (ev.payload[0] === 1) sendTcp(ttypeIs("ANSI"));
++      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
++        sendTcp(naws(cols, rows));
++      }
++    }
++  });
++
++  sock.on("error", (err) => {
++    if (ws.readyState === ws.OPEN) {
++      ws.send(JSON.stringify({ type: "error", message: String(err.message) }));
++      ws.close(1011, "tcp error");
++    }
++  });
++
++  sock.on("close", () => {
++    if (ws.readyState === ws.OPEN) ws.close(1000, "mud closed");
++  });
++
++  ws.on("message", (data, isBinary) => {
++    const buf = isBinary
++      ? new Uint8Array(data as Buffer)
++      : new TextEncoder().encode(String(data));
++    // client text is command line — append CR LF if missing for classic telnet muds
++    if (!isBinary) {
++      const s = String(data);
++      const line = s.endsWith("\n") || s.endsWith("\r") ? s : s + "\r\n";
++      sendTcp(new TextEncoder().encode(line));
++    } else {
++      sendTcp(buf);
++    }
++  });
++
++  ws.on("close", () => {
++    sock.destroy();
++  });
++}
+diff --git a/apps/proxy/src/cli.ts b/apps/proxy/src/cli.ts
+new file mode 100644
+index 0000000..45bafb5
+--- /dev/null
++++ b/apps/proxy/src/cli.ts
+@@ -0,0 +1,23 @@
++#!/usr/bin/env node
++import { createProxyServer } from "./server.js";
++import { defaultConfig } from "./policy.js";
++
++const mode = (process.env.ASSMUD_PROXY_MODE ?? "localhost-dev") as
++  | "remote-prod"
++  | "localhost-dev";
++const cfg = defaultConfig(mode);
++if (mode === "remote-prod" && !cfg.authToken) {
++  console.error("ASSMUD_AUTH_TOKEN required for remote-prod");
++  process.exit(1);
++}
++if (mode === "remote-prod" && !cfg.originAllowlist.length) {
++  console.error("ASSMUD_ORIGIN_ALLOWLIST required for remote-prod");
++  process.exit(1);
++}
++
++const server = createProxyServer(cfg);
++server.listen(cfg.bindPort, cfg.bindHost, () => {
++  console.log(
++    `assmud-proxy mode=${cfg.mode} listening ws://${cfg.bindHost}:${cfg.bindPort}/ws`,
++  );
++});
+diff --git a/apps/proxy/src/policy.ts b/apps/proxy/src/policy.ts
+new file mode 100644
+index 0000000..0fbb6db
+--- /dev/null
++++ b/apps/proxy/src/policy.ts
+@@ -0,0 +1,137 @@
++import { isIP } from "node:net";
++import { lookup } from "node:dns/promises";
++
++export type ProxyConfig = {
++  mode: "remote-prod" | "localhost-dev";
++  bindHost: string;
++  bindPort: number;
++  /** Required in remote-prod */
++  authToken: string | null;
++  allowlist: Array<{ host: string; ports: number[] }>;
++  /** If true (dev), allow any non-private host:port when not on allowlist */
++  relaxAllowlist: boolean;
++  originAllowlist: string[];
++};
++
++export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
++  if (mode === "localhost-dev") {
++    return {
++      mode,
++      bindHost: "127.0.0.1",
++      bindPort: 7788,
++      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
++      allowlist: [
++        { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
++        { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
++      ],
++      relaxAllowlist: true,
++      originAllowlist: ["http://127.0.0.1:5173", "http://localhost:5173"],
++    };
++  }
++  return {
++    mode,
++    bindHost: "0.0.0.0",
++    bindPort: Number(process.env.PORT ?? 7788),
++    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
++    allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
++    relaxAllowlist: false,
++    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
++      .split(",")
++      .map((s) => s.trim())
++      .filter(Boolean),
++  };
++}
++
++export function isPrivateOrBlockedIp(ip: string): boolean {
++  if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") {
++    // loopback blocked in remote-prod; allowed only when explicitly in allowlist as host 127.0.0.1 for tests
++    return true;
++  }
++  if (ip.startsWith("10.")) return true;
++  if (ip.startsWith("192.168.")) return true;
++  if (ip.startsWith("169.254.")) return true;
++  const m = /^172\.(\d+)\./.exec(ip);
++  if (m) {
++    const n = Number(m[1]);
++    if (n >= 16 && n <= 31) return true;
++  }
++  if (ip === "169.254.169.254") return true;
++  return false;
++}
++
++export function checkOrigin(origin: string | undefined, cfg: ProxyConfig): boolean {
++  if (cfg.mode === "localhost-dev") {
++    if (!origin) return true;
++    return cfg.originAllowlist.includes(origin) || origin.startsWith("http://127.0.0.1") || origin.startsWith("http://localhost");
++  }
++  if (!origin) return false;
++  if (!cfg.originAllowlist.length) return false;
++  return cfg.originAllowlist.includes(origin);
++}
++
++export function checkAuth(url: URL, cfg: ProxyConfig, cookieHeader?: string): boolean {
++  if (cfg.mode === "localhost-dev" && !cfg.authToken) return true;
++  const token = cfg.authToken;
++  if (!token) return false;
++  const q = url.searchParams.get("token");
++  if (q && q === token) return true;
++  if (cookieHeader) {
++    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
++    if (m && decodeURIComponent(m[1]!) === token) return true;
++  }
++  const auth = url.searchParams.get("auth");
++  if (auth && auth === token) return true;
++  return false;
++}
++
++export async function assertDestinationAllowed(
++  host: string,
++  port: number,
++  cfg: ProxyConfig,
++): Promise<{ ok: true; address: string } | { ok: false; reason: string }> {
++  if (!Number.isInteger(port) || port < 1 || port > 65535) {
++    return { ok: false, reason: "invalid port" };
++  }
++
++  const onList = cfg.allowlist.some(
++    (e) => e.host.toLowerCase() === host.toLowerCase() && e.ports.includes(port),
++  );
++
++  if (!onList && !cfg.relaxAllowlist) {
++    return { ok: false, reason: "host not on allowlist" };
++  }
++
++  let address: string;
++  if (isIP(host)) {
++    address = host;
++  } else {
++    try {
++      const r = await lookup(host, { family: 4 });
++      address = r.address;
++    } catch {
++      return { ok: false, reason: "dns failed" };
++    }
++  }
++
++  // Always block cloud metadata
++  if (address === "169.254.169.254") {
++    return { ok: false, reason: "blocked metadata ip" };
++  }
++
++  const loopbackAllow =
++    onList && (host === "127.0.0.1" || host === "localhost") && cfg.mode === "localhost-dev";
++
++  if (isPrivateOrBlockedIp(address) && !loopbackAllow) {
++    return { ok: false, reason: "private or blocked ip" };
++  }
++
++  // re-check allowlist for non-relaxed
++  if (!onList && cfg.relaxAllowlist) {
++    // public hosts OK in dev relax mode
++    if (isPrivateOrBlockedIp(address)) {
++      return { ok: false, reason: "private or blocked ip" };
++    }
++  }
++
++  return { ok: true, address };
++}
+diff --git a/apps/proxy/src/server.ts b/apps/proxy/src/server.ts
+new file mode 100644
+index 0000000..a57f060
+--- /dev/null
++++ b/apps/proxy/src/server.ts
+@@ -0,0 +1,70 @@
++import http from "node:http";
++import { WebSocketServer } from "ws";
++import {
++  ProxyConfig,
++  checkAuth,
++  checkOrigin,
++  assertDestinationAllowed,
++} from "./policy.js";
++import { bridgeWsToMud } from "./bridge.js";
++
++export function createProxyServer(cfg: ProxyConfig): http.Server {
++  const server = http.createServer((req, res) => {
++    if (req.url === "/health") {
++      res.writeHead(200, { "content-type": "application/json" });
++      res.end(JSON.stringify({ ok: true, mode: cfg.mode }));
++      return;
++    }
++    res.writeHead(404);
++    res.end("not found");
++  });
++
++  const wss = new WebSocketServer({ noServer: true });
++
++  server.on("upgrade", async (req, socket, head) => {
++    try {
++      const hostHdr = req.headers.host ?? "localhost";
++      const url = new URL(req.url ?? "/", `http://${hostHdr}`);
++      if (url.pathname !== "/ws") {
++        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
++        socket.destroy();
++        return;
++      }
++
++      const origin = req.headers.origin;
++      if (!checkOrigin(origin, cfg)) {
++        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
++        socket.destroy();
++        return;
++      }
++
++      if (!checkAuth(url, cfg, req.headers.cookie)) {
++        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
++        socket.destroy();
++        return;
++      }
++
++      const mudHost = url.searchParams.get("host") ?? "mud.revivalworld.org";
++      const mudPort = Number(url.searchParams.get("port") ?? "4000");
++      const dest = await assertDestinationAllowed(mudHost, mudPort, cfg);
++      if (!dest.ok) {
++        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
++        socket.destroy();
++        return;
++      }
++
++      wss.handleUpgrade(req, socket, head, (ws) => {
++        bridgeWsToMud(ws, {
++          host: dest.address === "127.0.0.1" ? mudHost : mudHost,
++          port: mudPort,
++          cols: Number(url.searchParams.get("cols") ?? 80),
++          rows: Number(url.searchParams.get("rows") ?? 24),
++        });
++      });
++    } catch {
++      socket.destroy();
++    }
++  });
++
++  return server;
++}
+diff --git a/apps/proxy/tests/policy.test.ts b/apps/proxy/tests/policy.test.ts
+new file mode 100644
+index 0000000..f725fba
+--- /dev/null
++++ b/apps/proxy/tests/policy.test.ts
+@@ -0,0 +1,53 @@
++import { describe, it, expect } from "vitest";
++import {
++  assertDestinationAllowed,
++  checkAuth,
++  checkOrigin,
++  defaultConfig,
++  isPrivateOrBlockedIp,
++} from "../src/policy.js";
++
++describe("policy", () => {
++  const dev = defaultConfig("localhost-dev");
++  const prod = {
++    ...defaultConfig("remote-prod"),
++    authToken: "secret",
++    originAllowlist: ["https://mud.example.com"],
++  };
++
++  it("blocks private IPs", () => {
++    expect(isPrivateOrBlockedIp("10.0.0.1")).toBe(true);
++    expect(isPrivateOrBlockedIp("192.168.1.1")).toBe(true);
++    expect(isPrivateOrBlockedIp("169.254.169.254")).toBe(true);
++    expect(isPrivateOrBlockedIp("8.8.8.8")).toBe(false);
++  });
++
++  it("denies unauth in prod", () => {
++    const url = new URL("http://x/ws?host=mud.revivalworld.org&port=4000");
++    expect(checkAuth(url, prod)).toBe(false);
++    const ok = new URL("http://x/ws?token=secret");
++    expect(checkAuth(ok, prod)).toBe(true);
++  });
++
++  it("requires Origin in prod", () => {
++    expect(checkOrigin(undefined, prod)).toBe(false);
++    expect(checkOrigin("https://evil.com", prod)).toBe(false);
++    expect(checkOrigin("https://mud.example.com", prod)).toBe(true);
++  });
++
++  it("denies non-allowlisted host in prod", async () => {
++    const r = await assertDestinationAllowed("example.com", 22, prod);
++    expect(r.ok).toBe(false);
++  });
++
++  it("allows RW on allowlist", async () => {
++    const r = await assertDestinationAllowed("mud.revivalworld.org", 4000, prod);
++    expect(r.ok).toBe(true);
++    if (r.ok) expect(isPrivateOrBlockedIp(r.address)).toBe(false);
++  });
++
++  it("dev still blocks random private IPs even with relax", async () => {
++    const r = await assertDestinationAllowed("10.1.2.3", 4000, dev);
++    expect(r.ok).toBe(false);
++  });
++});
+diff --git a/apps/proxy/tsconfig.json b/apps/proxy/tsconfig.json
+new file mode 100644
+index 0000000..711f43a
+--- /dev/null
++++ b/apps/proxy/tsconfig.json
+@@ -0,0 +1,10 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "dist",
++    "rootDir": "src",
++    "composite": true
++  },
++  "references": [{ "path": "../../packages/protocol" }],
++  "include": ["src/**/*"]
++}
+diff --git a/apps/web/index.html b/apps/web/index.html
+new file mode 100644
+index 0000000..647f41e
+--- /dev/null
++++ b/apps/web/index.html
+@@ -0,0 +1,12 @@
++<!doctype html>
++<html lang="zh-Hant">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>assmud</title>
++  </head>
++  <body class="bg-zinc-950 text-zinc-100">
++    <div id="root"></div>
++    <script type="module" src="/src/main.tsx"></script>
++  </body>
++</html>
+diff --git a/apps/web/package.json b/apps/web/package.json
+new file mode 100644
+index 0000000..c440de2
+--- /dev/null
++++ b/apps/web/package.json
+@@ -0,0 +1,27 @@
++{
++  "name": "@assmud/web",
++  "version": "0.1.0",
++  "private": true,
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "tsc -p tsconfig.json && vite build",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "@assmud/codec-big5": "0.1.0",
++    "@assmud/terminal": "0.1.0",
++    "@assmud/vt": "0.1.0",
++    "buffer": "^6.0.3",
++    "react": "^19.0.0",
++    "react-dom": "^19.0.0"
++  },
++  "devDependencies": {
++    "@tailwindcss/vite": "^4.0.0",
++    "@types/react": "^19.0.0",
++    "@types/react-dom": "^19.0.0",
++    "@vitejs/plugin-react": "^4.3.4",
++    "tailwindcss": "^4.0.0",
++    "vite": "^6.0.0"
++  }
++}
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+new file mode 100644
+index 0000000..7d1392e
+--- /dev/null
++++ b/apps/web/src/App.tsx
+@@ -0,0 +1,94 @@
++import { useMemo, useState } from "react";
++import { TerminalHost } from "./TerminalHost";
++
++const DEFAULT_WS =
++  import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
++
++export function App() {
++  const [token, setToken] = useState(
++    () => localStorage.getItem("assmud_token") ?? "",
++  );
++  const [host, setHost] = useState("mud.revivalworld.org");
++  const [port, setPort] = useState("4000");
++  const [connected, setConnected] = useState(false);
++  const [status, setStatus] = useState("idle");
++
++  const wsUrl = useMemo(() => {
++    if (!connected) return null;
++    const u = new URL(DEFAULT_WS);
++    u.searchParams.set("host", host);
++    u.searchParams.set("port", port);
++    if (token) u.searchParams.set("token", token);
++    return u.toString();
++  }, [connected, host, port, token]);
++
++  return (
++    <div className="mx-auto max-w-5xl p-4 h-full flex flex-col gap-4">
++      <header className="flex flex-wrap items-end justify-between gap-3">
++        <div>
++          <h1 className="text-xl font-semibold tracking-tight">assmud</h1>
++          <p className="text-sm text-zinc-400">
++            Web MUD client · Phase 1a · status: {status}
++          </p>
++        </div>
++      </header>
++
++      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 rounded-lg border border-zinc-800 p-3 bg-zinc-900/50">
++        <label className="text-xs flex flex-col gap-1">
++          MUD host
++          <input
++            className="rounded bg-zinc-950 border border-zinc-700 px-2 py-1.5 font-mono text-sm"
++            value={host}
++            onChange={(e) => setHost(e.target.value)}
++            disabled={connected}
++          />
++        </label>
++        <label className="text-xs flex flex-col gap-1">
++          Port
++          <input
++            className="rounded bg-zinc-950 border border-zinc-700 px-2 py-1.5 font-mono text-sm"
++            value={port}
++            onChange={(e) => setPort(e.target.value)}
++            disabled={connected}
++          />
++        </label>
++        <label className="text-xs flex flex-col gap-1">
++          Auth token（prod 需要）
++          <input
++            className="rounded bg-zinc-950 border border-zinc-700 px-2 py-1.5 font-mono text-sm"
++            value={token}
++            onChange={(e) => {
++              setToken(e.target.value);
++              localStorage.setItem("assmud_token", e.target.value);
++            }}
++            disabled={connected}
++          />
++        </label>
++        <div className="flex items-end gap-2">
++          <button
++            type="button"
++            className="rounded bg-sky-700 hover:bg-sky-600 px-4 py-2 text-sm disabled:opacity-40"
++            disabled={connected}
++            onClick={() => setConnected(true)}
++          >
++            連線
++          </button>
++          <button
++            type="button"
++            className="rounded bg-zinc-700 hover:bg-zinc-600 px-4 py-2 text-sm"
++            onClick={() => {
++              setConnected(false);
++              setStatus("idle");
++            }}
++          >
++            斷線
++          </button>
++        </div>
++      </section>
++
++      <div className="flex-1 min-h-[320px]">
++        <TerminalHost wsUrl={wsUrl} onStatus={setStatus} />
++      </div>
++    </div>
++  );
++}
+diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+new file mode 100644
+index 0000000..87d8fe9
+--- /dev/null
++++ b/apps/web/src/TerminalHost.tsx
+@@ -0,0 +1,104 @@
++import { useEffect, useRef } from "react";
++import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
++import { Big5StreamDecoder } from "@assmud/codec-big5";
++
++type Props = {
++  wsUrl: string | null;
++  onStatus?: (s: string) => void;
++};
++
++/**
++ * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
++ */
++export function TerminalHost({ wsUrl, onStatus }: Props) {
++  const canvasRef = useRef<HTMLCanvasElement>(null);
++  const bufRef = useRef(new ScreenBuffer(80, 28));
++  const rendererRef = useRef(new Canvas2DRenderer());
++  const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
++  const wsRef = useRef<WebSocket | null>(null);
++
++  useEffect(() => {
++    const canvas = canvasRef.current;
++    if (!canvas) return;
++    rendererRef.current.mount(canvas);
++    rendererRef.current.draw(bufRef.current);
++    return () => rendererRef.current.dispose();
++  }, []);
++
++  useEffect(() => {
++    if (!wsUrl) return;
++    onStatus?.("connecting…");
++    const ws = new WebSocket(wsUrl);
++    ws.binaryType = "arraybuffer";
++    wsRef.current = ws;
++
++    const paint = () => rendererRef.current.draw(bufRef.current);
++
++    ws.onopen = () => onStatus?.("connected");
++    ws.onclose = () => onStatus?.("disconnected");
++    ws.onerror = () => onStatus?.("error");
++    ws.onmessage = (ev) => {
++      if (typeof ev.data === "string") {
++        // control JSON errors from proxy
++        try {
++          const j = JSON.parse(ev.data) as { type?: string; message?: string };
++          if (j.type === "error") onStatus?.(j.message ?? "error");
++        } catch {
++          bufRef.current.writeDecoded(ev.data);
++          paint();
++        }
++        return;
++      }
++      const bytes = new Uint8Array(ev.data as ArrayBuffer);
++      const text = decoderRef.current.push(bytes);
++      if (text) {
++        bufRef.current.writeDecoded(text);
++        paint();
++      }
++    };
++
++    return () => {
++      ws.close();
++      wsRef.current = null;
++      decoderRef.current.reset();
++    };
++  }, [wsUrl, onStatus]);
++
++  const sendLine = (line: string) => {
++    const ws = wsRef.current;
++    if (ws && ws.readyState === WebSocket.OPEN) ws.send(line);
++  };
++
++  return (
++    <div className="flex flex-col gap-2 h-full min-h-0">
++      <canvas
++        ref={canvasRef}
++        className="rounded border border-zinc-700 bg-black max-w-full"
++        style={{ imageRendering: "pixelated" }}
++      />
++      <form
++        className="flex gap-2"
++        onSubmit={(e) => {
++          e.preventDefault();
++          const fd = new FormData(e.currentTarget);
++          const line = String(fd.get("line") ?? "");
++          sendLine(line);
++          e.currentTarget.reset();
++        }}
++      >
++        <input
++          name="line"
++          autoComplete="off"
++          className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono"
++          placeholder="輸入指令…"
++        />
++        <button
++          type="submit"
++          className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm"
++        >
++          送出
++        </button>
++      </form>
++    </div>
++  );
++}
+diff --git a/apps/web/src/index.css b/apps/web/src/index.css
+new file mode 100644
+index 0000000..0e439fd
+--- /dev/null
++++ b/apps/web/src/index.css
+@@ -0,0 +1,12 @@
++@import "tailwindcss";
++
++html,
++body,
++#root {
++  height: 100%;
++}
++
++body {
++  margin: 0;
++  font-family: system-ui, sans-serif;
++}
+diff --git a/apps/web/src/main.tsx b/apps/web/src/main.tsx
+new file mode 100644
+index 0000000..e5df9bf
+--- /dev/null
++++ b/apps/web/src/main.tsx
+@@ -0,0 +1,14 @@
++import { Buffer } from "buffer";
++import { StrictMode } from "react";
++import { createRoot } from "react-dom/client";
++import { App } from "./App";
++import "./index.css";
++
++// iconv-lite (Big5) needs Buffer in the browser
++(globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
++
++createRoot(document.getElementById("root")!).render(
++  <StrictMode>
++    <App />
++  </StrictMode>,
++);
+diff --git a/apps/web/tsconfig.json b/apps/web/tsconfig.json
+new file mode 100644
+index 0000000..755e511
+--- /dev/null
++++ b/apps/web/tsconfig.json
+@@ -0,0 +1,15 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "lib": ["ES2022", "DOM", "DOM.Iterable"],
++    "module": "ESNext",
++    "moduleResolution": "Bundler",
++    "jsx": "react-jsx",
++    "strict": true,
++    "skipLibCheck": true,
++    "noEmit": true,
++    "isolatedModules": true,
++    "resolveJsonModule": true
++  },
++  "include": ["src"]
++}
+diff --git a/apps/web/vite.config.ts b/apps/web/vite.config.ts
+new file mode 100644
+index 0000000..4bca181
+--- /dev/null
++++ b/apps/web/vite.config.ts
+@@ -0,0 +1,14 @@
++import { defineConfig } from "vite";
++import react from "@vitejs/plugin-react";
++import tailwindcss from "@tailwindcss/vite";
++
++export default defineConfig({
++  plugins: [react(), tailwindcss()],
++  server: {
++    port: 5173,
++    host: "127.0.0.1",
++  },
++  optimizeDeps: {
++    include: ["iconv-lite"],
++  },
++});
+diff --git a/docs/plans/2026-07-21-web-zmud-rw.md b/docs/plans/2026-07-21-web-zmud-rw.md
+index 3029340..f220d32 100644
+--- a/docs/plans/2026-07-21-web-zmud-rw.md
++++ b/docs/plans/2026-07-21-web-zmud-rw.md
+@@ -1,6 +1,7 @@
+ # Plan — Web zMUD client (secure multi-MUD; deep support for Revival World)
+ 
+-> **Status**: draft (R7 post–hetero review fold; ready for Board approve)  
++> **Status**: approved  
++> **Approved**: 2026-07-21 — Board GO; implementer grok-4.5 medium; multi-family review after  
+ > **Owner**: cookys  
+ > **Branch**: `main` (bootstrap); feature work on `feat/*` after Phase 0' close  
+ > **North star (Board)**: **電腦與手機**都能用網頁，在 **加密安全** 條件下連上 **各家 MUD** 遊玩（兩表面都要考慮；不假裝 MUD 天生適合手機）。  
+diff --git a/docs/projects/2026-07-21-web-zmud-bootstrap/phase-1a-notes.md b/docs/projects/2026-07-21-web-zmud-bootstrap/phase-1a-notes.md
+new file mode 100644
+index 0000000..3f2ff7f
+--- /dev/null
++++ b/docs/projects/2026-07-21-web-zmud-bootstrap/phase-1a-notes.md
+@@ -0,0 +1,29 @@
++# Phase 1a — implementer notes (grok-4.5 medium)
++
++**Branch**: `feat/phase-1a-connect`  
++**Implementer**: grok-4.5 (medium scope)  
++**Date**: 2026-07-21
++
++## Delivered
++
++| Item | Status |
++|------|--------|
++| npm workspaces monorepo | yes |
++| `@assmud/protocol` Telnet + DONT MCCP2 | yes + tests |
++| `@assmud/codec-big5` Big5-HKSCS stream + banner golden | yes |
++| `@assmud/vt` SGR + HTML sanitize/XSS tests | yes |
++| `@assmud/terminal` ScreenBuffer + Canvas2D API | yes |
++| `@assmud/proxy` auth/Origin/allowlist/SSRF policy + WS bridge | yes + tests |
++| `@assmud/web` React+Vite+Tailwind TerminalHost | yes |
++| `npm test` 15 green | yes |
++
++## Deferred / partial (medium cut)
++
++- Full reconnect auto-retry UI (WS lifecycle teardown only; policy allows re-connect)
++- remote-prod deploy compose
++- Typecheck project references build (`tsc -b`) optional — vitest uses source exports
++- Live e2e Playwright against mock mud
++
++## Review
++
++Multi-family review after commit (MiniMax-M3 / GLM-5.2 / Qwen3.8-Max-Preview).
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..9cf922c
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,27 @@
++{
++  "name": "assmud",
++  "private": true,
++  "version": "0.1.0",
++  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
++  "workspaces": [
++    "packages/*",
++    "apps/*"
++  ],
++  "scripts": {
++    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
++    "test": "vitest run",
++    "test:watch": "vitest",
++    "typecheck": "tsc -b",
++    "dev:proxy": "npm run dev -w @assmud/proxy",
++    "dev:web": "npm run dev -w @assmud/web",
++    "lint": "echo 'lint: no-op until eslint lands'"
++  },
++  "devDependencies": {
++    "@types/node": "^22.10.0",
++    "typescript": "^5.7.2",
++    "vitest": "^2.1.8"
++  },
++  "engines": {
++    "node": ">=20.10"
++  }
++}
+diff --git a/packages/codec-big5/package.json b/packages/codec-big5/package.json
+new file mode 100644
+index 0000000..118bcba
+--- /dev/null
++++ b/packages/codec-big5/package.json
+@@ -0,0 +1,21 @@
++{
++  "name": "@assmud/codec-big5",
++  "version": "0.1.0",
++  "type": "module",
++  "main": "./src/index.ts",
++  "types": "./src/index.ts",
++  "exports": {
++    ".": {
++      "types": "./src/index.ts",
++      "import": "./src/index.ts",
++      "default": "./src/index.ts"
++    }
++  },
++  "scripts": {
++    "build": "tsc -p tsconfig.json"
++  },
++  "dependencies": {
++    "buffer": "^6.0.3",
++    "iconv-lite": "^0.6.3"
++  }
++}
+diff --git a/packages/codec-big5/src/index.ts b/packages/codec-big5/src/index.ts
+new file mode 100644
+index 0000000..2928a88
+--- /dev/null
++++ b/packages/codec-big5/src/index.ts
+@@ -0,0 +1,52 @@
++import * as iconv from "iconv-lite";
++import { Buffer } from "buffer";
++
++/**
++ * Streaming Big5-family decoder (HKSCS-capable via iconv-lite 'big5hkscs').
++ * Holds a pending lead byte across chunks.
++ */
++export class Big5StreamDecoder {
++  private pending: number | null = null;
++  private readonly encoding: string;
++
++  constructor(encoding: "big5hkscs" | "big5" = "big5hkscs") {
++    this.encoding = encoding;
++  }
++
++  push(bytes: Uint8Array): string {
++    const parts: number[] = [];
++    let i = 0;
++    if (this.pending !== null) {
++      if (bytes.length === 0) return "";
++      parts.push(this.pending, bytes[0]!);
++      this.pending = null;
++      i = 1;
++    }
++    while (i < bytes.length) {
++      const b = bytes[i]!;
++      if (b < 0x80) {
++        parts.push(b);
++        i += 1;
++      } else if (i + 1 < bytes.length) {
++        parts.push(b, bytes[i + 1]!);
++        i += 2;
++      } else {
++        this.pending = b;
++        break;
++      }
++    }
++    if (!parts.length) return "";
++    return iconv.decode(Buffer.from(parts), this.encoding);
++  }
++
++  reset(): void {
++    this.pending = null;
++  }
++}
++
++export function decodeBig5(
++  bytes: Uint8Array,
++  encoding: "big5hkscs" | "big5" = "big5hkscs",
++): string {
++  return iconv.decode(Buffer.from(bytes), encoding);
++}
+diff --git a/packages/codec-big5/tests/decode.test.ts b/packages/codec-big5/tests/decode.test.ts
+new file mode 100644
+index 0000000..e9bc2d7
+--- /dev/null
++++ b/packages/codec-big5/tests/decode.test.ts
+@@ -0,0 +1,30 @@
++import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++import { dirname, join } from "node:path";
++import { Big5StreamDecoder, decodeBig5 } from "../src/index.js";
++import { TelnetParser } from "../../protocol/src/telnet.js";
++
++const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
++
++describe("Big5StreamDecoder", () => {
++  it("decodes banner fixture without mojibake for 重生", () => {
++    const raw = readFileSync(join(root, "tests/fixtures/streams/rw-banner-4000.bin"));
++    const parser = new TelnetParser();
++    const events = parser.push(raw);
++    const data = events
++      .filter((e): e is { type: "data"; bytes: Uint8Array } => e.type === "data")
++      .map((e) => e.bytes);
++    const merged = Buffer.concat(data.map((b) => Buffer.from(b)));
++    const text = decodeBig5(merged);
++    expect(text).toContain("重生");
++    expect(text).toMatch(/BIG5/i);
++  });
++
++  it("handles split DBCS lead across chunks", () => {
++    const d = new Big5StreamDecoder();
++    // 中 = A4 A4 in Big5
++    expect(d.push(Uint8Array.of(0xa4))).toBe("");
++    expect(d.push(Uint8Array.of(0xa4))).toBe("中");
++  });
++});
+diff --git a/packages/codec-big5/tsconfig.json b/packages/codec-big5/tsconfig.json
+new file mode 100644
+index 0000000..c49dd21
+--- /dev/null
++++ b/packages/codec-big5/tsconfig.json
+@@ -0,0 +1,9 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "dist",
++    "rootDir": "src",
++    "composite": true
++  },
++  "include": ["src/**/*"]
++}
+diff --git a/packages/protocol/package.json b/packages/protocol/package.json
+new file mode 100644
+index 0000000..a52d2ba
+--- /dev/null
++++ b/packages/protocol/package.json
+@@ -0,0 +1,17 @@
++{
++  "name": "@assmud/protocol",
++  "version": "0.1.0",
++  "type": "module",
++  "main": "./src/index.ts",
++  "types": "./src/index.ts",
++  "exports": {
++    ".": {
++      "types": "./src/index.ts",
++      "import": "./src/index.ts",
++      "default": "./src/index.ts"
++    }
++  },
++  "scripts": {
++    "build": "tsc -p tsconfig.json"
++  }
++}
+diff --git a/packages/protocol/src/index.ts b/packages/protocol/src/index.ts
+new file mode 100644
+index 0000000..ca0fef0
+--- /dev/null
++++ b/packages/protocol/src/index.ts
+@@ -0,0 +1 @@
++export * from "./telnet.js";
+diff --git a/packages/protocol/src/telnet.ts b/packages/protocol/src/telnet.ts
+new file mode 100644
+index 0000000..c41bf41
+--- /dev/null
++++ b/packages/protocol/src/telnet.ts
+@@ -0,0 +1,147 @@
++/** Telnet IAC constants and stream filter for Phase 1a. */
++
++export const IAC = 255;
++export const WILL = 251;
++export const WONT = 252;
++export const DO = 253;
++export const DONT = 254;
++export const SB = 250;
++export const SE = 240;
++
++export const OPT = {
++  ECHO: 1,
++  SGA: 3,
++  TTYPE: 24,
++  NAWS: 31,
++  MSSP: 70,
++  MCCP2: 86,
++  MXP: 91,
++} as const;
++
++export type TelnetEvent =
++  | { type: "data"; bytes: Uint8Array }
++  | { type: "will"; option: number }
++  | { type: "wont"; option: number }
++  | { type: "do"; option: number }
++  | { type: "dont"; option: number }
++  | { type: "sb"; option: number; payload: Uint8Array };
++
++/**
++ * Incremental Telnet parser. Emits application data and negotiation events.
++ */
++export class TelnetParser {
++  private buf = new Uint8Array(0);
++
++  push(chunk: Uint8Array): TelnetEvent[] {
++    const merged = new Uint8Array(this.buf.length + chunk.length);
++    merged.set(this.buf);
++    merged.set(chunk, this.buf.length);
++    this.buf = merged;
++
++    const events: TelnetEvent[] = [];
++    const data: number[] = [];
++    let i = 0;
++
++    while (i < this.buf.length) {
++      if (this.buf[i] !== IAC) {
++        data.push(this.buf[i]!);
++        i += 1;
++        continue;
++      }
++      if (i + 1 >= this.buf.length) break;
++      const cmd = this.buf[i + 1]!;
++      if (cmd === IAC) {
++        data.push(IAC);
++        i += 2;
++        continue;
++      }
++      if (cmd === WILL || cmd === WONT || cmd === DO || cmd === DONT) {
++        if (i + 2 >= this.buf.length) break;
++        if (data.length) {
++          events.push({ type: "data", bytes: Uint8Array.from(data) });
++          data.length = 0;
++        }
++        const option = this.buf[i + 2]!;
++        const type =
++          cmd === WILL ? "will" : cmd === WONT ? "wont" : cmd === DO ? "do" : "dont";
++        events.push({ type, option });
++        i += 3;
++        continue;
++      }
++      if (cmd === SB) {
++        let j = i + 2;
++        while (j + 1 < this.buf.length && !(this.buf[j] === IAC && this.buf[j + 1] === SE)) {
++          j += 1;
++        }
++        if (j + 1 >= this.buf.length) break;
++        if (data.length) {
++          events.push({ type: "data", bytes: Uint8Array.from(data) });
++          data.length = 0;
++        }
++        const option = this.buf[i + 2]!;
++        const payload = this.buf.slice(i + 3, j);
++        events.push({ type: "sb", option, payload });
++        i = j + 2;
++        continue;
++      }
++      // other IAC cmds — skip one
++      i += 2;
++    }
++
++    if (data.length) {
++      events.push({ type: "data", bytes: Uint8Array.from(data) });
++    }
++    this.buf = this.buf.slice(i);
++    return events;
++  }
++}
++
++export function cmd(cmdByte: number, option: number): Uint8Array {
++  return Uint8Array.of(IAC, cmdByte, option);
++}
++
++/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
++export function replyToNegotiation(
++  kind: "will" | "do",
++  option: number,
++): Uint8Array | null {
++  if (kind === "will") {
++    if (option === OPT.MCCP2) return cmd(DONT, OPT.MCCP2);
++    if (option === OPT.MSSP) return cmd(DONT, OPT.MSSP);
++    return cmd(DONT, option);
++  }
++  // DO
++  if (option === OPT.TTYPE) return cmd(WILL, OPT.TTYPE);
++  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
++  if (option === OPT.MXP) return cmd(WONT, OPT.MXP);
++  return cmd(WONT, option);
++}
++
++/** IAC SB TTYPE IS "ANSI" IAC SE */
++export function ttypeIs(name = "ANSI"): Uint8Array {
++  const enc = new TextEncoder().encode(name);
++  const out = new Uint8Array(5 + enc.length + 2);
++  out[0] = IAC;
++  out[1] = SB;
++  out[2] = OPT.TTYPE;
++  out[3] = 0; // IS
++  out.set(enc, 4);
++  out[4 + enc.length] = IAC;
++  out[5 + enc.length] = SE;
++  return out;
++}
++
++/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
++export function naws(cols: number, rows: number): Uint8Array {
++  return Uint8Array.of(
++    IAC,
++    SB,
++    OPT.NAWS,
++    (cols >> 8) & 0xff,
++    cols & 0xff,
++    (rows >> 8) & 0xff,
++    rows & 0xff,
++    IAC,
++    SE,
++  );
++}
+diff --git a/packages/protocol/tests/telnet.test.ts b/packages/protocol/tests/telnet.test.ts
+new file mode 100644
+index 0000000..0fa9d24
+--- /dev/null
++++ b/packages/protocol/tests/telnet.test.ts
+@@ -0,0 +1,40 @@
++import { describe, it, expect } from "vitest";
++import {
++  TelnetParser,
++  IAC,
++  WILL,
++  DO,
++  OPT,
++  replyToNegotiation,
++  DONT,
++  WILL as WILL_C,
++  WONT,
++} from "../src/telnet.js";
++
++describe("TelnetParser", () => {
++  it("strips IAC WILL/DO and yields data", () => {
++    const p = new TelnetParser();
++    const raw = Uint8Array.of(
++      IAC,
++      WILL,
++      OPT.MCCP2,
++      IAC,
++      DO,
++      OPT.TTYPE,
++      0x48,
++      0x69, // Hi
++    );
++    const ev = p.push(raw);
++    expect(ev.some((e) => e.type === "will" && e.option === OPT.MCCP2)).toBe(true);
++    expect(ev.some((e) => e.type === "do" && e.option === OPT.TTYPE)).toBe(true);
++    const data = ev.filter((e) => e.type === "data");
++    expect(data).toHaveLength(1);
++    expect(Buffer.from(data[0]!.bytes).toString("latin1")).toBe("Hi");
++  });
++
++  it("Phase 1a replies DONT MCCP2 and WILL TTYPE", () => {
++    expect([...replyToNegotiation("will", OPT.MCCP2)!]).toEqual([IAC, DONT, OPT.MCCP2]);
++    expect([...replyToNegotiation("do", OPT.TTYPE)!]).toEqual([IAC, WILL_C, OPT.TTYPE]);
++    expect([...replyToNegotiation("do", OPT.MXP)!]).toEqual([IAC, WONT, OPT.MXP]);
++  });
++});
+diff --git a/packages/protocol/tsconfig.json b/packages/protocol/tsconfig.json
+new file mode 100644
+index 0000000..c49dd21
+--- /dev/null
++++ b/packages/protocol/tsconfig.json
+@@ -0,0 +1,9 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "dist",
++    "rootDir": "src",
++    "composite": true
++  },
++  "include": ["src/**/*"]
++}
+diff --git a/packages/terminal/package.json b/packages/terminal/package.json
+new file mode 100644
+index 0000000..07ce2aa
+--- /dev/null
++++ b/packages/terminal/package.json
+@@ -0,0 +1,20 @@
++{
++  "name": "@assmud/terminal",
++  "version": "0.1.0",
++  "type": "module",
++  "main": "./src/index.ts",
++  "types": "./src/index.ts",
++  "exports": {
++    ".": {
++      "types": "./src/index.ts",
++      "import": "./src/index.ts",
++      "default": "./src/index.ts"
++    }
++  },
++  "scripts": {
++    "build": "tsc -p tsconfig.json"
++  },
++  "dependencies": {
++    "@assmud/vt": "0.1.0"
++  }
++}
+diff --git a/packages/terminal/src/buffer.ts b/packages/terminal/src/buffer.ts
+new file mode 100644
+index 0000000..a1a6c0c
+--- /dev/null
++++ b/packages/terminal/src/buffer.ts
+@@ -0,0 +1,84 @@
++import { Attrs, defaultAttrs, tokenizeAnsi } from "@assmud/vt";
++
++export type Cell = { ch: string; attrs: Attrs };
++
++export class ScreenBuffer {
++  cols: number;
++  rows: number;
++  cells: Cell[][];
++  cursor = { r: 0, c: 0 };
++  attrs: Attrs = defaultAttrs();
++  /** scrollback lines as plain strings for Phase 1a */
++  scrollback: string[] = [];
++  maxScrollback = 2000;
++
++  constructor(cols = 80, rows = 24) {
++    this.cols = cols;
++    this.rows = rows;
++    this.cells = this.blank();
++  }
++
++  private blank(): Cell[][] {
++    return Array.from({ length: this.rows }, () =>
++      Array.from({ length: this.cols }, () => ({ ch: " ", attrs: defaultAttrs() })),
++    );
++  }
++
++  resize(cols: number, rows: number): void {
++    this.cols = cols;
++    this.rows = rows;
++    this.cells = this.blank();
++    this.cursor = { r: 0, c: 0 };
++  }
++
++  writeDecoded(text: string): void {
++    const { tokens, attrs } = tokenizeAnsi(text, this.attrs);
++    this.attrs = attrs;
++    for (const t of tokens) {
++      if (t.kind === "text") this.writePlain(t.text, t.attrs);
++      else if (t.kind === "control" && t.code === 10) this.lineFeed();
++      else if (t.kind === "control" && t.code === 13) this.cursor.c = 0;
++      // other CSI (CUP etc.) ignored in Phase 1a partial terminal — Phase 1b
++    }
++  }
++
++  private writePlain(text: string, attrs: Attrs): void {
++    for (const ch of text) {
++      if (ch === "\n") {
++        this.lineFeed();
++        continue;
++      }
++      if (ch === "\r") {
++        this.cursor.c = 0;
++        continue;
++      }
++      if (this.cursor.c >= this.cols) {
++        this.lineFeed();
++      }
++      this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
++      this.cursor.c += 1;
++    }
++  }
++
++  private lineFeed(): void {
++    // push current line to scrollback
++    const line = this.cells[this.cursor.r]!.map((c) => c.ch).join("").replace(/\s+$/, "");
++    this.scrollback.push(line);
++    if (this.scrollback.length > this.maxScrollback) this.scrollback.shift();
++
++    if (this.cursor.r < this.rows - 1) {
++      this.cursor.r += 1;
++    } else {
++      // scroll up
++      this.cells.shift();
++      this.cells.push(
++        Array.from({ length: this.cols }, () => ({ ch: " ", attrs: defaultAttrs() })),
++      );
++    }
++    this.cursor.c = 0;
++  }
++
++  snapshotText(): string {
++    return this.cells.map((row) => row.map((c) => c.ch).join("").replace(/\s+$/, "")).join("\n");
++  }
++}
+diff --git a/packages/terminal/src/canvas2d.ts b/packages/terminal/src/canvas2d.ts
+new file mode 100644
+index 0000000..34b4be5
+--- /dev/null
++++ b/packages/terminal/src/canvas2d.ts
+@@ -0,0 +1,80 @@
++import type { ScreenBuffer } from "./buffer.js";
++import type { Attrs } from "@assmud/vt";
++
++const ANSI_FG = [
++  "#000",
++  "#a00",
++  "#0a0",
++  "#a50",
++  "#00a",
++  "#a0a",
++  "#0aa",
++  "#aaa",
++  "#555",
++  "#f55",
++  "#5f5",
++  "#ff5",
++  "#55f",
++  "#f5f",
++  "#5ff",
++  "#fff",
++];
++
++function colorFor(attrs: Attrs): { fg: string; bg: string } {
++  let fg = attrs.fg != null ? ANSI_FG[attrs.fg] ?? "#ccc" : "#ccc";
++  let bg = attrs.bg != null ? ANSI_FG[attrs.bg] ?? "#111" : "#111";
++  if (attrs.bold && attrs.fg != null && attrs.fg < 8) {
++    fg = ANSI_FG[attrs.fg + 8] ?? fg;
++  }
++  if (attrs.reverse) {
++    const t = fg;
++    fg = bg;
++    bg = t;
++  }
++  return { fg, bg };
++}
++
++export class Canvas2DRenderer {
++  private canvas: HTMLCanvasElement | null = null;
++  private ctx: CanvasRenderingContext2D | null = null;
++  private cellW = 9;
++  private cellH = 16;
++
++  mount(canvas: HTMLCanvasElement): void {
++    this.canvas = canvas;
++    this.ctx = canvas.getContext("2d");
++  }
++
++  dispose(): void {
++    this.canvas = null;
++    this.ctx = null;
++  }
++
++  draw(buf: ScreenBuffer): void {
++    const ctx = this.ctx;
++    const canvas = this.canvas;
++    if (!ctx || !canvas) return;
++    const w = buf.cols * this.cellW;
++    const h = buf.rows * this.cellH;
++    if (canvas.width !== w) canvas.width = w;
++    if (canvas.height !== h) canvas.height = h;
++    ctx.fillStyle = "#111";
++    ctx.fillRect(0, 0, w, h);
++    ctx.font = `${this.cellH - 2}px ui-monospace, monospace`;
++    ctx.textBaseline = "top";
++    for (let r = 0; r < buf.rows; r++) {
++      for (let c = 0; c < buf.cols; c++) {
++        const cell = buf.cells[r]![c]!;
++        const { fg, bg } = colorFor(cell.attrs);
++        if (bg !== "#111") {
++          ctx.fillStyle = bg;
++          ctx.fillRect(c * this.cellW, r * this.cellH, this.cellW, this.cellH);
++        }
++        if (cell.ch !== " ") {
++          ctx.fillStyle = fg;
++          ctx.fillText(cell.ch, c * this.cellW, r * this.cellH + 1);
++        }
++      }
++    }
++  }
++}
+diff --git a/packages/terminal/src/index.ts b/packages/terminal/src/index.ts
+new file mode 100644
+index 0000000..22cda49
+--- /dev/null
++++ b/packages/terminal/src/index.ts
+@@ -0,0 +1,2 @@
++export * from "./buffer.js";
++export * from "./canvas2d.js";
+diff --git a/packages/terminal/tests/buffer.test.ts b/packages/terminal/tests/buffer.test.ts
+new file mode 100644
+index 0000000..37b625a
+--- /dev/null
++++ b/packages/terminal/tests/buffer.test.ts
+@@ -0,0 +1,12 @@
++import { describe, it, expect } from "vitest";
++import { ScreenBuffer } from "../src/buffer.js";
++
++describe("ScreenBuffer", () => {
++  it("writes SGR colored text", () => {
++    const b = new ScreenBuffer(40, 5);
++    b.writeDecoded("\x1b[1;31mX\x1b[0m");
++    expect(b.cells[0]![0]!.ch).toBe("X");
++    expect(b.cells[0]![0]!.attrs.bold).toBe(true);
++    expect(b.cells[0]![0]!.attrs.fg).toBe(1);
++  });
++});
+diff --git a/packages/terminal/tsconfig.json b/packages/terminal/tsconfig.json
+new file mode 100644
+index 0000000..4c9a36d
+--- /dev/null
++++ b/packages/terminal/tsconfig.json
+@@ -0,0 +1,10 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "dist",
++    "rootDir": "src",
++    "composite": true
++  },
++  "references": [{ "path": "../vt" }],
++  "include": ["src/**/*"]
++}
+diff --git a/packages/vt/package.json b/packages/vt/package.json
+new file mode 100644
+index 0000000..7b96474
+--- /dev/null
++++ b/packages/vt/package.json
+@@ -0,0 +1,17 @@
++{
++  "name": "@assmud/vt",
++  "version": "0.1.0",
++  "type": "module",
++  "main": "./src/index.ts",
++  "types": "./src/index.ts",
++  "exports": {
++    ".": {
++      "types": "./src/index.ts",
++      "import": "./src/index.ts",
++      "default": "./src/index.ts"
++    }
++  },
++  "scripts": {
++    "build": "tsc -p tsconfig.json"
++  }
++}
+diff --git a/packages/vt/src/index.ts b/packages/vt/src/index.ts
+new file mode 100644
+index 0000000..3d26762
+--- /dev/null
++++ b/packages/vt/src/index.ts
+@@ -0,0 +1,2 @@
++export * from "./sgr.js";
++export * from "./sanitize.js";
+diff --git a/packages/vt/src/sanitize.ts b/packages/vt/src/sanitize.ts
+new file mode 100644
+index 0000000..ec7475d
+--- /dev/null
++++ b/packages/vt/src/sanitize.ts
+@@ -0,0 +1,29 @@
++/**
++ * HTML-escape untrusted MUD text if ever injected into DOM.
++ * Canvas path still uses this for any HTML fallback chrome.
++ */
++export function escapeHtml(text: string): string {
++  return text
++    .replace(/&/g, "&amp;")
++    .replace(/</g, "&lt;")
++    .replace(/>/g, "&gt;")
++    .replace(/"/g, "&quot;")
++    .replace(/'/g, "&#39;");
++}
++
++/**
++ * Reject/neutralize attempts to break out of text context when building HTML spans.
++ * SGR is already parsed separately — this is for raw string insertion safety.
++ */
++export function sanitizeMudTextForHtml(text: string): string {
++  // Strip NULs and other C0 except tab/lf/cr
++  const cleaned = [...text]
++    .map((ch) => {
++      const c = ch.charCodeAt(0);
++      if (c === 0) return "";
++      if (c < 32 && c !== 9 && c !== 10 && c !== 13) return "";
++      return ch;
++    })
++    .join("");
++  return escapeHtml(cleaned);
++}
+diff --git a/packages/vt/src/sgr.ts b/packages/vt/src/sgr.ts
+new file mode 100644
+index 0000000..c992201
+--- /dev/null
++++ b/packages/vt/src/sgr.ts
+@@ -0,0 +1,127 @@
++export type Attrs = {
++  bold: boolean;
++  dim: boolean;
++  italic: boolean;
++  underline: boolean;
++  blink: boolean;
++  reverse: boolean;
++  fg: number | null; // 0-7 or 8-15 if bold
++  bg: number | null;
++};
++
++export const defaultAttrs = (): Attrs => ({
++  bold: false,
++  dim: false,
++  italic: false,
++  underline: false,
++  blink: false,
++  reverse: false,
++  fg: null,
++  bg: null,
++});
++
++export function applySgr(attrs: Attrs, params: number[]): Attrs {
++  const next = { ...attrs };
++  if (params.length === 0) params = [0];
++  for (const p of params) {
++    if (p === 0) Object.assign(next, defaultAttrs());
++    else if (p === 1) next.bold = true;
++    else if (p === 2) next.dim = true;
++    else if (p === 3) next.italic = true;
++    else if (p === 4) next.underline = true;
++    else if (p === 5 || p === 6) next.blink = true;
++    else if (p === 7) next.reverse = true;
++    else if (p === 22) {
++      next.bold = false;
++      next.dim = false;
++    } else if (p === 23) next.italic = false;
++    else if (p === 24) next.underline = false;
++    else if (p === 25) next.blink = false;
++    else if (p === 27) next.reverse = false;
++    else if (p >= 30 && p <= 37) next.fg = p - 30;
++    else if (p === 39) next.fg = null;
++    else if (p >= 40 && p <= 47) next.bg = p - 40;
++    else if (p === 49) next.bg = null;
++    else if (p >= 90 && p <= 97) next.fg = p - 90 + 8;
++    else if (p >= 100 && p <= 107) next.bg = p - 100 + 8;
++  }
++  return next;
++}
++
++export type Token =
++  | { kind: "text"; text: string; attrs: Attrs }
++  | { kind: "csi"; raw: string; params: number[]; final: string }
++  | { kind: "control"; code: number };
++
++/**
++ * Phase 1a VT tokenizer: full SGR handling; other CSI recorded as tokens.
++ * Input is Unicode string (already decoded from Big5).
++ */
++export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()): {
++  tokens: Token[];
++  attrs: Attrs;
++} {
++  const tokens: Token[] = [];
++  let attrs = { ...startAttrs };
++  let i = 0;
++  let textBuf = "";
++
++  const flush = () => {
++    if (textBuf) {
++      tokens.push({ kind: "text", text: textBuf, attrs: { ...attrs } });
++      textBuf = "";
++    }
++  };
++
++  while (i < input.length) {
++    const ch = input[i]!;
++    const code = ch.charCodeAt(0);
++    if (code === 0x1b && input[i + 1] === "[") {
++      flush();
++      let j = i + 2;
++      while (j < input.length) {
++        const c = input[j]!;
++        if ((c >= "0" && c <= "9") || c === ";" || c === "?" || c === ":" || c === " ") {
++          j += 1;
++          continue;
++        }
++        break;
++      }
++      if (j >= input.length) {
++        // incomplete — keep as text
++        textBuf += input.slice(i);
++        break;
++      }
++      const final = input[j]!;
++      const body = input.slice(i + 2, j);
++      const params = body
++        .split(";")
++        .filter((x) => x.length && !x.startsWith("?"))
++        .map((x) => parseInt(x, 10) || 0);
++      const raw = input.slice(i, j + 1);
++      if (final === "m") {
++        attrs = applySgr(attrs, params.length ? params : [0]);
++        tokens.push({ kind: "csi", raw, params, final });
++      } else {
++        tokens.push({ kind: "csi", raw, params, final });
++      }
++      i = j + 1;
++      continue;
++    }
++    if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
++      flush();
++      tokens.push({ kind: "control", code });
++      i += 1;
++      continue;
++    }
++    textBuf += ch;
++    i += 1;
++  }
++  flush();
++  return { tokens, attrs };
++}
++
++/** Strip SGR for length/compare; leave other CSI as empty for visible text. */
++export function visibleText(input: string): string {
++  return input.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
++}
+diff --git a/packages/vt/tests/sgr-sanitize.test.ts b/packages/vt/tests/sgr-sanitize.test.ts
+new file mode 100644
+index 0000000..4a8e870
+--- /dev/null
++++ b/packages/vt/tests/sgr-sanitize.test.ts
+@@ -0,0 +1,30 @@
++import { describe, it, expect } from "vitest";
++import { tokenizeAnsi, applySgr, defaultAttrs } from "../src/sgr.js";
++import { sanitizeMudTextForHtml, escapeHtml } from "../src/sanitize.js";
++
++describe("SGR", () => {
++  it("applies bold red", () => {
++    const a = applySgr(defaultAttrs(), [1, 31]);
++    expect(a.bold).toBe(true);
++    expect(a.fg).toBe(1);
++  });
++
++  it("tokenizes mixed SGR and text", () => {
++    const { tokens } = tokenizeAnsi("\x1b[1;32mOK\x1b[0m!");
++    const texts = tokens.filter((t) => t.kind === "text");
++    expect(texts.some((t) => t.kind === "text" && t.text === "OK" && t.attrs.bold)).toBe(true);
++  });
++});
++
++describe("sanitize", () => {
++  it("escapes script tags", () => {
++    const evil = '<script>alert(1)</script>';
++    const out = sanitizeMudTextForHtml(evil);
++    expect(out).not.toContain("<script>");
++    expect(out).toContain("&lt;script&gt;");
++  });
++
++  it("escapeHtml is idempotent-ish for plain text", () => {
++    expect(escapeHtml("重生")).toBe("重生");
++  });
++});
+diff --git a/packages/vt/tsconfig.json b/packages/vt/tsconfig.json
+new file mode 100644
+index 0000000..c49dd21
+--- /dev/null
++++ b/packages/vt/tsconfig.json
+@@ -0,0 +1,9 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "dist",
++    "rootDir": "src",
++    "composite": true
++  },
++  "include": ["src/**/*"]
++}
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+new file mode 100644
+index 0000000..034e809
+--- /dev/null
++++ b/tsconfig.base.json
+@@ -0,0 +1,18 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "module": "NodeNext",
++    "moduleResolution": "NodeNext",
++    "lib": ["ES2022", "DOM"],
++    "strict": true,
++    "skipLibCheck": true,
++    "declaration": true,
++    "declarationMap": true,
++    "sourceMap": true,
++    "esModuleInterop": true,
++    "forceConsistentCasingInFileNames": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "noFallthroughCasesInSwitch": true
++  }
++}
+diff --git a/tsconfig.json b/tsconfig.json
+new file mode 100644
+index 0000000..3595abf
+--- /dev/null
++++ b/tsconfig.json
+@@ -0,0 +1,10 @@
++{
++  "files": [],
++  "references": [
++    { "path": "packages/protocol" },
++    { "path": "packages/codec-big5" },
++    { "path": "packages/vt" },
++    { "path": "packages/terminal" },
++    { "path": "apps/proxy" }
++  ]
++}
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..376f5bc
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1,11 @@
++import { defineConfig } from "vitest/config";
++
++export default defineConfig({
++  test: {
++    include: [
++      "packages/*/tests/**/*.test.ts",
++      "apps/*/tests/**/*.test.ts",
++    ],
++    environment: "node",
++  },
++});
