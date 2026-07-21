@@ -23,7 +23,9 @@
 | **腳本** | alias / trigger / path / 變數 | 日常掛機、補血、自動 walk |
 | **UI** | 多窗、mapper、button bar | 體驗層 |
 
-參考：Zugg zMUD feature list（MXP/MCCP/MSP）、Mudlet Supported Protocols、TinTin++ MCCP2、mudvault protocols guide、本倉 `docs/research/rw-probe-2026-07-21.md`。
+參考：Zugg zMUD feature list（MXP/MCCP/MSP）、Mudlet Supported Protocols、TinTin++ MCCP2、mudvault protocols guide、本倉 `docs/research/rw-probe-2026-07-21.md`。  
+
+**完整功能對照表（SSOT）**：[`docs/research/zmud-feature-matrix.md`](../research/zmud-feature-matrix.md)
 
 ### 0.2 RW 實際 probe（2026-07-21，連線首包）
 
