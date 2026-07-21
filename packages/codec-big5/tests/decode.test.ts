@@ -27,4 +27,13 @@ describe("Big5StreamDecoder", () => {
     expect(d.push(Uint8Array.of(0xa4))).toBe("");
     expect(d.push(Uint8Array.of(0xa4))).toBe("中");
   });
+
+  it("does not pair pending lead with ESC (preserve ANSI)", () => {
+    const d = new Big5StreamDecoder();
+    expect(d.push(Uint8Array.of(0xa4))).toBe(""); // lead held
+    // ESC [ 1 m  should stay as control+ASCII, not Big5 trail
+    const out = d.push(Uint8Array.of(0x1b, 0x5b, 0x31, 0x6d, 0x41));
+    expect(out).toContain("\x1b[1m");
+    expect(out).toContain("A");
+  });
 });

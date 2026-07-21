@@ -31,6 +31,8 @@ export class ScreenBuffer {
   maxSessionLog = 20_000;
   /** Effective width mode — never "auto". Default western (safe for utf8). */
   widthMode: WidthMode = "western";
+  /** Incomplete ESC/CSI carried across writeDecoded chunks. */
+  private ansiResidual = "";
 
   constructor(cols = 80, rows = 24, widthMode: WidthMode = "western") {
     this.cols = cols;
@@ -52,6 +54,7 @@ export class ScreenBuffer {
     this.attrs = defaultAttrs();
     this.scrollTop = 0;
     this.scrollBottom = this.rows - 1;
+    this.ansiResidual = "";
   }
 
   private blankRow(): Cell[] {
@@ -73,11 +76,14 @@ export class ScreenBuffer {
     this.cells = this.blank();
     this.cursor = { r: 0, c: 0 };
     this.savedCursor = null;
+    this.ansiResidual = "";
   }
 
   writeDecoded(text: string): void {
-    const { tokens, attrs } = tokenizeAnsi(text, this.attrs);
+    const combined = this.ansiResidual + text;
+    const { tokens, attrs, residual } = tokenizeAnsi(combined, this.attrs);
     this.attrs = attrs;
+    this.ansiResidual = residual;
     for (const t of tokens) {
       if (t.kind === "text") this.writePlain(t.text, t.attrs);
       else if (t.kind === "control" && t.code === 10) this.lineFeed();

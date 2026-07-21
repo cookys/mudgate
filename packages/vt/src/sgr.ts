@@ -54,17 +54,28 @@ export type Token =
   | { kind: "control"; code: number };
 
 /**
- * Phase 1a VT tokenizer: full SGR handling; other CSI recorded as tokens.
+ * VT tokenizer: full SGR handling; other CSI recorded as tokens.
  * Input is Unicode string (already decoded from Big5).
+ *
+ * **Streaming**: if a CSI/ESC is incomplete at end of input, it is returned in
+ * `residual` (NOT flushed as visible text). Caller must prepend residual to the
+ * next chunk. Dumping incomplete `\x1b[1;34` as text makes ESC invisible and
+ * leaves literal `[1;34m…` on screen (RW who list dual-color names).
  */
-export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()): {
+export function tokenizeAnsi(
+  input: string,
+  startAttrs: Attrs = defaultAttrs(),
+): {
   tokens: Token[];
   attrs: Attrs;
+  /** Incomplete ESC/CSI to prepend on the next writeDecoded call */
+  residual: string;
 } {
   const tokens: Token[] = [];
   let attrs = { ...startAttrs };
   let i = 0;
   let textBuf = "";
+  let residual = "";
 
   const flush = () => {
     if (textBuf) {
@@ -76,36 +87,62 @@ export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()):
   while (i < input.length) {
     const ch = input[i]!;
     const code = ch.charCodeAt(0);
-    if (code === 0x1b && input[i + 1] === "[") {
-      flush();
-      let j = i + 2;
-      while (j < input.length) {
-        const c = input[j]!;
-        if ((c >= "0" && c <= "9") || c === ";" || c === "?" || c === ":" || c === " ") {
-          j += 1;
+    if (code === 0x1b) {
+      // Lone ESC at end of chunk — wait for more
+      if (i + 1 >= input.length) {
+        flush();
+        residual = input.slice(i);
+        break;
+      }
+      if (input[i + 1] === "[") {
+        flush();
+        let j = i + 2;
+        while (j < input.length) {
+          const c = input[j]!;
+          if (
+            (c >= "0" && c <= "9") ||
+            c === ";" ||
+            c === "?" ||
+            c === ":" ||
+            c === " "
+          ) {
+            j += 1;
+            continue;
+          }
+          break;
+        }
+        if (j >= input.length) {
+          // incomplete CSI — hold, do NOT paint as text
+          residual = input.slice(i);
+          break;
+        }
+        const final = input[j]!;
+        // CSI final byte is @ through ~ (0x40-0x7E)
+        if (final < "@" || final > "~") {
+          // not a valid CSI end — skip ESC and continue (avoid stuck)
+          textBuf += ch;
+          i += 1;
           continue;
         }
-        break;
+        const body = input.slice(i + 2, j);
+        const params = body
+          .split(";")
+          .filter((x) => x.length && !x.startsWith("?"))
+          .map((x) => parseInt(x, 10) || 0);
+        const raw = input.slice(i, j + 1);
+        if (final === "m") {
+          attrs = applySgr(attrs, params.length ? params : [0]);
+          tokens.push({ kind: "csi", raw, params, final });
+        } else {
+          tokens.push({ kind: "csi", raw, params, final });
+        }
+        i = j + 1;
+        continue;
       }
-      if (j >= input.length) {
-        // incomplete — keep as text
-        textBuf += input.slice(i);
-        break;
-      }
-      const final = input[j]!;
-      const body = input.slice(i + 2, j);
-      const params = body
-        .split(";")
-        .filter((x) => x.length && !x.startsWith("?"))
-        .map((x) => parseInt(x, 10) || 0);
-      const raw = input.slice(i, j + 1);
-      if (final === "m") {
-        attrs = applySgr(attrs, params.length ? params : [0]);
-        tokens.push({ kind: "csi", raw, params, final });
-      } else {
-        tokens.push({ kind: "csi", raw, params, final });
-      }
-      i = j + 1;
+      // ESC + non-[ : treat as control and continue
+      flush();
+      tokens.push({ kind: "control", code: 0x1b });
+      i += 1;
       continue;
     }
     if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
@@ -118,7 +155,7 @@ export function tokenizeAnsi(input: string, startAttrs: Attrs = defaultAttrs()):
     i += 1;
   }
   flush();
-  return { tokens, attrs };
+  return { tokens, attrs, residual };
 }
 
 /** Strip SGR for length/compare; leave other CSI as empty for visible text. */

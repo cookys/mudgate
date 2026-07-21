@@ -86,6 +86,22 @@ describe("ScreenBuffer", () => {
     expect(plain.includes("\n")).toBe(true);
   });
 
+  it("does not paint split SGR as literal [1;34m", () => {
+    const b = new ScreenBuffer(40, 3, "western");
+    // CSI split across writes (common with MCCP/WS chunks)
+    b.writeDecoded("who(\x1b[1;34");
+    b.writeDecoded("mYe\x1b[0;30mli\x1b[0m)");
+    const plain = b.snapshotText();
+    expect(plain).toContain("who(Yeli)");
+    expect(plain).not.toContain("[1;34");
+    expect(plain).not.toContain("[0;30");
+    // first latin of name should be bold blue cell
+    const cells = b.cells[0]!;
+    const y = cells.find((c) => c.ch === "Y");
+    expect(y?.attrs.bold).toBe(true);
+    expect(y?.attrs.fg).toBe(4);
+  });
+
   it("pushes scrolled-off top lines into scrollback", () => {
     const b = new ScreenBuffer(20, 3, "western");
     b.writeDecoded("line0\r\nline1\r\nline2\r\nline3\r\n");
