@@ -5,18 +5,21 @@ import {
   type SelectionRange,
 } from "@assmud/terminal";
 import { Big5StreamDecoder } from "@assmud/codec-big5";
-import { MudSocket, type HelloMsg } from "./lib/mudSocket";
+import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 
-export type { HelloMsg };
+export type { HelloMsg, StatusEvent };
 
 type Props = {
   wsUrl: string | null;
   hello: HelloMsg;
-  onStatus?: (s: string) => void;
+  onStatus?: (e: StatusEvent) => void;
   injectCommand?: string;
   onInjectConsumed?: () => void;
   expandInput?: (line: string) => string[];
   onServerLine?: (line: string) => void;
+  /** Full CSS font-family stack (primary + TC fallbacks) */
+  terminalFontStack?: string;
+  fontSizePx?: number;
 };
 
 type CopyMenuMode = "selection" | "screen";
@@ -55,6 +58,8 @@ export function TerminalHost({
   onInjectConsumed,
   expandInput,
   onServerLine,
+  terminalFontStack,
+  fontSizePx = 15,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -117,9 +122,24 @@ export function TerminalHost({
     const canvas = canvasRef.current;
     if (!canvas) return;
     rendererRef.current.mount(canvas);
+    if (terminalFontStack) {
+      rendererRef.current.setTypography({
+        fontFamily: terminalFontStack,
+        fontSizePx,
+      });
+    }
     redraw();
     return () => rendererRef.current.dispose();
-  }, [redraw]);
+  }, [redraw, terminalFontStack, fontSizePx]);
+
+  useEffect(() => {
+    if (!terminalFontStack) return;
+    rendererRef.current.setTypography({
+      fontFamily: terminalFontStack,
+      fontSizePx,
+    });
+    redraw();
+  }, [terminalFontStack, fontSizePx, redraw]);
 
   useEffect(() => {
     if (!wsUrl) return;
@@ -234,6 +254,7 @@ export function TerminalHost({
   return (
     <div
       ref={wrapRef}
+      lang="und"
       className="relative h-full min-h-0 w-full overflow-auto touch-pan-y"
       onContextMenu={onContextMenu}
     >

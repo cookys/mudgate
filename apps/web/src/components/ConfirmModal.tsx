@@ -6,6 +6,7 @@ type Props = {
   body: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  dismissLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -17,6 +18,7 @@ export function ConfirmModal({
   body,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  dismissLabel = "Dismiss",
   danger = false,
   onConfirm,
   onCancel,
@@ -43,7 +45,7 @@ export function ConfirmModal({
       <button
         type="button"
         className="absolute inset-0 bg-black/60"
-        aria-label="Dismiss"
+        aria-label={dismissLabel}
         onClick={onCancel}
       />
       <div

@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import type { MudProfile } from "@assmud/profiles";
 import type { AccentId } from "../lib/theme";
+import { pickTagline, useLocale, useT } from "../i18n";
+import { LocaleSwitch } from "./LocaleSwitch";
 
 type Props = {
-  tagline: string;
   profiles: MudProfile[];
   profileId: string;
   token: string;
@@ -16,7 +18,6 @@ type Props = {
 };
 
 export function ConnectGate({
-  tagline,
   profiles,
   profileId,
   token,
@@ -28,6 +29,13 @@ export function ConnectGate({
   onImportProfiles,
   onExportProfiles,
 }: Props) {
+  const t = useT();
+  const { locale } = useLocale();
+  const [tagline, setTagline] = useState(() => pickTagline(locale));
+  useEffect(() => {
+    setTagline(pickTagline(locale));
+  }, [locale]);
+
   const p = profiles.find((x) => x.id === profileId) ?? profiles[0];
 
   return (
@@ -40,7 +48,7 @@ export function ConnectGate({
         }}
       >
         <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span
               className="font-mono text-xs font-semibold tracking-widest uppercase px-2 py-0.5 rounded"
               style={{
@@ -48,17 +56,20 @@ export function ConnectGate({
                 background: "var(--accent-dim)",
               }}
             >
-              assmud
+              {t("app.name")}
             </span>
             <span className="text-xs" style={{ color: "var(--text-faint)" }}>
               v0.1
             </span>
+            <div className="ml-auto">
+              <LocaleSwitch />
+            </div>
           </div>
           <h1
             className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2"
             style={{ color: "var(--text)" }}
           >
-            Enter the wire
+            {t("connect.title")}
           </h1>
           <p
             className="text-sm leading-relaxed font-mono"
@@ -70,7 +81,7 @@ export function ConnectGate({
 
         <div className="space-y-4">
           <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-            World / profile
+            {t("connect.profile")}
             <select
               className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
               style={{
@@ -92,10 +103,10 @@ export function ConnectGate({
           </label>
 
           <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-            Auth token
+            {t("connect.token")}
             <span className="font-normal" style={{ color: "var(--text-faint)" }}>
               {" "}
-              (remote-prod; leave empty on LAN dev)
+              {t("connect.token.hint")}
             </span>
             <input
               className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
@@ -107,19 +118,19 @@ export function ConnectGate({
               value={token}
               onChange={(e) => onToken(e.target.value)}
               autoComplete="off"
-              placeholder="optional"
+              placeholder={t("connect.token.placeholder")}
             />
           </label>
 
           <div>
             <div className="text-xs font-medium mb-1.5" style={{ color: "var(--text-dim)" }}>
-              Accent
+              {t("connect.accent")}
             </div>
             <div className="flex gap-2">
               {(
                 [
-                  { id: "mint" as const, label: "Mint", swatch: "#3dffa8" },
-                  { id: "blue" as const, label: "Blue", swatch: "#5b9dff" },
+                  { id: "mint" as const, labelKey: "accent.mint" as const, swatch: "#3dffa8" },
+                  { id: "blue" as const, labelKey: "accent.blue" as const, swatch: "#5b9dff" },
                 ] as const
               ).map((opt) => (
                 <button
@@ -141,7 +152,7 @@ export function ConnectGate({
                     className="h-3 w-3 rounded-full"
                     style={{ background: opt.swatch }}
                   />
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </button>
               ))}
             </div>
@@ -157,7 +168,7 @@ export function ConnectGate({
               boxShadow: `0 0 24px var(--accent-glow)`,
             }}
           >
-            Connect to {p?.name ?? "MUD"} →
+            {t("connect.cta", { name: p?.name ?? "MUD" })}
           </button>
 
           <div
@@ -165,10 +176,10 @@ export function ConnectGate({
             style={{ color: "var(--text-faint)" }}
           >
             <button type="button" className="hover:underline" onClick={onExportProfiles}>
-              export profiles
+              {t("connect.export")}
             </button>
             <label className="hover:underline cursor-pointer">
-              import
+              {t("connect.import")}
               <input
                 type="file"
                 accept="application/json"

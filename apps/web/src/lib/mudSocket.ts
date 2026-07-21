@@ -1,5 +1,6 @@
 /**
  * WebSocket session outside React render — avoids setState/effect reconnect loops.
+ * Status is structured StatusEvent only (no English display strings as identity).
  */
 
 export type HelloMsg = {
@@ -9,6 +10,23 @@ export type HelloMsg = {
   port?: number;
   cols?: number;
   rows?: number;
+};
+
+export type StatusCode =
+  | "idle"
+  | "connecting"
+  | "handshaking"
+  | "connected"
+  | "disconnected"
+  | "reconnect_wait"
+  | "max_retries"
+  | "proxy_error"
+  | "bad_frame"
+  | "error";
+
+export type StatusEvent = {
+  code: StatusCode;
+  params?: Record<string, string | number>;
 };
 
 export type MudSocketHandlers = {
@@ -36,13 +54,28 @@ function backoffDelayMs(attempt: number): number {
   return Math.round(Math.max(MIN_OPEN_GAP_MS, jittered));
 }
 
+function statusSignature(ev: StatusEvent): string {
+  return ev.params
+    ? `${ev.code}:${JSON.stringify(ev.params)}`
+    : ev.code;
+}
+
+export function statusEventsEqual(a: StatusEvent, b: StatusEvent): boolean {
+  return statusSignature(a) === statusSignature(b);
+}
+
+function sanitizeDetail(raw: string): string {
+  return raw.replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "").slice(0, 200);
+}
+
 export class MudSocket {
   private ws: WebSocket | null = null;
   private disposed = false;
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private session = 0;
-  private status = "idle";
+  private status: StatusEvent = { code: "idle" };
+  private statusSig = "idle";
   private statusListeners = new Set<() => void>();
   private handlers: MudSocketHandlers = {};
   private lastOpenAt = 0;
@@ -53,7 +86,7 @@ export class MudSocket {
     private readonly getHello: () => HelloMsg,
   ) {}
 
-  getStatus(): string {
+  getStatus(): StatusEvent {
     return this.status;
   }
 
@@ -68,9 +101,11 @@ export class MudSocket {
     this.handlers = h;
   }
 
-  private setStatus(s: string): void {
-    if (this.status === s) return;
-    this.status = s;
+  private setStatus(ev: StatusEvent): void {
+    const sig = statusSignature(ev);
+    if (this.statusSig === sig) return;
+    this.status = ev;
+    this.statusSig = sig;
     for (const cb of [...this.statusListeners]) {
       try {
         cb();
@@ -93,7 +128,7 @@ export class MudSocket {
       this.timer = undefined;
     }
     this.killSocket();
-    this.setStatus("disconnected");
+    this.setStatus({ code: "disconnected" });
   }
 
   send(line: string): void {
@@ -131,14 +166,15 @@ export class MudSocket {
     this.opening = false;
     this.attempt += 1;
     if (this.attempt > MAX_ATTEMPTS) {
-      this.setStatus("disconnected (max retries — use Connect again)");
+      this.setStatus({ code: "max_retries" });
       return;
     }
     const delayMs = backoffDelayMs(this.attempt);
-    const secs = Math.max(1, Math.round(delayMs / 1000));
-    this.setStatus(
-      `reconnect in ${secs}s… (${this.attempt}/${MAX_ATTEMPTS})`,
-    );
+    const seconds = Math.max(1, Math.round(delayMs / 1000));
+    this.setStatus({
+      code: "reconnect_wait",
+      params: { seconds, attempt: this.attempt, max: MAX_ATTEMPTS },
+    });
     this.timer = setTimeout(() => {
       this.timer = undefined;
       if (!this.disposed) this.open();
@@ -168,9 +204,7 @@ export class MudSocket {
     this.killSocket();
     // killSocket bumped session; assign id for this attempt after kill
     const sid = this.session;
-    this.setStatus(
-      this.attempt === 0 ? "connecting…" : `reconnecting… (${this.attempt})`,
-    );
+    this.setStatus({ code: "connecting" });
 
     let ws: WebSocket;
     try {
@@ -186,7 +220,7 @@ export class MudSocket {
       if (this.disposed || this.session !== sid || this.ws !== ws) return;
       this.opening = false;
       // only reset backoff after TCP is actually up
-      this.setStatus("handshaking…");
+      this.setStatus({ code: "handshaking" });
       try {
         ws.send(JSON.stringify(this.getHello()));
       } catch {
@@ -203,7 +237,7 @@ export class MudSocket {
       if (this.ws === ws) this.ws = null;
       this.opening = false;
       if (this.disposed) {
-        this.setStatus("disconnected");
+        this.setStatus({ code: "disconnected" });
         return;
       }
       this.scheduleReconnect();
@@ -217,17 +251,19 @@ export class MudSocket {
           try {
             const j = JSON.parse(s) as { type?: string; message?: string };
             if (j.type === "error") {
-              const msg = (j.message ?? "error")
-                .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
-                .slice(0, 200);
-              this.setStatus(msg || "error");
+              const detail = sanitizeDetail(j.message ?? "");
+              this.setStatus(
+                detail
+                  ? { code: "proxy_error", params: { detail } }
+                  : { code: "proxy_error" },
+              );
             } else if (j.type === "ready") {
               // full session ready — clear backoff counter
               this.attempt = 0;
-              this.setStatus("connected");
+              this.setStatus({ code: "connected" });
             }
           } catch {
-            this.setStatus("bad control frame");
+            this.setStatus({ code: "bad_frame" });
           }
         }
         return;

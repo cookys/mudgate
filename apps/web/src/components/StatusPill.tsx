@@ -1,22 +1,20 @@
-type Props = { status: string };
+import type { StatusEvent } from "../lib/mudSocket";
+import { statusCopy, tone, useT } from "../i18n";
+
+type Props = { status: StatusEvent };
 
 export function StatusPill({ status }: Props) {
-  const s = status.toLowerCase();
-  let tone: "idle" | "ok" | "warn" | "danger" = "idle";
-  if (s.includes("connect") && !s.includes("disconnect") && !s.includes("error")) {
-    tone = s.includes("ing") || s.includes("hand") || s.includes("recon") ? "warn" : "ok";
-  }
-  if (s.includes("ready") || s === "connected") tone = "ok";
-  if (s.includes("error") || s.includes("denied") || s.includes("unauth")) tone = "danger";
-  if (s.includes("disconnect") || s === "idle") tone = "idle";
-  if (s.includes("recon")) tone = "warn";
+  const t = useT();
+  const ton = tone(status.code);
+  const copy = statusCopy(status);
+  const label = t(copy.key, copy.vars);
 
   const color =
-    tone === "ok"
+    ton === "ok"
       ? "var(--ok)"
-      : tone === "warn"
+      : ton === "warn"
         ? "var(--warn)"
-        : tone === "danger"
+        : ton === "danger"
           ? "var(--danger)"
           : "var(--text-faint)";
 
@@ -33,12 +31,12 @@ export function StatusPill({ status }: Props) {
         className="h-2 w-2 rounded-full"
         style={{
           background: color,
-          boxShadow: tone === "ok" || tone === "warn" ? `0 0 10px ${color}` : undefined,
+          boxShadow: ton === "ok" || ton === "warn" ? `0 0 10px ${color}` : undefined,
           animation:
-            tone === "warn" ? "assmud-pulse 1.4s ease-in-out infinite" : undefined,
+            ton === "warn" ? "assmud-pulse 1.4s ease-in-out infinite" : undefined,
         }}
       />
-      <span className="max-w-[10rem] truncate sm:max-w-none">{status}</span>
+      <span className="max-w-[10rem] truncate sm:max-w-none">{label}</span>
       <style>{`
         @keyframes assmud-pulse {
           0%, 100% { opacity: 1; }
