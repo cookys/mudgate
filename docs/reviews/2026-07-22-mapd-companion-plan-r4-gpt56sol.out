@@ -1,0 +1,7 @@
+ENGINE: GPT-5
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: NONE
+NITS: 明確指定 QuotaExceeded 補救事務驅逐幀數（建議每次僅最舊 1 個 unprotected）；§6 Unit 清單補列 P3，與 C0.3/C0.8 gate 完全一致。
+C0_SHIP_OK: TRUE
+FALSE_SHIP_RISKS: Quota retry 的驅逐數量目前略含糊，可能造成不必要的多幀刪除；屬實作精度風險，非方案阻塞。
+ONE_LINE_SUMMARY: R3 問題已完整收斂，C0 契約、靜默 settle、retry、IDB indexes、pin 限制、P2 gate 與誠實標籤均足以開工。

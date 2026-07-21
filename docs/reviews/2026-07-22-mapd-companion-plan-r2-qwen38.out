@@ -1,0 +1,29 @@
+```text
+ENGINE: QoderCN
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+(none — R1 BLOCK items are concretely resolved; see verification below)
+
+R1 BLOCK verification:
+  Detector → §2.2.1 BurstDetector v0: windowMs=400, minDistinctCupRows=6, cooldownMs=250, positive/negative C0.3 acceptance, manual fallback, off-switch testable. RESOLVED.
+  Storage  → §2.3.2: IndexedDB locked, MAX=30, LRU skips protected, QuotaExceeded path, cascade pin delete, profile isolation, confirm-delete. RESOLVED.
+  Fidelity → §2.3.1: deep-clone immunity, wideCont, inverse, widthMode, resize semantics. RESOLVED.
+
+NITS:
+- §4.1 mockup shows "信心：官方幀" unconditionally, but §2.2.2 forbids labeling manual-capture as "官方城圖". Clarify: the frame-level confidence badge must branch on `source` (auto-burst → "官方幀"; manual-capture → "終端快照"). As written an implementer may hardcode the mockup string.
+- Pin visibility lifecycle in 即時 mode is implicit: pins are frameId-scoped, so every auto-capture replaces the displayed frame and hides existing pins. Plan should state explicitly "pins render only for the currently displayed frameId; in live mode a new capture clears visible pins; freeze to annotate." Without this, implementer may attempt cross-frame pin persistence in C0 (scope creep) or file it as a bug.
+- §2.2.1 hook point: "on writeDecoded path (or VT hook)" — the "(or)" leaves the interception layer ambiguous. Given §5 dependency rule (terminal ⊬ web), recommend stating: terminal emits a lightweight event/count; BurstDetector logic lives in nav-memory or web layer. One sentence removes the guess.
+- §6 Unit row lists "fingerprint 穩定" but C0 allows fingerprint="" (§2.3). Either move that unit test to C1.5 or state C0 computes fingerprint but doesn't use it for reattach.
+- C0.4 rendering strategy (canvas vs DOM grid vs reuse ScreenBuffer paint) is unspecified. Acceptance criteria are testable either way, but one line of guidance ("reuse existing cell-render path" or "canvas 2D") would prevent a wrong architectural bet on CJK/inverse rendering.
+- §2.3.2 stores list: `frames · pins · meta (journeys → C1)`. Clarify whether the `meta` object store is created in C0 schema or deferred; implementer creating IDB schema needs to know.
+
+C0_SHIP_OK: yes — detection, storage, snapshot fidelity, and acceptance fixtures are concrete enough to implement without guessing on the R1-blocked axes.
+
+FALSE_SHIP_RISKS:
+- Pin-in-live-mode confusion: if UX copy (§4.1) implies pins persist across live captures, users will think pins are broken. Low severity; fixable with one i18n line + freeze prompt.
+- BurstDetector false-positive on non-map CUP-heavy sequences (e.g. MUD menu, help pager) will create junk frames filling LRU slots and evicting real map frames before user notices. Mitigation exists (manual delete, protected flag) but plan doesn't mention a "source=auto-burst frames younger than X auto-evict first" policy. Low risk given MAX=30.
+- Multi-tab same-profile: two tabs auto-capturing simultaneously can interleave LRU eviction (tab A deletes frame tab B just pinned). Plan says last-write-wins, acceptable for C0, but a protected-frame race could surprise. Very low probability.
+
+ONE_LINE_SUMMARY: R1 BLOCK items (detector constants, IDB lockdown, snapshot contract) are concretely folded with testable C0 acceptance; remaining gaps are labeling/lifecycle clarifications (NITS) that don't block implementation — APPROVE_WITH_NITS.
+```

@@ -1,0 +1,24 @@
+**ENGINE**: plan-hetero R4 review (no tools, format-only)
+
+**VERDICT**: APPROVE_WITH_NITS
+
+**MUST_FIX**: (none)
+
+**NITS**:
+1. §2.2.1 retryTimer fire path: pseudocode shows scheduling but not the fire handler — add one line: "on retryTimer fire: execute same capture+disarm path as settleTimer fire (skip interval check since interval已滿足)". Implementer can infer, but explicitness costs zero.
+2. §2.3.2 pin count: "pin limits" folded as text 1–200 chars (§C0.6). No per-frame pin count cap stated. Fine for C0 (30 frames × human pins ≈ bounded), but a one-line note "no hard pin-count cap in C0; revisit if perf" would close the question.
+3. §2.3 `MapFrameCell.fg/bg: number | null` — clarify the number is the SGR index (0–255) as stored by ScreenBuffer, not resolved RGB, so snapshot is palette-stable across themes.
+
+**C0_SHIP_OK**: YES — all R3 fold items verified present and consistent:
+- settle = no cup-abs AND no buf-mut for settleQuietMs ✓
+- retryTimer prevents permanent armed ✓ (nit: fire path implicit)
+- IDB indexes `byProfile`, `byProfileTime`, `byFrame` explicit in §2.3.2 ✓
+- pin text trim 1–200, pure-text render, bounds 0-based ✓
+- P2 in C0.3 + C0.8 ship gate ✓
+- 「官方」label banned across §2.2.2 / §2.3.4 / §4.1 / §4.2 ✓
+
+**FALSE_SHIP_RISKS**:
+- retryTimer edge: if `armed` cleared by user toggling auto-off between schedule and fire, handler must no-op. Not stated; trivial to impl but worth a test row (suggest N3: "armed → auto off before retry → 0 captures").
+- IDB txn eviction + put atomicity across tabs: spec says "每事務內 MAX 不破" — true, but two tabs can each see count=29 and both put → 31. Acceptable (soft cap), but §2.3.3 should say "MAX is per-txn best-effort under concurrency, not hard invariant" to avoid a future "bug" report.
+
+**ONE_LINE_SUMMARY**: R3 fold fully landed; plan is implementation-ready — two pseudocode clarifications and one concurrency caveat are polish, not blockers.

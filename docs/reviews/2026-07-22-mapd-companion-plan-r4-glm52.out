@@ -1,0 +1,37 @@
+## ENGINE
+
+架构清晰，双层硬边界（ScreenBuffer SSOT → nav-memory 快照 → UI）合理。BurstDetector v0 逻辑自洽：armed 状态由 cup-abs 触发，settle 条件同时监听 cup-abs + buf-mut，retry timer 防止 minInterval 卡死。IndexedDB schema（frames/pins/meta）及索引（byProfileTime 复合索引支持 LRU 查询）正确。事务模型——单事务 count+evict+put+cascade，QuotaExceeded 三事务重试——符合 IDB 不可重用 aborted txn 的约束。依赖方向（web → nav-memory → terminal types，禁止反向）正确。C0 scope 最小且自足。
+
+## VERDICT
+
+**APPROVE_WITH_NITS**
+
+## MUST_FIX
+
+无。C0 全部可实施——snapshotCells、BurstDetector、IDB 存储、canvas 渲染、pin CRUD、i18n、fixtures P1–P3+N1+N2、零回归检查均有明确契约。
+
+## NITS
+
+1. **`official-hint` 枚举值**在 C0 永不产生——类型联合里保留可接受（前向兼容），但建议在 §2.3 旁注一行"C0 code path never sets this value"以免实施者误用。
+2. **`meta` store** C0 创建但空——避免 C1 schema 迁移是合理的，但 §2.3.2 可加一句"C0 不写入 meta；预创建避免 version bump"。
+3. **armed → terminal buf-mut 发射路径**：契约说"while armed, any cell-mutating write emits buf-mut"，但未说明 web 层如何把 armed 状态传给 ScreenBuffer。实现上是一个 flag（web 调 `screenBuffer.setArmed(bool)`），非阻塞，但 §2.2.1 可补一行接口约定。
+4. **C0.4 色彩**：说"複用 terminal 既有 16/256 SGR→RGB helper（若無則抽一份 shared）"——"若无"分支是真实可能性但未指定 fallback。建议明确：fallback = 抽 shared helper 到 terminal 包，C0 必须落地。
+
+## C0_SHIP_OK
+
+| 检查项 | 状态 |
+|--------|------|
+| settle = buf-mut + cup quiet | ✅ §2.2.1 settleTimer 重置条件含 cup-abs OR buf-mut |
+| retry timer | ✅ P3 fixture 验证 minInterval 内不 stuck |
+| IDB indexes | ✅ byProfile / byProfileTime(frames) / byFrame / byProfile(pins) |
+| pin limits | ✅ 1–200 字 trim 禁空 纯文本渲染 |
+| P2 in gate | ✅ C0.8 fixture 必含 P2（buf-mut 续改字 → capture 最终 buffer） |
+| no 官方 labels | ✅ auto="自動擷取·推測" manual="終端快照" 冻结=锁图标；§4.2 显式禁止 |
+
+## FALSE_SHIP_RISKS
+
+无未缓解项。P2 fixture 防部分幀捕获；全 protected 拒写 + 不设假 id 防 lastMapFrameId 腐败；QuotaExceeded 三事务重试防数据不一致；manual badge 禁"官方"防权威混淆。
+
+## ONE_LINE_SUMMARY
+
+C0 scope 实施就绪，R4 fold 全部满足；4 个 nits 均为文档补充非代码阻塞，可在 impl 时顺手处理。

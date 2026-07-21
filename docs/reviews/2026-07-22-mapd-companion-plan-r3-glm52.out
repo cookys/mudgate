@@ -1,0 +1,25 @@
+```text
+ENGINE: QoderCN
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- P2 fixture (§2.2.1 "≥6 CUP then more CUP mutating cells before quiet → frame == final buffer") is missing from C0.3 acceptance criteria and C0.8 fixture list. settleQuietMs is the plan's core anti-half-frame guarantee — its test must be in the ship gate, not only in the spec body. An implementer checking C0.3/C0.8 for "done?" would not verify P2.
+- BurstDetector pseudo-code (§2.2.1) unconditionally executes `lastMapFrameId[tabId] = id` after `persist frame`, but §2.3.2 contract says "UI 不指向未寫入 id" on full-protected-full failure. The algorithm must show the failure branch: skip lastMapFrameId update, toast, reset armed=false. Without this, an implementer following the pseudo-code introduces a phantom-frame bug that contradicts the prose contract.
+
+NITS:
+- C0.4: ANSI fg/bg number → canvas RGB palette mapping not documented. Plan says "對齊 terminal 色" but doesn't point to ScreenBuffer's color interpretation. Implementer must reverse-engineer.
+- Auto-capture toast spam: when IDB full (all protected), BurstDetector fires every ≥250ms with toast; no rate-limit or suppress-after-N specified.
+- `meta` object store created in C0 but schema/purpose undefined. lastMapFrameId is memory-only per §2.3.3, so meta has no defined contents.
+- Unfreeze behavior unspecified: after `protected=false`, does display jump to latest lastMapFrameId or stay on previously frozen frame?
+- IDB QuotaExceeded retry: "先跑一次 unprotected LRU" doesn't specify whether retry is same or new transaction (original tx already aborted on QuotaExceeded).
+- Pin create-vs-edit on occupied cell: plan says click creates, but clicking a cell with an existing pin should open edit, not create — not explicitly disambiguated.
+- `snapshotCells(): MapFrameCells` (§5) vs `MapFrameCell[]` (§2.3) — minor type naming inconsistency.
+
+C0_SHIP_OK: no — P2 acceptance gap and persist-failure pseudo-code gap prevent clean C0 implementation from plan alone without guessing
+FALSE_SHIP_RISKS:
+- C0.3 BurstDetector can pass acceptance (P1/N1/N2) while settleQuietMs is subtly broken — P2 is the only test that catches mid-burst mutation; it is not in the ship gate.
+- C0.4 canvas may render with wrong ANSI colors because palette mapping is unspecified, yet "不要求 pixel-diff" gives false confidence that visual fidelity is acceptable.
+- Auto-capture on full-protected-full: pseudo-code unconditionally sets lastMapFrameId after persist; if persist returns null, UI points to phantom frame, contradicting §2.3.2 "不假 id" contract.
+
+ONE_LINE_SUMMARY: Thorough, nearly implementable plan — two must-fixes (P2 settleQuietMs test missing from acceptance gate; BurstDetector pseudo-code lacks persist-failure branch) plus color-palette and failure-handling nits; fix those two and C0 ships from this plan alone.
+```

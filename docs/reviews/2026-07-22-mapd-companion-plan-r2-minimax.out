@@ -1,0 +1,18 @@
+ENGINE: qoderclicn-plan-reviewer
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX: *(none — R1 gpt BLOCK items resolved)*
+
+NITS:
+- §2.4 fingerprint: "may be \"\" in C0 if deferred" vs §2.3 Model requires `fingerprint: string` — clarify C0.1 whether fingerprint computation is required or optional wire-field
+- Q5 still open (§10.2): plan recommends hetero R2 before impl; owner must decide or explicitly waive
+- BurstDetector (§2.2.1): spec says "on writeDecoded path (or VT hook)" — document which actual hook fires auto-capture so C0.3 fixture is implementable without guesswork
+- C0.6 pin UX: desktop click cell anchor — no minimum hit-area specified; without it C0 UI tests may be flaky
+
+C0_SHIP_OK: yes — plan provides sufficient specificity to implement C0 without implementer guessing; acceptance fixtures in C0.1/C0.3/C0.8 are testable and cover the critical paths
+
+FALSE_SHIP_RISKS:
+- R1 gpt BLOCK was on detector/storage/fidelity; all three are addressed with concrete contracts in §2.2, §2.3.2, §2.3.1 and C0 acceptance criteria. Plan is not under-specified.
+- C0 scope is clean: explicitly excludes stitch, journey, expedition, BroadcastChannel, SAVEC state machine.
+
+ONE_LINE_SUMMARY: R1 gpt BLOCK resolved; C0 ready to implement from plan alone, four minor clarifications (fingerprint scope, R2 decision, capture hook, pin hit-area) before or during impl.

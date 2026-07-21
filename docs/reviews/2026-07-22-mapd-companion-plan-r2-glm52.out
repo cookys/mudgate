@@ -1,0 +1,21 @@
+```text
+ENGINE: QoderCN
+VERDICT: BLOCK
+
+MUST_FIX:
+- C0.6 "Pin CRUD" — text entry and edit (Update) UX unspecified. Pin core content is `text: string` but no interaction pattern is defined: prompt? modal? inline? Can text be edited after creation? "CRUD" implies Update; acceptance criteria only cover Create (click cell), Read (display), Delete (cascade). Implementer must design UX → false ship risk.
+
+NITS:
+- BurstDetector v0 pseudocode says "on writeDecoded path (or VT hook)" — lock one hook point for C0; both see same CUP so functionally equivalent, but ambiguity invites divergence.
+- C0.8 fixture format unspecified — VT escape-sequence recording? JSON? Plan should state format or reference existing terminal test fixture pattern.
+- Q5 framing contradictory: "不挡 C0 若採預設" but default is "建議是" (recommend running R2 to ALL_CLEAR) — if this R2 BLOCKs, does C0 proceed or not? Resolve before approval.
+- Fingerprint field "may be '' in C0 if deferred" — clarify: computed-but-unused in C0, or always empty string?
+
+C0_SHIP_OK: no — Pin text/edit UX gap prevents confident C0 implementation from plan alone.
+
+FALSE_SHIP_RISKS:
+- Pin CRUD text entry and Update flow unspecified → implementer guesses interaction pattern, risks shipping inconsistent or incomplete CRUD (missing Update).
+- BurstDetector hook path ambiguity is low-risk — both paths see same CUP sequences, but should still be locked.
+
+ONE_LINE_SUMMARY: R1 detector/storage/fidelity folds are genuine and complete, but C0.6 Pin CRUD lacks text entry/edit UX specification — a false ship risk that blocks C0.
+```

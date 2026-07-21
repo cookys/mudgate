@@ -1,0 +1,27 @@
+ENGINE: gpt-5.6-sol
+VERDICT: BLOCK
+
+MUST_FIX:
+- BurstDetector snapshots immediately when the sixth distinct CUP row is observed, so it can persist a partially painted map before the remaining CUP writes/REST arrive. Specify a completion rule such as capture after a defined quiet/debounce interval, with subsequent writes resetting the timer, and add a fixture proving the stored frame is the completed final screen.
+- The plan conflates any `lastMapFrame` with detected map_d. A manual capture may explicitly contain chat/non-map content, yet it becomes `lastMapFrame`, can select the 城圖 tab by default, and §4 labels displayed cells as「官方」. Define separate map-likelihood/provenance state and require inferred auto frames, user snapshots, and confirmed map frames to have non-misleading labels and tab-selection behavior.
+- IndexedDB capacity enforcement is incomplete under concurrent tabs: each tab can append and independently run LRU, so MAX 30 is not reliably maintained and one tab can delete a frame displayed/frozen by another. Specify transactional insert-plus-eviction behavior, handling of externally deleted frame IDs, and whether the limit is per profile or global.
+- Protected frames are unbounded and quota recovery may have no evictable frames. Specify behavior when all candidates are protected, including a testable failure path that preserves existing frames/pins, reports that the new capture was not saved, and does not leave UI pointing at a nonexistent persisted frame.
+- C0 acceptance lacks a detector fixture proving delayed completion: a sequence reaching six rows and then continuing to mutate the buffer must store only the settled frame. Current positive fixture can pass while shipping truncated captures.
+
+NITS:
+- Reconcile `cooldownMs = 250` with the Risks table saying capture throttling is `≥200ms`; keep one normative value.
+- Clarify whether `MAX_FRAMES_PER_PROFILE = 30` counts protected frames even though they cannot be evicted.
+- Make frame deletion plus pin cascade one IndexedDB transaction.
+- Replace「官方幀」for `auto-burst` confidence `inferred`; CUP density alone is not an official-map assertion.
+- Remove C0-irrelevant journey/fingerprint unit tests from the C0 QC gate or label them by phase.
+
+C0_SHIP_OK: no — capture completion, provenance semantics, and concurrent/quota storage behavior still require implementer guesswork.
+
+FALSE_SHIP_RISKS:
+- A fixture passes at CUP row six while real users receive half-painted map snapshots.
+- Chat or menus manually captured are surfaced as the 城圖/「官方」view.
+- Concurrent tabs exceed the frame limit or invalidate another tab’s displayed frame.
+- Protected-frame saturation causes silent persistence failure or a UI frame that disappears after reload.
+- Auto-burst false positives receive stronger visual authority than their `inferred` confidence permits.
+
+ONE_LINE_SUMMARY: R1 improved fidelity and basic storage contracts, but the detector still captures too early and provenance plus multi-tab/quota semantics remain blocking.

@@ -1,0 +1,21 @@
+ENGINE: qoderclicn-1.0.45
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- (none — C0 deliverables are independently implementable from plan text)
+
+NITS:
+- C0.6 Pin CRUD modal: C0.6 says "modal" but plan does not specify modal dimensions, form fields, validation, keyboard nav, or which existing component to reuse; implementers will need to make design calls — consider adding one paragraph with form skeleton
+- C0.8 Fixtures: plan references "synthetic map_d sequence (SAVEC + CUP rows + REST)" and "ordinary output does not trigger" but provides no concrete fixture data or format; add one inline example or point to a fixture file pattern so CI author can wire tests without guessing
+- §2.3.2 IDB schema: protected frames count toward MAX=30 but if all 30 are protected the plan says "不存 新幀" with toast; it is unclear whether a newly protected frame from manual-capture also counts (likely yes) — clarify that protected count is total, not separate bucket
+- Multi-tab delete race: if Tab A captures and Tab B simultaneously deletes the same profile's frames, the atomic transaction in §2.3.2 may not prevent Tab A from writing a frame after Tab B's delete-then-insert commits first; plan should note this is acceptable for C0 (eventual-consistent) or add explicit note that IDB transactions per-write are the mitigation
+- Visual Anchor §2.4: fingerprint field exists on Frame but is always "" in C0; clarify that no-op fingerprint (empty string) must not cause runtime errors in C0.5/C0.6 reattach logic
+- Journey C1.2 "≤5 步二次確認連送" open question Q4 is still open; either close it in plan or explicitly gate the ≤5 case as C2
+
+C0_SHIP_OK: yes — plan is self-contained; BurstDetector v0 constants + fixtures + settleQuietMs behavior are specified; manual capture is P0 fallback; ANTI list is enforced; all 10 C0 deliverables map to testable acceptance criteria
+
+FALSE_SHIP_RISKS:
+- settleQuietMs=80ms is a magic constant with no empirical data cited; implementers may need to adjust after real RW map_d profiling; risk: C0 ships with wrong threshold causing either false negatives (map_d missed) or false positives (chat bursts captured) — recommend logging the threshold to profile settings for quick post-ship tuning without code change
+- Canvas cell rendering (C0.4) references "对齐 terminal 色／双宽语义即可，不要求 pixel-diff"; if terminal uses SGR 256-color or truecolor, mapping to canvas 2d fillStyle may introduce subtle color drift; risk: visual regression complaint from users who compare terminal vs sidebar — acceptable for C0 if explicitly noted as known gap
+
+ONE_LINE_SUMMARY: C0 plan is ready to implement; no blocking gaps, but adding one concrete fixture example, Pin modal form skeleton, and settleQuietMs logging would reduce downstream design calls.

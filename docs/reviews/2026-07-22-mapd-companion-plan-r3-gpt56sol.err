@@ -1,8 +1,73 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8673-e6fe-78f0-97ca-a3e229da8faa
+--------
+user
+NO TOOLS. Output ONLY ENGINE/VERDICT/MUST_FIX/NITS/C0_SHIP_OK/FALSE_SHIP_RISKS/ONE_LINE_SUMMARY.
+
+Plan hetero R3 after R2 fold. Verify settleQuietMs, pin modal CRUD, provenance badges, IDB txn, protected-full. Output ENGINE/VERDICT/MUST_FIX/NITS/C0_SHIP_OK/FALSE_SHIP_RISKS/ONE_LINE_SUMMARY only.
+# Plan hetero review brief — map_d Nav Companion
+
+You are a **plan reviewer** (not implementer). Review **only** this plan text for ship-readiness of the **plan document** (not code).
+
+## Plan under review
+
+Path: `/home/cookys/projects/assmud/docs/plans/2026-07-22-mapd-nav-companion.md`
+
+Related (context only, do not re-litigate shipped Nav Shell unless plan contradicts it):
+
+- `/home/cookys/projects/assmud/docs/plans/2026-07-22-automap-nav-shell.md` (SHIP P1)
+- `/home/cookys/projects/assmud/docs/reviews/2026-07-22-mapd-automap-hetero-brainstorm.md`
+
+## Product facts (do not invent opposite)
+
+- assmud: browser MUD client; VT `ScreenBuffer` already renders RW **map_d** correctly.
+- Stance locked: client = **nav co-pilot**, not second world map; no Mudlet full-city graph for RW cities.
+- Phase C0 = Companion (snapshot, freeze, pins); C1 = journey + stitch proto; C2 = expedition gates.
+- ANTI: OCR, default auto-speedwalk, GMCP-as-backbone, regressing map_d.
+
+## What to check
+
+1. **False ship risk** — any C0 deliverable underspecified so implementers would guess wrong?
+2. **map_d detection** — is P0 “manual pin + CUP burst” honest enough, or BLOCK until SAVEC state machine is specified?
+3. **Storage** — IndexedDB choice, quota/LRU, multi-tab isolation complete enough?
+4. **Boundary** — terminal vs nav-memory vs web dependencies correct?
+5. **C0 acceptance** — testable? missing fixtures?
+6. **Scope creep** — stitch/journey in C0 by accident?
+7. **Security/privacy** — frames/pins are not secrets but still PII-ish location memory?
+
+## Output format (required — plain text, no tools required if plan text is inlined)
+
+```text
+ENGINE: <model>
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+
+MUST_FIX:
+- ...
+
+NITS:
+- ...
+
+C0_SHIP_OK: yes|no — <one line>
+FALSE_SHIP_RISKS:
+- ...
+
+ONE_LINE_SUMMARY: ...
+```
+
+Be strict. Empty MUST_FIX only if truly ready to implement C0 from plan alone.
+===== PLAN =====
 # Plan — map_d Nav Companion（導航副駕）
 
-> **Status**: **APPROVED · plan-hetero ALL_CLEAR R4** (gpt/GLM/Qwen/MiniMax non-BLOCK · empty MUST_FIX; gemini-3.6-flash-high harness FAIL n/a)  
-
-
+> **Status**: **draft · plan-hetero R2 folded** — loop until ALL_CLEAR  
 
 > **Owner**: cookys  
 > **Date**: 2026-07-22  
@@ -126,60 +191,48 @@ Server map_d = spatial ground truth；client 做 **記憶、標註、旅程、�
 
 #### 2.2.1 BurstDetector v0（可測、可假陽性 · R2 fold）
 
-**Hook 鎖定（唯一）**：TerminalHost / ScreenBuffer **SHALL emit**  
-`{ type: "cup-abs", row: number, at: number }` on absolute CUP.  
-**buf-mut**：TerminalHost 提供 `setMapCaptureArmed(boolean)`；僅 `true` 時 cell-mutating write emit `{ type: "buf-mut", at }`。web 在 armed 升降時呼叫（terminal 不讀 web 狀態以外的耦合）。
+**Hook 鎖定**：`ScreenBuffer` / TerminalHost 在處理 **絕對 CUP** 時 emit 輕量事件  
+`{ type: "cup-abs", row, at }`（或累加 counter）。**偵測邏輯不在 terminal 內**，而在 web/nav-memory 訂閱（terminal ↛ web 依賴仍成立）。
 
 ```text
 windowMs = 400
 minDistinctCupRows = 6
-settleQuietMs = 80
-minIntervalMs = 250
-lastCaptureAt = -Infinity   // 首幀不受 interval 擋
+settleQuietMs = 80          // 達標後「安靜期」再 snapshot — 避免半幅畫面
+minIntervalMs = 250         // 兩次成功 capture 最短間隔（唯一節流常數）
 
-on cup-abs (if autoDetectEnabled):
-  add row to set; drop rows with at < now-windowMs
+on cup-abs event (if autoDetectEnabled):
+  add row to set within sliding windowMs
   if |set| >= minDistinctCupRows:
-    armed = true; setMapCaptureArmed(true)
+    mark armed = true
     reset settleTimer(settleQuietMs)
-on cup-abs OR buf-mut while armed:
-  reset settleTimer(settleQuietMs)
-
-function tryCapture():
-  if !autoDetectEnabled || !armed: return
-  if now - lastCaptureAt < minIntervalMs:
-    schedule one-shot retryTimer at lastCaptureAt+minIntervalMs
-    return
-  result = persistSnapshot({ source: "auto-burst", confidence: "inferred" })
-  // persist 失敗：不寫 lastMapFrameId（§2.3.2）
-  if result.ok:
-    lastMapFrameId[tabId] = result.id
-    lastCaptureAt = now
-  armed = false; setMapCaptureArmed(false)
-  clear row set
-  cancel retryTimer + settleTimer
-
-on settleTimer fire: tryCapture()
-on retryTimer fire: tryCapture()   // interval 已滿足；與 settle 同一路徑
-on autoDetect disable: armed=false; setMapCaptureArmed(false); cancel timers
+on any further cup-abs while armed:
+  reset settleTimer(settleQuietMs)   // 畫面仍在 paint
+on settleTimer fire:
+  if now - lastCaptureAt < minIntervalMs: return
+  snapshotCells() → persist frame
+    source: "auto-burst"
+    confidence: "inferred"   // NEVER label UI as 官方
+  lastMapFrameId[tabId] = id
+  lastCaptureAt = now
+  armed = false; clear set
 ```
 
 | 規則 | |
 |------|--|
-| 假陽性 | 允許；可刪 |
+| 常數寫死於 plan + unit | 可日後調，但測試用上表 |
+| 假陽性 | 允許；可刪；**不可**改 live buffer |
 | 假陰性 | 手動釘住 |
-| auto off | 永不 armed |
-| 半幅 | settle = **無 cup-abs 且無 buf-mut** 連續 settleQuietMs |
+| 關閉 auto | `assmud.nav.autoCapture=0` 永不 armed |
+| 半幅風險 | **settleQuietMs** 必測：CUP 到第 6 行後繼續改 buffer → 存的是 **settle 後** 最終畫面 |
 
-**C0.3 + C0.8 必含 fixtures（ship gate）**
+**C0.3 驗收 fixtures**
 
 | # | 輸入 | 期望 |
 |---|------|------|
-| P1 | ≥6 distinct CUP → quiet（無 cup/buf-mut）≥settleQuietMs | 1 frame；cells 匹配 quiet 後 |
-| **P2** | ≥6 CUP → **繼續 buf-mut 改字** → 再 quiet | frame == **最終** buffer |
-| P3 | settle 時仍在 minInterval 內 | 延遲到 interval 後仍 capture 一次（不 stuck armed 永久） |
-| N1 | 單次 CUP / 普通 scroll | 0 |
-| N2 | auto off | 0 |
+| P1 | ≥6 distinct CUP rows then quiet ≥settleQuietMs | 1 frame；cells == quiet 後 buffer |
+| P2 | ≥6 CUP then **more** CUP mutating cells before quiet | frame == **最終** buffer，不是第 6 行當下 |
+| N1 | 單行 scroll / 單次 CUP | 0 frame |
+| N2 | auto off | 0 frame even with burst |
 
 #### 2.2.2 手動「釘住目前終端畫面」
 
@@ -271,15 +324,11 @@ type Journey = {
 | Backend | **IndexedDB** DB name `assmud-nav` v1；thin wrapper |
 | Object stores created in C0 | `frames` · `pins` · `meta`（meta 可空；journeys 寫入 C1） |
 | `MAX_FRAMES_PER_PROFILE` | **30** 含 protected（protected 佔名額但不被 LRU 刪） |
-| Key paths | `frames`: keyPath `id`；index `byProfile`=`profileKey`；index `byProfileTime`=`[profileKey, capturedAt]` |
-| | `pins`: keyPath `id`；index `byFrame`=`frameId`；index `byProfile`=`profileKey` |
-| | `meta`: keyPath `key`（string），C0 可空 |
-| 寫入事務 | **一 txn**：count byProfile → if ≥MAX **只驅逐 1 個**最舊 unprotected（cascade pins）→ put；commit 後才更新 lastMapFrameId |
-| LRU 候選 | unprotected only；protected 計入 MAX |
-| 全 protected 且已滿 | 不 put；toast `map.companion.storageFull`（**≥10s 節流**）；不改 lastMapFrameId |
-| pin delete cascade | 同 txn；toast `map.companion.frameDeleted` |
-| QuotaExceeded | abort → 新 txn 驅逐 **1** unprotected → 新 txn put **最多再 1 次**；仍失敗 toast、不改 id |
-| 跨 tab MAX | per-txn best-effort；並發下可能短暫 >30，C0 可接受 soft cap |
+| 寫入事務 | **單一 transaction**：insert frame → 若 count>MAX 則 delete 最舊 unprotected → cascade pins；原子 |
+| LRU 候選 | `protected===false`，最舊 `capturedAt` 先 |
+| 全是 protected 且已滿 | **不刪**；**不存** 新幀；toast「已滿（皆已保護），請解除凍結或清除」；UI **不**指向未寫入 id |
+| pin on frame delete | 同 transaction 級聯刪 + toast |
+| QuotaExceeded | 先跑一次 unprotected LRU；仍失敗 → toast，不崩潰、不假 id |
 | profile 隔離 | 所有 query `profileKey === activeProfile.id` |
 | 清除 | confirm → 刪該 profile frames+pins |
 | 隱私 | 本機、共用電腦可見；非 vault |
@@ -380,12 +429,12 @@ while (mapd-like frames arriving && stitchEnabled):
 |----|------|------|
 | **C0.1** | `snapshotCells()` 符合 §2.3.1 | unit：clone 免疫後續 write；wideCont + inverse 保留 |
 | **C0.2** | 手動 capture → IDB；標 `manual-capture` / `user` | 重載可見；文案非「官方城圖」 |
-| **C0.3** | BurstDetector | fixtures **P1/P2/P3/N1/N2** 全過；關 auto 永不更新；失敗路徑不設假 id |
-| **C0.4** | 城圖 tab 渲染 | canvas 2d；**cell 盒 = 與終端相同 monospace 度量 @1×**；2×=整數倍；色：複用 terminal 既有 16/256 SGR→RGB helper（若無則抽一份 shared）；徽章依 source；空狀態 `map.companion.empty` |
-| **C0.5** | freeze / 解凍 | freeze→protected；解凍後 **仍顯示該 frame** 直到使用者選「即時」才跟 lastMapFrameId；1×/2×+pan |
-| **C0.6** | Pin CRUD | click 空 cell→modal 新建；click **既有 pin**→同一 modal 編輯；文字 **trim 後 1–200 字**、禁止空；**純文字渲染**（React text node / 禁 HTML）；列表可刪；0-based bounds；手機 C1 |
-| **C0.7** | i18n | 含 `map.companion.empty` / `storageFull` / `frameDeleted` / `frameGone` / 徽章鍵 / 隱私小字 |
-| **C0.8** | Fixtures | **必須**含 P1+**P2**+P3+N1+N2；格式：測試內建構 CUP/write 序列（同 terminal test 風格），非外部神秘 bin |
+| **C0.3** | BurstDetector v0 + 可關 | **正向**：fixture CUP≥6 → lastMapFrame 更新；**負向**：單行 scroll 不更新；關 auto 永不更新；**不**改 live paint |
+| **C0.4** | 城圖 tab 渲染 | 優先 **canvas 2d 畫 cell**（對齊 terminal 色／雙寬語意即可，不要求 pixel-diff）；徽章依 source；空狀態 i18n |
+| **C0.5** | freeze（protected）/ 解除 | 凍結後 auto 不替換顯示；縮放 **1×/2×** + pan 夾邊界 |
+| **C0.6** | Pin CRUD | **Create**：桌面 click cell（hit ≥ cell 盒）→ **modal** 輸入文字 → 存；**Read**：當前 frame 上 ★+tooltip；**Update**：再 click 同 pin 或列表「編輯」開同一 modal；**Delete**：modal 內刪除或列表刪；r,c 0-based 越界拒絕；手機 → C1 |
+| **C0.7** | i18n 副駕文案 + 隱私小字 + 空狀態 | zh-TW/CN/en |
+| **C0.8** | Fixtures | (1) CUP burst ≥6 rows (2) 可選 SAVEC+CUP+REST 記錄 (3) 普通輸出不觸發 |
 | **C0.9** | 零回歸 | `packages/terminal/tests/map-vt.test.ts` + `tests/e2e/golden-streams.test.ts` + `scripts/pre-smoke-check.sh` PASS |
 | **C0.10** | 清除本 profile 導航資料 | confirm 後刪 frames+pins |
 
@@ -431,20 +480,16 @@ while (mapd-like frames arriving && stitchEnabled):
 
 | 標籤 | 含義 | 顏色/形狀 |
 |------|------|-----------|
-| 自動擷取 · 推測 | auto-burst frame | 虛線 / inferred 色 |
-| 終端快照 | manual-capture | 實線 user 色 |
-| 已凍結 | protected 顯示中 | 鎖圖示 |
-| 已驗證出口 | nearby HUD parse | accent |
-| 推測足跡 | trail | 虛線 |
+| 官方 | map_d / 凍結幀 cell | 實線框 |
+| 已驗證 | 出口 parse + 移動確認 | accent |
+| 推測 | dead-reckon trail | 虛線 |
 | 未知 | 無資料 | dim |
-
-**禁止**在 C0 UI 使用「官方幀／官方地圖」稱呼任何 client 快照（含凍結）。
 
 ### 4.3 預設模式（RW profile）
 
 | 狀態 | 預設 tab |
 |------|----------|
-| 有 lastMapFrame（auto-burst 或手動） | **城圖**（或記住使用者上次 tab） |
+| 偵測到 map_d-like / 有 lastMapFrame | **城圖**（或記住使用者上次） |
 | 普通房間 | **附近** |
 | 使用者開 expedition | 足跡強化或獨立徽章 |
 
@@ -475,13 +520,13 @@ while (mapd-like frames arriving && stitchEnabled):
 
 | 層 | 內容 |
 |----|------|
-| Unit（C0） | snapshot immutability；wideCont/inverse；BurstDetector **P1/P2/P3/N1/N2** + N3 auto-off mid-retry；pin bounds；IDB 滿+全 protected；cascade delete |
+| Unit（C0） | snapshot immutability；wideCont/inverse；BurstDetector P1/P2/N1/N2；pin bounds；IDB 滿+全 protected 拒絕寫入；cascade delete |
 | Fixture | synthetic map_d sequence（SAVEC + CUP rows + REST）→ auto 更新 lastMapFrame |
 | Regression | `packages/terminal/tests/map-vt.test.ts`；e2e golden streams |
 | Manual smoke（**僅 C0**） | 開 map → auto 或釘住見幀；freeze；釘 pin；關 map 仍見凍結；清除 profile 資料；**不含**旅程 |
 | pre-smoke | 既有 script PASS |
 
-**高精度定義（延續 research）**：顯示與可走一致；server map_d（終端）與 client 快照／足跡 UI **視覺與文案分離**；不一致標未知。
+**高精度定義（延續 research）**：顯示與可走一致；官方幀與推測 UI **視覺分離**；不一致標未知。
 
 ---
 
@@ -494,8 +539,7 @@ while (mapd-like frames arriving && stitchEnabled):
 | Stitch 對不齊 | 實驗標 + 一鍵清空；不進預設 on |
 | Journey 重播踩雷（戰鬥） | 一步一確認；關鍵字 pause list |
 | multi-tab 寫同一 store | profileKey + tabId 隔離幀；pins 可 per-profile 共享 |
-| 效能（大幀複製） | 節流 = `minIntervalMs=250`；WebWorker 可選 C1 |
-| auto toast 洗版 | storageFull toast **最多每 10s 一次** |
+| 效能（大幀複製） | 節流 capture（≥200ms）；WebWorker 可選 C1 |
 
 ---
 
@@ -561,7 +605,7 @@ C2 expedition + diff alert
 
 | 指標 | 目標 |
 |------|------|
-| 嘲諷「假地圖」 | 城圖 tab 顯示可釘/可凍結的終端幀且徽章誠實 |
+| 嘲諷「假地圖」 | 城圖 tab 顯示官方幀後消失 |
 | map_d 回歸 | 0 已知 VT 破壞 |
 | Companion 使用 | 開 map 後側欄城圖有幀的 session 比例（自測） |
 | Journey | 至少 1 條玩家自建「常用路線」可重播 |
@@ -589,3 +633,33 @@ C2 expedition + diff alert
 | **impl C1/C2** | after C0 SHIP or parallel if capacity |
 
 **Decision needed from owner**：確認 §10 開放問題 → 標 **approved** → 開 C0 實作。
+codex
+ENGINE: gpt-5.6-sol
+VERDICT: BLOCK
+
+MUST_FIX:
+- `settleQuietMs` currently measures only CUP-event quiet, not buffer-write quiet. A CUP followed by delayed cell writes can still produce a partial frame. Define the snapshot boundary using terminal mutation/write activity, or explicitly constrain and fixture the real map_d event order.
+- The min-interval branch can leave `armed=true` with no scheduled timer: `return` occurs before disarming and no retry is arranged. Specify deterministic behavior—defer capture until the interval expires or disarm/drop the candidate—and add a unit test.
+- Provenance language contradicts the C0 contract: §4.2 labels map_d/frozen cells 「官方」, §11 says 「官方幀」, while C0 permits only inferred auto-bursts and user snapshots and expressly bans 「官方」. Replace these claims with the locked source/confidence badges.
+- Specify the IDB v1 key paths/indexes needed for profile-scoped count, `capturedAt` ordering, frame-pin lookup, and atomic cascade. Also define QuotaExceeded retry precisely: aborted write, eviction transaction, then one retry, with no UI/id update unless committed.
+- Define pin-input safety and limits: bounded text length, render strictly as text (never HTML), and state whether leading/trailing whitespace or empty pins are accepted. Pin text is user-controlled persisted data.
+
+NITS:
+- Reconcile the performance risk’s “≥200ms” wording with the locked `minIntervalMs=250`.
+- Replace “map_d-like” default-tab language in C0 with “auto-burst candidate” to avoid implying stronger classification.
+- Add CRUD persistence/reload and protected-toggle persistence to C0 acceptance tests.
+- Clarify whether deleting a frame manually emits the same cascade toast as LRU eviction.
+- State that profile deletion also clears any in-memory displayed/frozen frame reference for that profile.
+
+C0_SHIP_OK: no — capture settling, provenance semantics, and atomic persistence behavior still permit materially different implementations.
+
+FALSE_SHIP_RISKS:
+- A passing ≥6-CUP fixture can mask partial captures caused by writes occurring after the last CUP.
+- The detector can become armed but inert after a throttled timer firing.
+- UI may falsely present inferred/manual frames as official because later sections override the badge contract.
+- Different IDB schemas or quota retry interpretations can break profile isolation, cap enforcement, or pin cascades.
+- Persisted pin text lacks an explicit safe rendering and size contract.
+
+ONE_LINE_SUMMARY: R2 substantially closes C0 scope and CRUD/protected-full behavior, but R3 must fix true settle semantics, throttling state, provenance contradictions, and the IDB transaction/schema contract before implementation.
+tokens used
+23,701

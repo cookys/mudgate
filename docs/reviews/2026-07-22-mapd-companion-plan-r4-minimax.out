@@ -1,0 +1,39 @@
+ENGINE/VERDICT/MUST_FIX/NITS/C0_SHIP_OK/FALSE_SHIP_RISKS/ONE_LINE_SUMMARY
+
+---
+
+**ENGINE:**
+
+- **BurstDetector v0** (2.2.1): `cup-abs` arming, `settleQuietMs=80` (no cup-abs AND no buf-mut), retry timer at `minIntervalMs=250`. P2 (buf-mut continues → final state capture) 是核心情境，邏輯正確。settle = 真的安靜（兩訊號皆無）符合 spec。
+- **IDB storage** (2.3.2): 30 張含 protected；eviction → retry 一次；QuotaExceeded → double-eviction retry 合理。Full protected → toast + 不改 lastMapFrameId 不設假 id，符合 C0.3。
+- **Multi-tab** (2.3.3): lastMapFrameId per-tab memory；IDB 共享但每 txn 原子，tab 刪 frame → 空狀態 + i18n 不崩，符合 spec。
+- **retry timer edge case**: `lastCaptureAt` 初始值為 0，first capture `0 - 0 = 0 < 250` → 排 retry，邏輯自洽（首幀之後的 capture 才受 minInterval 限制）。
+- **R4 fold settled items**: buf-mut+cup quiet / retry timer / IDB indexes (`byProfile`, `byProfileTime`, `byFrame`) / pin limits (1–200 char) / P2 in gate / no 官方 labels，全部有对应 spec 条款。
+
+**VERDICT: APPROVE**
+
+---
+
+**MUST_FIX:** —
+
+---
+
+**NITS:**
+
+1. **2.2.1 retry retry**: QuotaExceeded → eviction → retry → 若仍失敗則 toast，**不重試第三次**。邏輯合理但 spec 未明說「最多一次 retry」。建議補：「最多 retry 一次，仍失敗則放棄」於 §2.3.2。
+2. **2.2.1 row-set 生命週期**: `expire rows older than windowMs` 在每次 cup-abs 時做。6+ distinct rows 跨不同時間戳可疊加（只要任一在 windowMs 內）。邏輯正確但可加一行說明防誤解。
+3. **C0.10 清除 scope**: 刪 `frames`+`pins`，`meta` 和 future `journeys` 未提及。建議：「（journeys 於 C1）」或「含所有 nav-data stores」。
+
+---
+
+**C0_SHIP_OK:** YES
+
+C0.1–C0.10 邊界清晰，無 blocking open question，測試覆蓋 P1+**P2**+P3+N1+N2 已列為 ship gate。
+
+---
+
+**FALSE_SHIP_RISKS:** —
+
+---
+
+**ONE_LINE_SUMMARY:** Plan R4 fold settled 充分，C0 最小集可行，無 blocking 問題，可進入實作。

@@ -1,0 +1,27 @@
+ENGINE: gpt-5.6-sol
+VERDICT: BLOCK
+
+MUST_FIX:
+- `settleQuietMs` currently measures only CUP-event quiet, not buffer-write quiet. A CUP followed by delayed cell writes can still produce a partial frame. Define the snapshot boundary using terminal mutation/write activity, or explicitly constrain and fixture the real map_d event order.
+- The min-interval branch can leave `armed=true` with no scheduled timer: `return` occurs before disarming and no retry is arranged. Specify deterministic behavior—defer capture until the interval expires or disarm/drop the candidate—and add a unit test.
+- Provenance language contradicts the C0 contract: §4.2 labels map_d/frozen cells 「官方」, §11 says 「官方幀」, while C0 permits only inferred auto-bursts and user snapshots and expressly bans 「官方」. Replace these claims with the locked source/confidence badges.
+- Specify the IDB v1 key paths/indexes needed for profile-scoped count, `capturedAt` ordering, frame-pin lookup, and atomic cascade. Also define QuotaExceeded retry precisely: aborted write, eviction transaction, then one retry, with no UI/id update unless committed.
+- Define pin-input safety and limits: bounded text length, render strictly as text (never HTML), and state whether leading/trailing whitespace or empty pins are accepted. Pin text is user-controlled persisted data.
+
+NITS:
+- Reconcile the performance risk’s “≥200ms” wording with the locked `minIntervalMs=250`.
+- Replace “map_d-like” default-tab language in C0 with “auto-burst candidate” to avoid implying stronger classification.
+- Add CRUD persistence/reload and protected-toggle persistence to C0 acceptance tests.
+- Clarify whether deleting a frame manually emits the same cascade toast as LRU eviction.
+- State that profile deletion also clears any in-memory displayed/frozen frame reference for that profile.
+
+C0_SHIP_OK: no — capture settling, provenance semantics, and atomic persistence behavior still permit materially different implementations.
+
+FALSE_SHIP_RISKS:
+- A passing ≥6-CUP fixture can mask partial captures caused by writes occurring after the last CUP.
+- The detector can become armed but inert after a throttled timer firing.
+- UI may falsely present inferred/manual frames as official because later sections override the badge contract.
+- Different IDB schemas or quota retry interpretations can break profile isolation, cap enforcement, or pin cascades.
+- Persisted pin text lacks an explicit safe rendering and size contract.
+
+ONE_LINE_SUMMARY: R2 substantially closes C0 scope and CRUD/protected-full behavior, but R3 must fix true settle semantics, throttling state, provenance contradictions, and the IDB transaction/schema contract before implementation.

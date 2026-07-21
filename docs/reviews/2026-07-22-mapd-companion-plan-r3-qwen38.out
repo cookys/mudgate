@@ -1,0 +1,21 @@
+```text
+ENGINE: QoderCN
+VERDICT: APPROVE_WITH_NITS
+
+MUST_FIX:
+- (none)
+
+NITS:
+- §2.2.1 hook: "emit 輕量事件 …（或累加 counter）" — the "或" leaves two interfaces; pick one contract sentence (e.g. "TerminalHost SHALL emit `cup-abs` event; nav-memory subscribes") to remove implementer choice ambiguity.
+- C0.4 canvas: cell pixel size derivation unspecified (font metrics? fixed grid?). Add one line: "cell box = same monospace metrics as terminal canvas at 1×; 2× = integer scale." Prevents a half-day bikeshed.
+- §2.3.2 protected-full toast and §2.3.3 stale-frame toast: reference the i18n key namespace (e.g. `map.companion.full`, `map.companion.frameGone`) so C0.7 translator pass is unambiguous.
+- §2.3 MapFrame.fingerprint is `""` in C0 but typed `string` — consider `fingerprint: string | null` with `null = not-yet-computed` to avoid accidental empty-string hash collisions in C1.5 reattach logic.
+
+C0_SHIP_OK: yes — BurstDetector constants/fixtures, IDB single-txn atomicity, protected-full reject path, pin modal CRUD bounds, and provenance badge prohibitions are all specified precisely enough to implement without guessing.
+
+FALSE_SHIP_RISKS:
+- Low: implementer picks "counter" variant for CUP hook and skips per-row `at` timestamp, subtly breaking settleTimer reset semantics. Mitigated if nit #1 is folded.
+- Low: canvas cell-box mismatch between pin hit-test coords and render coords if font metrics not pinned (nit #2). Would surface in manual smoke, not a silent data bug.
+
+ONE_LINE_SUMMARY: Plan is implementation-ready for C0; four nits tighten interface wording but none would cause a wrong-guess ship failure.
+```

@@ -1,7 +1,22 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8677-d70d-7a33-8045-2dd6007db2ac
+--------
+user
+NO TOOLS. ENGINE/VERDICT/MUST_FIX/NITS/C0_SHIP_OK/FALSE_SHIP_RISKS/ONE_LINE_SUMMARY only. Prefer APPROVE_WITH_NITS if only polish left.
+
+R4 after R3 fold: settle=buf-mut+cup quiet, retry timer, IDB indexes, pin limits, P2 in gate, no 官方 labels. VERDICT format only.
 # Plan — map_d Nav Companion（導航副駕）
 
-> **Status**: **APPROVED · plan-hetero ALL_CLEAR R4** (gpt/GLM/Qwen/MiniMax non-BLOCK · empty MUST_FIX; gemini-3.6-flash-high harness FAIL n/a)  
-
+> **Status**: **draft · plan-hetero R3 folded** — loop until ALL_CLEAR  
 
 
 > **Owner**: cookys  
@@ -128,40 +143,37 @@ Server map_d = spatial ground truth；client 做 **記憶、標註、旅程、�
 
 **Hook 鎖定（唯一）**：TerminalHost / ScreenBuffer **SHALL emit**  
 `{ type: "cup-abs", row: number, at: number }` on absolute CUP.  
-**buf-mut**：TerminalHost 提供 `setMapCaptureArmed(boolean)`；僅 `true` 時 cell-mutating write emit `{ type: "buf-mut", at }`。web 在 armed 升降時呼叫（terminal 不讀 web 狀態以外的耦合）。
+Additionally while `armed`, any cell-mutating write emits `{ type: "buf-mut", at }`  
+（含 delayed SGR+glyph 在 CUP 之後到達）。**偵測器在 nav-memory/web**，terminal 只 emit。
 
 ```text
 windowMs = 400
 minDistinctCupRows = 6
 settleQuietMs = 80
-minIntervalMs = 250
-lastCaptureAt = -Infinity   // 首幀不受 interval 擋
+minIntervalMs = 250   // 唯一節流；取代舊「≥200ms」說法
 
 on cup-abs (if autoDetectEnabled):
-  add row to set; drop rows with at < now-windowMs
+  add row to set (expire rows older than windowMs)
   if |set| >= minDistinctCupRows:
-    armed = true; setMapCaptureArmed(true)
+    armed = true
     reset settleTimer(settleQuietMs)
 on cup-abs OR buf-mut while armed:
   reset settleTimer(settleQuietMs)
 
-function tryCapture():
-  if !autoDetectEnabled || !armed: return
+on settleTimer fire:
   if now - lastCaptureAt < minIntervalMs:
-    schedule one-shot retryTimer at lastCaptureAt+minIntervalMs
-    return
+    // 不丟 candidate：排程 retry 在 (lastCaptureAt + minIntervalMs)
+    schedule one-shot retryTimer; return  // armed stays true until capture or disarm
   result = persistSnapshot({ source: "auto-burst", confidence: "inferred" })
-  // persist 失敗：不寫 lastMapFrameId（§2.3.2）
   if result.ok:
     lastMapFrameId[tabId] = result.id
     lastCaptureAt = now
-  armed = false; setMapCaptureArmed(false)
+  else:
+    // full-protected / quota — §2.3.2：不寫 lastMapFrameId；toast 已由 store 發出
+    // 不設假 id
+  armed = false
   clear row set
-  cancel retryTimer + settleTimer
-
-on settleTimer fire: tryCapture()
-on retryTimer fire: tryCapture()   // interval 已滿足；與 settle 同一路徑
-on autoDetect disable: armed=false; setMapCaptureArmed(false); cancel timers
+  cancel retryTimer
 ```
 
 | 規則 | |
@@ -274,12 +286,11 @@ type Journey = {
 | Key paths | `frames`: keyPath `id`；index `byProfile`=`profileKey`；index `byProfileTime`=`[profileKey, capturedAt]` |
 | | `pins`: keyPath `id`；index `byFrame`=`frameId`；index `byProfile`=`profileKey` |
 | | `meta`: keyPath `key`（string），C0 可空 |
-| 寫入事務 | **一 txn**：count byProfile → if ≥MAX **只驅逐 1 個**最舊 unprotected（cascade pins）→ put；commit 後才更新 lastMapFrameId |
-| LRU 候選 | unprotected only；protected 計入 MAX |
-| 全 protected 且已滿 | 不 put；toast `map.companion.storageFull`（**≥10s 節流**）；不改 lastMapFrameId |
-| pin delete cascade | 同 txn；toast `map.companion.frameDeleted` |
-| QuotaExceeded | abort → 新 txn 驅逐 **1** unprotected → 新 txn put **最多再 1 次**；仍失敗 toast、不改 id |
-| 跨 tab MAX | per-txn best-effort；並發下可能短暫 >30，C0 可接受 soft cap |
+| 寫入事務 | **一 txn**：count byProfile → if ≥MAX evict oldest unprotected（cascade pins same txn）→ put frame；commit 後才更新 memory lastMapFrameId |
+| LRU 候選 | unprotected only；protected 計入 MAX 名額 |
+| 全 protected 且已滿 | 不 put；toast `map.companion.storageFull`；**不**改 lastMapFrameId |
+| pin delete cascade | 刪 frame 同 txn 清 byFrame pins；toast `map.companion.frameDeleted`（手動/LRU 相同） |
+| QuotaExceeded | 原 txn abort → **新 txn** 只做 unprotected 驅逐 → **再新 txn** 重試 put **一次**；仍失敗 toast、不改 lastMapFrameId |
 | profile 隔離 | 所有 query `profileKey === activeProfile.id` |
 | 清除 | confirm → 刪該 profile frames+pins |
 | 隱私 | 本機、共用電腦可見；非 vault |
@@ -475,7 +486,7 @@ while (mapd-like frames arriving && stitchEnabled):
 
 | 層 | 內容 |
 |----|------|
-| Unit（C0） | snapshot immutability；wideCont/inverse；BurstDetector **P1/P2/P3/N1/N2** + N3 auto-off mid-retry；pin bounds；IDB 滿+全 protected；cascade delete |
+| Unit（C0） | snapshot immutability；wideCont/inverse；BurstDetector P1/P2/N1/N2；pin bounds；IDB 滿+全 protected 拒絕寫入；cascade delete |
 | Fixture | synthetic map_d sequence（SAVEC + CUP rows + REST）→ auto 更新 lastMapFrame |
 | Regression | `packages/terminal/tests/map-vt.test.ts`；e2e golden streams |
 | Manual smoke（**僅 C0**） | 開 map → auto 或釘住見幀；freeze；釘 pin；關 map 仍見凍結；清除 profile 資料；**不含**旅程 |
@@ -589,3 +600,13 @@ C2 expedition + diff alert
 | **impl C1/C2** | after C0 SHIP or parallel if capacity |
 
 **Decision needed from owner**：確認 §10 開放問題 → 標 **approved** → 開 C0 實作。
+codex
+ENGINE: GPT-5
+VERDICT: APPROVE_WITH_NITS
+MUST_FIX: NONE
+NITS: 明確指定 QuotaExceeded 補救事務驅逐幀數（建議每次僅最舊 1 個 unprotected）；§6 Unit 清單補列 P3，與 C0.3/C0.8 gate 完全一致。
+C0_SHIP_OK: TRUE
+FALSE_SHIP_RISKS: Quota retry 的驅逐數量目前略含糊，可能造成不必要的多幀刪除；屬實作精度風險，非方案阻塞。
+ONE_LINE_SUMMARY: R3 問題已完整收斂，C0 契約、靜默 settle、retry、IDB indexes、pin 限制、P2 gate 與誠實標籤均足以開工。
+tokens used
+23,061
