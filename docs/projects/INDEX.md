@@ -7,7 +7,7 @@
 
 | Date | Project | Target | Branch | Status |
 |------|---------|--------|--------|--------|
-| 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | Phase 1a on develop | `develop` | 🟢 進行中 |
+| 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | P0–P5 on develop | `develop` | 🟢 完成實作 / QC 中 |
 
 ## 已完成 (Completed)
 

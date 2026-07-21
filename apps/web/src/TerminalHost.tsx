@@ -15,13 +15,21 @@ type Props = {
   wsUrl: string | null;
   hello: HelloMsg;
   onStatus?: (s: string) => void;
+  injectCommand?: string;
+  onInjectConsumed?: () => void;
+  expandInput?: (line: string) => string[];
+  onServerLine?: (line: string) => void;
 };
 
-/**
- * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
- * Auth/destination via first-frame hello (no secrets in URL).
- */
-export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
+export function TerminalHost({
+  wsUrl,
+  hello,
+  onStatus,
+  injectCommand,
+  onInjectConsumed,
+  expandInput,
+  onServerLine,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bufRef = useRef(new ScreenBuffer(80, 28));
   const rendererRef = useRef(new Canvas2DRenderer());
@@ -29,6 +37,7 @@ export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
   const helloRef = useRef(hello);
   helloRef.current = hello;
+  const lineAcc = useRef("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -39,75 +48,117 @@ export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!injectCommand) return;
+    const lines = expandInput ? expandInput(injectCommand) : [injectCommand];
+    for (const line of lines) sendLine(line);
+    onInjectConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [injectCommand]);
+
+  useEffect(() => {
     if (!wsUrl) return;
     onStatus?.("connecting…");
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
+    let closed = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let ws: WebSocket;
 
-    const paint = () => rendererRef.current.draw(bufRef.current);
+    const connect = () => {
+      if (closed) return;
+      onStatus?.(attempt ? `reconnecting… (${attempt})` : "connecting…");
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      onStatus?.("handshaking…");
-      ws.send(JSON.stringify(helloRef.current));
-    };
-    ws.onclose = () => onStatus?.("disconnected");
-    ws.onerror = () => onStatus?.("error");
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") {
-        const s = ev.data;
-        if (s.startsWith("{")) {
-          try {
-            const j = JSON.parse(s) as {
-              type?: string;
-              message?: string;
-            };
-            if (j.type === "error") {
-              const msg = (j.message ?? "error")
-                .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
-                .slice(0, 200);
-              onStatus?.(msg || "error");
-            } else if (j.type === "ready") {
-              onStatus?.("connected");
+      const paint = () => rendererRef.current.draw(bufRef.current);
+
+      ws.onopen = () => {
+        attempt = 0;
+        onStatus?.("handshaking…");
+        ws.send(JSON.stringify(helloRef.current));
+      };
+      ws.onclose = () => {
+        wsRef.current = null;
+        if (closed) {
+          onStatus?.("disconnected");
+          return;
+        }
+        attempt += 1;
+        if (attempt > 5) {
+          onStatus?.("disconnected");
+          return;
+        }
+        onStatus?.(`reconnect in ${attempt}s`);
+        timer = setTimeout(connect, attempt * 1000);
+      };
+      ws.onerror = () => onStatus?.("error");
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") {
+          const s = ev.data;
+          if (s.startsWith("{")) {
+            try {
+              const j = JSON.parse(s) as { type?: string; message?: string };
+              if (j.type === "error") {
+                const msg = (j.message ?? "error")
+                  .replace(/[^\x20-\x7E\u4e00-\u9fff]/g, "")
+                  .slice(0, 200);
+                onStatus?.(msg || "error");
+              } else if (j.type === "ready") {
+                onStatus?.("connected");
+              }
+            } catch {
+              onStatus?.("bad control frame");
             }
-          } catch {
-            onStatus?.("bad control frame");
+          }
+          return;
+        }
+        const bytes = new Uint8Array(ev.data as ArrayBuffer);
+        const text = decoderRef.current.push(bytes);
+        if (text) {
+          bufRef.current.writeDecoded(text);
+          paint();
+          // line split for script engine
+          lineAcc.current += text;
+          const parts = lineAcc.current.split(/\r?\n/);
+          lineAcc.current = parts.pop() ?? "";
+          for (const ln of parts) {
+            if (ln) onServerLine?.(ln);
           }
         }
-        return;
-      }
-      const bytes = new Uint8Array(ev.data as ArrayBuffer);
-      const text = decoderRef.current.push(bytes);
-      if (text) {
-        bufRef.current.writeDecoded(text);
-        paint();
-      }
+      };
     };
 
+    connect();
+
     return () => {
-      ws.close();
+      closed = true;
+      if (timer) clearTimeout(timer);
+      wsRef.current?.close();
       wsRef.current = null;
       decoderRef.current.reset();
     };
-  }, [wsUrl, onStatus]);
+  }, [wsUrl, onStatus, onServerLine]);
 
   const sendLine = (line: string) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       if (line.length > 4096) return;
-      ws.send(line);
+      const lines = expandInput ? expandInput(line) : [line];
+      for (const l of lines) ws.send(l);
     }
   };
 
   return (
     <div className="flex flex-col gap-2 h-full min-h-0">
-      <canvas
-        ref={canvasRef}
-        className="rounded border border-zinc-700 bg-black max-w-full"
-        style={{ imageRendering: "pixelated" }}
-      />
+      <div className="overflow-auto touch-pan-y">
+        <canvas
+          ref={canvasRef}
+          className="rounded border border-zinc-700 bg-black max-w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
       <form
-        className="flex gap-2"
+        className="flex gap-2 sticky bottom-0 bg-zinc-950/90 py-1"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
@@ -119,12 +170,13 @@ export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
         <input
           name="line"
           autoComplete="off"
+          enterKeyHint="send"
           className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono"
-          placeholder="輸入指令…"
+          placeholder="指令 / alias…"
         />
         <button
           type="submit"
-          className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm"
+          className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm min-w-[4rem]"
         >
           送出
         </button>

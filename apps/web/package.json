@@ -10,6 +10,10 @@
   },
   "dependencies": {
     "@assmud/codec-big5": "0.1.0",
+    "@assmud/mapper": "0.1.0",
+    "@assmud/profiles": "0.1.0",
+    "@assmud/rw-pack": "0.1.0",
+    "@assmud/script-engine": "0.1.0",
     "@assmud/terminal": "0.1.0",
     "@assmud/vt": "0.1.0",
     "buffer": "^6.0.3",

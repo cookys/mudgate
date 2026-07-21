@@ -6,6 +6,7 @@ export default defineConfig({
       "packages/*/tests/**/*.test.ts",
       "apps/*/tests/**/*.test.ts",
     ],
+    // workspace packages resolve via package.json exports → src
     environment: "node",
   },
 });

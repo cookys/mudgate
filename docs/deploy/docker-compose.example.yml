@@ -1,0 +1,15 @@
+# Example only — copy to docker-compose.yml and set secrets. Do not commit secrets.
+services:
+  proxy:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ../..:/app
+    command: sh -c "npm ci && npm run dev -w @assmud/proxy"
+    environment:
+      ASSMUD_PROXY_MODE: remote-prod
+      ASSMUD_AUTH_TOKEN: change-me
+      ASSMUD_ORIGIN_ALLOWLIST: https://mud.example.com
+      PORT: "7788"
+    ports:
+      - "7788:7788"

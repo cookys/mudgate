@@ -14,6 +14,7 @@
     "typecheck": "tsc -b",
     "dev:proxy": "npm run dev -w @assmud/proxy",
     "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test",
     "lint": "echo 'lint: no-op until eslint lands'"
   },
   "devDependencies": {
