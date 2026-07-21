@@ -19,6 +19,8 @@
 - [ ] Optional TLS-to-MUD (telnets) when remote supports it
 - [ ] Open-relay abuse tests + rate limits for any hosted mode
 - [ ] CI: unit + terminal golden streams + e2e against mock MudOS
+- [ ] CI secret scan (gitleaks/trufflehog) before first public push
+- [ ] GitHub remote: branch protection + security advisories enabled
 
 ## Research spikes (not yet planned)
 

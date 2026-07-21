@@ -1,5 +1,114 @@
-# autopilot runtime state (keep .claude/*-config.md tracked)
+# --- autopilot runtime state (keep .claude/*-config.md tracked) ---
 .claude/tasks/
 .claude/*-state.json
 .claude/knowledge/
 .claude/.qc/
+
+# --- secrets & credentials (NEVER commit) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.secret
+secrets/
+.secrets/
+**/credentials.json
+**/service-account*.json
+
+# --- local-only MUD client data ---
+local/
+private/
+captures/
+recordings/
+sessions/
+profiles/
+*.mudpkg
+*.zmp
+*.txt.log
+*.session
+*.char
+**/passwords.*
+**/accounts.*
+
+# Live captures may include passwords typed after login banners.
+# Only commit anonymized fixtures under tests/fixtures/ (reviewed).
+tmp-captures/
+*.live.bin
+*.live.log
+
+# --- dependencies & build ---
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+dist/
+build/
+out/
+coverage/
+.turbo/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+*.tsbuildinfo
+
+# --- package manager locks optional policy: keep lockfiles when stack lands ---
+# (do not ignore package-lock.json / pnpm-lock.yaml / yarn.lock once chosen)
+
+# --- logs & debug ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# --- editors / OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+*.swp
+*.swo
+*~
+
+# --- test / tooling caches ---
+.cache/
+.parcel-cache/
+.eslintcache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# --- docker / deploy local overrides ---
+docker-compose.override.yml
+.deploy.local/
+*.local.yml
+*.local.yaml
+
+# --- worktrees / agent scratch ---
+.worktrees/
+.tmp/
+tmp/
+temp/
+scratch/

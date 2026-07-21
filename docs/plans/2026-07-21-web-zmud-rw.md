@@ -89,6 +89,7 @@ Players need a **modern web client** that:
 - Traditional Chinese UI first; English secondary.
 - Performance: **TypeScript-first**; WASM only where measured hotspots need it (see §0 WASM note / ADR). Repo name `assmud` is an intentional WASM wink, not a mandate to write the whole client in AssemblyScript day one.
 - Autopilot tracking: every L-size phase updates `docs/projects/.../README.md` + `docs/projects/INDEX.md`.
+- **Open-source hygiene**: no secrets, live credentialed captures, or unlicensed bulk third-party trees in git. Follow `docs/OPEN-SOURCE.md` + `SECURITY.md`. Local dumps only under gitignored `local/` / `private/` / `captures/`.
 
 ## 3. File-structure map (intended — after Phase 0)
 

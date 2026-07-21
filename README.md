@@ -11,6 +11,8 @@
 | 能力 | 終端 / 觸發器 / 別名 / 腳本（zMUD 心智）+ 安全預設 |
 | 深度標竿 | RW：`mud.revivalworld.org:4000/5000/6000` |
 | 狀態 | Bootstrap — 追蹤與計劃；應用 stack 尚未 scaffold |
+| 授權 | **MIT**（[`LICENSE`](LICENSE)）— 打算開源 |
+| 開源準備 | [`docs/OPEN-SOURCE.md`](docs/OPEN-SOURCE.md) · [`SECURITY.md`](SECURITY.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## 安全邊界（產品語言）
 
@@ -34,11 +36,20 @@
 Current project: [web-zmud-bootstrap](docs/projects/2026-07-21-web-zmud-bootstrap/README.md)  
 Current plan: [web-zmud-rw](docs/plans/2026-07-21-web-zmud-rw.md) (draft)
 
+## Open source hygiene
+
+- **Never commit**: passwords, tokens, keys, live post-login captures → see `SECURITY.md`
+- **Local dumps**: use gitignored `local/`, `private/`, `captures/`, `sessions/`
+- **Env**: copy `.env.example` → `.env` (ignored)
+- **Fixtures**: only reviewed anonymized streams under `tests/fixtures/`
+- **Third-party research**: cite in `docs/research/`; do not vendor full mudlibs without license review
+
 ## Next
 
-1. 凍結最終目標措辭（本 README）→ 關閉 plan §8 選型問題  
-2. Approve plan → Phase 1：TLS 可部署的 connect path + 完整 VT 終端 MVP（先 RW 過關）
+1. 關閉 plan §8 選型問題  
+2. Approve plan → Phase 1：TLS 可部署的 connect path + 完整 VT 終端 MVP（先 RW 過關）  
+3. 公開前跑 `docs/OPEN-SOURCE.md` pre-publish gate（gitleaks 等）
 
 ## License
 
-TBD
+[MIT](LICENSE) © 2026 Cookys Lin

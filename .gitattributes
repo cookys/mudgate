@@ -1,0 +1,29 @@
+# Default
+* text=auto eol=lf
+
+# Force LF for source/docs
+*.md text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sh text eol=lf
+
+# Binary fixtures (MUD wire captures)
+*.bin binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# Big5 text fixtures: do not "fix" as UTF-8
+*.big5.txt binary

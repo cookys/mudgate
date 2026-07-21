@@ -20,5 +20,10 @@ Always full review (never fast-path) when a change touches:
 | User script / trigger engine | must be sandboxed; malicious packages can exfiltrate sessions |
 | CSP / CORS / origin checks | browser client security posture |
 | Captcha / login automation helpers | RW anti-bot surfaces; must not store or ship secrets |
+| New `tests/fixtures/**` | must be anonymized; no post-login password material |
+| `.env` / keys / `captures/` / session dumps | must remain gitignored; never force-add |
+
+## Open-source pre-merge extras
+- Reject PRs that add `node_modules/`, full mudlib vendor trees, or secret-looking files (see `docs/OPEN-SOURCE.md`).
 
 # Superpowers not installed. Keep autopilot:reviewer unless you add superpowers preference chains in dispatch-config.md.
