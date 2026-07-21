@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import zlib from "node:zlib";
 import { EventEmitter } from "node:events";
-import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT } from "@assmud/protocol";
+import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT, naws } from "@assmud/protocol";
 
 const sockets: FakeSock[] = [];
 
@@ -251,5 +251,41 @@ describe("bridge MCCP2", () => {
     await waitMs(50);
     // either close from destroy or from finish path
     expect(ws.close).toHaveBeenCalled();
+  });
+
+  it("DO NAWS replies with hello cols/rows", async () => {
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, {
+      host: "127.0.0.1",
+      port: 4000,
+      mccp: false,
+      cols: 100,
+      rows: 40,
+    });
+    const sock = sockets[0]!;
+    sock.emit("data", Buffer.from([IAC, DO, OPT.NAWS]));
+    await waitMs(15);
+    const expected = Buffer.from(naws(100, 40));
+    expect(sock.written.some((b) => b.equals(expected))).toBe(true);
+  });
+
+  it("client JSON naws resize updates and re-sends NAWS", async () => {
+    const ws = fakeWs();
+    bridgeWsToMud(ws as never, {
+      host: "127.0.0.1",
+      port: 4000,
+      mccp: false,
+      cols: 80,
+      rows: 24,
+    });
+    const sock = sockets[0]!;
+    ws.emit(
+      "message",
+      JSON.stringify({ type: "naws", cols: 120, rows: 36 }),
+      false,
+    );
+    await waitMs(15);
+    const expected = Buffer.from(naws(120, 36));
+    expect(sock.written.some((b) => b.equals(expected))).toBe(true);
   });
 });

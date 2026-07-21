@@ -60,10 +60,16 @@ function addCap(current: number, incoming: number, cap: number): number | null {
  * Bridge one WebSocket client to one TCP MUD connection.
  * Optional MCCP2: after IAC SB MCCP2 IAC SE, zlib-inflate wire then telnet-parse.
  */
+function clampTerm(n: number, lo: number, hi: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, Math.trunc(n)));
+}
+
 export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   const parser = new TelnetParser();
-  const cols = opts.cols ?? 80;
-  const rows = opts.rows ?? 24;
+  /** Mutable — client may send mid-session resize / NAWS updates. */
+  let cols = clampTerm(opts.cols ?? 80, 20, 511, 80);
+  let rows = clampTerm(opts.rows ?? 24, 8, 200, 24);
   const mccpEnabled =
     opts.mccp ??
     (() => {
@@ -337,6 +343,24 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
     if (!isBinary) {
       const s = String(data);
       if (s.length > 16_384) return;
+      // Control JSON (not a MUD line): {"type":"naws"|"resize","cols":N,"rows":N}
+      if (s.startsWith("{")) {
+        try {
+          const j = JSON.parse(s) as {
+            type?: string;
+            cols?: number;
+            rows?: number;
+          };
+          if (j.type === "naws" || j.type === "resize") {
+            cols = clampTerm(Number(j.cols ?? cols), 20, 511, cols);
+            rows = clampTerm(Number(j.rows ?? rows), 8, 200, rows);
+            sendTcp(naws(cols, rows));
+            return;
+          }
+        } catch {
+          /* fall through as mud line */
+        }
+      }
       const cleaned = s.replace(/\xff/g, "");
       const line =
         cleaned.endsWith("\n") || cleaned.endsWith("\r")

@@ -143,6 +143,17 @@ export class MudSocket {
     ws.send(line);
   }
 
+  /** Send a JSON control frame (e.g. mid-session NAWS resize). */
+  sendJson(obj: Record<string, unknown>): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
+    }
+  }
+
   private killSocket(): void {
     const prev = this.ws;
     this.ws = null;

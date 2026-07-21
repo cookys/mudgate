@@ -248,6 +248,7 @@ export function App() {
     });
   }, [tab?.connected, trustMode, customWs]);
 
+  // cols/rows overridden at connect by TerminalHost fit (viewport × cell size)
   const hello: HelloMsg = useMemo(
     () => ({
       type: "hello",
@@ -255,7 +256,7 @@ export function App() {
       host: profile.host,
       port: profile.port,
       cols: 80,
-      rows: 28,
+      rows: 24,
     }),
     [token, profile],
   );

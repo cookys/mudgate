@@ -8,6 +8,7 @@ import {
 import { Big5StreamDecoder } from "@assmud/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
+import { fitTermSize, TERM_FIT } from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
 
@@ -75,7 +76,9 @@ export function TerminalHost({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+  const bufRef = useRef(
+    new ScreenBuffer(TERM_FIT.defaultCols, TERM_FIT.defaultRows, widthMode),
+  );
   const rendererRef = useRef(new Canvas2DRenderer());
   const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
   const widthModeRef = useRef(widthMode);
@@ -87,11 +90,19 @@ export function TerminalHost({
   /** Lines above live bottom; 0 = follow live. */
   const scrollOffsetRef = useRef(0);
   const echoMaskRef = useRef(false);
+  /** Live grid size reported in hello + mid-session NAWS. */
+  const termSizeRef = useRef({
+    cols: TERM_FIT.defaultCols,
+    rows: TERM_FIT.defaultRows,
+  });
 
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [termSizeLabel, setTermSizeLabel] = useState(
+    `${TERM_FIT.defaultCols}×${TERM_FIT.defaultRows}`,
+  );
 
   const helloRef = useRef(hello);
   helloRef.current = hello;
@@ -121,6 +132,41 @@ export function TerminalHost({
       scrollOffsetRef.current = o;
       setScrollOffset(o);
       redraw();
+    },
+    [redraw],
+  );
+
+  /** Fit buffer + canvas to wrap; notify MUD via hello (initial) or JSON naws. */
+  const applyFit = useCallback(
+    (opts?: { notifyMud?: boolean }) => {
+      const wrap = wrapRef.current;
+      const r = rendererRef.current;
+      if (!wrap) return termSizeRef.current;
+      const cssW = wrap.clientWidth;
+      const cssH = wrap.clientHeight;
+      if (cssW < 20 || cssH < 20) return termSizeRef.current;
+      const next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+      const prev = termSizeRef.current;
+      const changed = prev.cols !== next.cols || prev.rows !== next.rows;
+      termSizeRef.current = next;
+      if (changed) {
+        bufRef.current.resize(next.cols, next.rows);
+        setTermSizeLabel(`${next.cols}×${next.rows}`);
+        // New grid — clear selection / scroll view
+        selRef.current = null;
+        setSelection(null);
+        scrollOffsetRef.current = 0;
+        setScrollOffset(0);
+        if (opts?.notifyMud) {
+          socketRef.current?.sendJson({
+            type: "naws",
+            cols: next.cols,
+            rows: next.rows,
+          });
+        }
+      }
+      redraw();
+      return next;
     },
     [redraw],
   );
@@ -172,9 +218,15 @@ export function TerminalHost({
         lineHeightScale,
       });
     }
-    redraw();
+    applyFit({ notifyMud: false });
     return () => rendererRef.current.dispose();
-  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+  }, [
+    applyFit,
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+  ]);
 
   useEffect(() => {
     if (!terminalFontStack) return;
@@ -184,8 +236,34 @@ export function TerminalHost({
       cellWidthScale,
       lineHeightScale,
     });
-    redraw();
-  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+    // Font metrics change cell size → re-fit grid and NAWS
+    applyFit({ notifyMud: true });
+  }, [
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+    applyFit,
+  ]);
+
+  // Observe terminal stage size (window / drawer / map panel)
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        // Only notify MUD when a session is live
+        applyFit({ notifyMud: Boolean(socketRef.current) });
+      });
+    });
+    ro.observe(wrap);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [applyFit, wsUrl]);
 
   // Charset / width mode change: clear buffer so cells never mix modes
   useEffect(() => {
@@ -196,15 +274,24 @@ export function TerminalHost({
   useEffect(() => {
     if (!wsUrl) return;
 
-    // Fresh session buffer with correct width mode
-    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+    // Measure before hello so NAWS matches the real viewport
+    const size = applyFit({ notifyMud: false });
+    bufRef.current = new ScreenBuffer(
+      size.cols,
+      size.rows,
+      widthModeRef.current,
+    );
     decoderRef.current.reset();
     lineAcc.current = "";
     scrollOffsetRef.current = 0;
     setScrollOffset(0);
     echoMaskRef.current = false;
 
-    const sock = new MudSocket(wsUrl, () => helloRef.current);
+    const sock = new MudSocket(wsUrl, () => ({
+      ...helloRef.current,
+      cols: termSizeRef.current.cols,
+      rows: termSizeRef.current.rows,
+    }));
     socketRef.current = sock;
 
     sock.setHandlers({
@@ -251,7 +338,7 @@ export function TerminalHost({
       decoderRef.current.reset();
       lineAcc.current = "";
     };
-  }, [wsUrl, redraw]);
+  }, [wsUrl, redraw, applyFit]);
 
   useEffect(() => {
     if (!injectCommand) return;
@@ -428,6 +515,17 @@ export function TerminalHost({
             ↓ 即時 · {scrollOffset}
           </button>
         )}
+        <span
+          className="rounded border px-2 py-1 text-[10px] font-mono tabular-nums"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-faint)",
+          }}
+          title="NAWS terminal size (cols×rows)"
+        >
+          {termSizeLabel}
+        </span>
         <button
           type="button"
           className="rounded border px-2 py-1 text-[11px] font-mono"
@@ -476,8 +574,9 @@ export function TerminalHost({
           // never use pixelated — it freckles glyph edges when CSS-scaled
           imageRendering: "auto",
           background: "#0a0b0e",
+          // Exact cell grid size (set by renderer); do not CSS-stretch beyond stage
           maxWidth: "100%",
-          height: "auto",
+          maxHeight: "100%",
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
