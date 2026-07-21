@@ -10,6 +10,8 @@
 | 連線 | 瀏覽器側 **TLS（HTTPS / WSS）**；MUD 側 **TCP + Telnet**（各家 mud 的真實協定） |
 | 能力 | 終端 / 觸發器 / 別名 / 腳本（zMUD 心智）+ 安全預設 |
 | 深度標竿 | RW：`mud.revivalworld.org:4000/5000/6000` |
+| Stack | **React + Vite + TS + Tailwind**；terminal 無框架 package（[ADR-001](docs/adr/ADR-001-stack.md)） |
+| Hot path | Canvas2D 預設；**WebGPU / WASM** 可插拔（非 day-1 必做） |
 | 狀態 | Bootstrap — 追蹤與計劃；應用 stack 尚未 scaffold |
 | 授權 | **MIT**（[`LICENSE`](LICENSE)）— 打算開源 |
 | 開源準備 | [`docs/OPEN-SOURCE.md`](docs/OPEN-SOURCE.md) · [`SECURITY.md`](SECURITY.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) |
