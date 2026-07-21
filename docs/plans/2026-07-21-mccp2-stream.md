@@ -1,6 +1,6 @@
 # Plan — MCCP2 stream inflate (proxy)
 
-> **Status**: **approved for implement** (multi-LLM loop R2–R4; Grok+GLM+MiniMax APPROVE*; Codex must-fixes folded)
+> **Status**: **SHIP** (feat/mccp2-stream) (multi-LLM loop R2–R4; Grok+GLM+MiniMax APPROVE*; Codex must-fixes folded)
 > **Owner**: cookys  
 > **Seq**: **1**  
 > **Branch**: `feat/mccp2-stream`  

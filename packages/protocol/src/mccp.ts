@@ -1,16 +1,7 @@
 /**
- * Optional MCCP2 inflate (Phase 3). Off by default — Phase 1a DONT MCCP2.
+ * MCCP2 helpers — stream inflate lives in proxy bridge (zlib.createInflate).
+ * No silent per-chunk inflate (removed tryInflateMccp anti-pattern).
  */
-import { inflateRawSync, inflateSync } from "node:zlib";
 
-export function tryInflateMccp(chunk: Uint8Array): Uint8Array {
-  try {
-    return new Uint8Array(inflateSync(Buffer.from(chunk)));
-  } catch {
-    try {
-      return new Uint8Array(inflateRawSync(Buffer.from(chunk)));
-    } catch {
-      return chunk;
-    }
-  }
-}
+/** IAC SB MCCP2 IAC SE — server starts compression after this. */
+export const MCCP2_START_SB = Uint8Array.of(255, 250, 86, 255, 240);
