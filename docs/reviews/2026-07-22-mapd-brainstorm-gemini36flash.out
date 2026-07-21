@@ -1,0 +1,11 @@
+The current model is **Gemini 3.6 Flash (High)**.
+
+### Usage of `--model` in Antigravity CLI (`agy`)
+
+When invoking `agy` from the command line, the `--model` flag specifies which model to run for the session:
+
+```bash
+agy --model <model-name>
+```
+
+You can also switch models dynamically within the application UI via the **Model Selection** setting or configure your default model in `~/.gemini/antigravity-cli/settings.json`.

@@ -35,6 +35,8 @@ Impl hetero: **[queue-impl-hetero-all-clear](../reviews/2026-07-21-queue-impl-he
 | 6 | [profile-library](./2026-07-21-profile-library.md) | [project](../projects/2026-07-21-profile-library/) | **SHIP** |
 | 7 | [research-spikes](./2026-07-21-research-spikes.md) | [project](../projects/2026-07-21-research-spikes/) | **SHIP** docs |
 | 8 | [profile-secrets-vault](./2026-07-22-profile-secrets-vault.md) | (expand next) | **APPROVED** plan · ALL_CLEAR R6 · not impl |
+| 9 | [automap-nav-shell](./2026-07-22-automap-nav-shell.md) | — | **SHIP** P1 HUD/trail |
+| 10 | [mapd-nav-companion](./2026-07-22-mapd-nav-companion.md) | (next) | **draft** · hetero brainstorm folded · await approve |
 
 ## Research / triage
 

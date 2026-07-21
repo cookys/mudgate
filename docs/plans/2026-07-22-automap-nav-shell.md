@@ -1,9 +1,11 @@
 # Plan — Automap Nav Shell (Chinese-first P1)
 
-> **Status**: **IMPL** (P1 + WebGL trail POC on develop)  
+> **Status**: **SHIP** (P1 Nav Shell on develop)  
 > **Date**: 2026-07-22  
 > **Research**: `docs/research/2026-07-22-automap-chinese-first.md`  
 > **Decisions**: modes switchable; P1 first; triggers; RW dialect en; RW→multi  
+> **Next**: map_d Companion formal plan → [`2026-07-22-mapd-nav-companion.md`](./2026-07-22-mapd-nav-companion.md)  
+
 
 ## Scope — this ship
 
@@ -20,15 +22,15 @@
 
 ## Backlog (not this ship)
 
-| ID | Item |
-|----|------|
-| **B1** | map_d mirror / pin second viewport |
-| **B2** | Bookmarks + path preview + speedwalk queue |
-| **B3** | Forced-move / follow / teleport events |
-| **B4** | Map pack import/export |
-| **B5** | Per-mud parser profiles beyond RW defaults |
-| **B6** | A* pathfinding on graph |
-| **B7** | Multi-session isolated graphs |
+| ID | Item | Moved to |
+|----|------|----------|
+| **B1** | map_d mirror / pin second viewport | **Companion plan C0** |
+| **B2** | Bookmarks + journey (not blind speedwalk) | **Companion plan C1** |
+| **B3** | Forced-move / follow / teleport events | still open |
+| **B4** | Map pack / journey export | **Companion C1** |
+| **B5** | Per-mud parser profiles beyond RW defaults | still open |
+| **B6** | A* pathfinding on graph | ANTI for RW city; expedition only |
+| **B7** | Multi-session isolated graphs | Companion storage scope |
 
 ## Acceptance (P1)
 

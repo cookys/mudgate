@@ -1,0 +1,42 @@
+ENGINE: GPT-5
+STANCE: assmud 應定位為「以伺服器地圖為真相來源的導航副駕」，負責保存、解讀與輔助行動，而不是宣稱擁有第二套更正確的世界地圖。
+
+TOP_IDEAS:
+1. map_d Live Companion — 將 VT map_d 無失真鏡像到側欄，支援 freeze、縮放、歷史幀、座標指示與玩家註記，離開全螢幕地圖後仍可參照 — feasibility H — risk：需可靠辨識 map_d 畫面生命週期，且不能干擾 SAVEC/REST
+2. Journey Recorder — 把移動命令、結果文字、map_d 前後快照與 session trail 串成可命名旅程；玩家可逐步重播或產生「下一步提示」，但不承諾自動尋路 — feasibility H — risk：戰鬥、傳送、跟隨與 alias 展開會造成路徑失真
+3. Visual Anchor Localization — 直接對 VT cell buffer 做 glyph、色彩與相對布局 fingerprint，不用 OCR；再次開啟 map_d 時辨認「大概在哪個官方地圖／區塊」，自動掛回旅程與註記 — feasibility M — risk：動態標記、配色設定及相似街區可能碰撞，必須顯示 confidence 與候選項
+4. Expedition Mode — 僅在迷宮、洞穴或無 map_d 區域啟動臨時拓撲：記錄已確認轉移、回頭關係、單向出口與未知分支，離區後預設封存而非併入世界主圖 — feasibility M — risk：reset、隨機出口與同名房間會污染局部圖
+5. Moonshot：Probabilistic Navigation Memory — 由大量旅程、map_d fingerprints、命令結果與玩家確認，建立「從這個視覺錨點前往目標通常怎麼走」的機率模型；輸出候選路線、信心與失敗恢復點，不假裝擁有完整 room graph — feasibility L — risk：資料冷啟動、版本漂移、隱私，以及錯誤建議可能讓玩家走入危險區
+
+ANTI:
+- 拒絕為 RW 製作看似精準、實際由 room title／出口文字猜出的全世界 Mudlet 式 room graph
+- 拒絕把 dead-reckoning 座標包裝成永久世界座標，或自動把未知跳轉硬接到最近節點
+- 拒絕用 OCR 重讀已存在的 VT cell buffer；這會降低中文、Big5、顏色與特殊 glyph 的可靠度
+- 拒絕預設全自動 speedwalk；未確認路線只能逐步提示，危險命令、傳送與戰鬥狀態必須停下
+- 拒絕為視覺完整度補造不存在的道路、房間或 map_d 區域
+- 拒絕讓 automap 改寫終端模式、攔截 map_d 按鍵，或以任何方式增加 SAVEC/REST regression 風險
+
+MAP_D_LEVERAGE:
+- 從 VT screen buffer 複製 cell matrix、前景色、背景色與 glyph，建立無 OCR 的像素級／cell 級鏡像
+- map_d 關閉時保留最後一幀；提供縮放、平移、全圖適配、前後幀切換與「回到最新」
+- 註記採獨立 overlay，以 map fingerprint＋cell 位置錨定，永不修改或重新推導官方地圖
+- 點擊 cell 只做座標標記、備忘、集合點與旅程起訖；除非有已確認 journey，不能推論該 cell 可達
+- 保存 map_d 快照時間軸，讓玩家比較區域變化，並能將旅程與「出發時看到的官方地圖」綁定
+- 對穩定 map_d 畫面產生 fingerprint，用於區域辨認、註記復位與 journey 搜尋；相似時列候選而非武斷匹配
+- 若有官方 HTML map，採 sandboxed embed／外開並保存 deep link；與 VT map 並列呈現，不宣稱兩者座標已對齊
+- 所有資訊標示 Known／Inferred／Unknown；官方 VT cell、玩家確認與 dead-reckoning 使用不同視覺語言
+
+GRAPH_WHEN:
+- 僅在 map_d 缺席且導航痛點高的區域建立 graph，例如迷宮、副本、地下城或跨 MUD 共用導航層
+- 進入條件：可穩定辨識房間或狀態指紋、至少 95% 節點可區分、至少 98% 移動結果可確認，且隨機／reset 行為可被標記
+- 需有明確收益：玩家會重複造訪、至少約 20 個有意義節點，且 journey replay 已不足以解決問題
+- graph 必須區域化、可版本化、可整體丟棄；不得悄悄併入 map_d 城市真相
+- 多 MUD 時先要求 per-MUD adapter 能提供 encoding、移動命令、房間指紋與轉移確認，否則只提供 trail
+- 自動尋路須等到實測路線成功率達 99% 左右；未達標時只呈現探索圖與下一步候選
+
+SPRINTS:
+- P0: Sprint 1 完成 map_d Live Companion：無失真鏡像、freeze-frame、縮放／平移、最後一幀保存；強化 Nav Shell 的 Known／Inferred／Unknown、teleport reset 與手動「位置失效」；建立 map_d VT regression fixtures
+- P1: Sprint 2 加入 Journey Recorder：旅程命名、逐步重播、偏離偵測、註記 overlay、快照時間軸；以 cell-buffer fingerprint 做區域候選辨認，低信心時要求玩家確認
+- P2: 兩個 sprint 內只做受控 prototype：挑一個無 map_d 小區測 Expedition Mode，量測節點辨識率、轉移確認率與玩家救援率；未達 gating criteria 不產品化，更不擴成全世界 graph
+
+WILDEST_BUT_USEFUL: 最值得下注的遠景不是「破解出 RW 的完整地圖」，而是建立個人化 Navigation Memory：玩家點選「藥鋪」後，系統從目前 map_d 視覺錨點、過去成功 journey、當前 session trail 與其他玩家選擇性分享的匿名片段，提出兩三條帶信心、風險與恢復點的走法；每走一步重新驗證，失配立即停止並回到 map_d。它能產生接近智慧導航的 wow moment，同時把不確定性留在產品表面，不把統計記憶冒充伺服器真相。

@@ -1,0 +1,38 @@
+```text
+ENGINE: QoderCN does not expose that information.
+STANCE: 對 map_d 型 MUD，客戶端應自居「導航副駕駛」而非「第二張地圖」——以伺服器 VT 地圖為唯一空間真相，客戶端只做時間軸（歷史）、語義層（標註）與決策輔助（路線建議），絕不重建拓撲。
+
+TOP_IDEAS:
+1. map_d Time Machine — 把每次 SAVEC/REST 週期的 VT screen buffer 快照存入 IndexedDB，玩家可回放任意歷史幀、疊加「你在這裡」軌跡；wow 在於 Mudlet 完全沒有伺服器級地圖回放 — H — 風險：Big5 寬字元對齊需在快照時凍結 charset 解碼結果
+2. Contextual Nav HUD（出口語義增強）— 不畫地圖，而是在 map_d 畫面旁即時解析当前 VT 幀中的出口漢字與方向詞，生成「可走方向 chips + 上次來自何方」提示，零拓撲假設 — H — 風險：RW 出口格式若改版需快速適配
+3. Trail Breadcrumbs with Semantic Tags — dead-reckon 軌跡不畫格子，改為「節錄式麵包屑」：每步附帶該幀 title 文字 + 時間戳，形成可搜尋的「我走過哪」日誌，解決迷宮回溯痛點 — H — 風險：長 session 記憶體，需分頁
+4. Annotation Layer on Frozen Frame — 玩家可在任意 map_d 凍結幀上釘標（「BOSS 在這」「商店往北」），標註錨定到 VT 字元座標而非自訂圖層，下次同區域自動浮現 — M — 風險：區域辨識需 title hash 匹配，跨區域可能誤觸
+5. [Moonshot] Collaborative Heatmap via WSS Sidecar — 多位 assmud 用戶的匿名軌跡（title + 方向序列）上傳至輕量後端，聚合出「全服熱門路線 / 冷門區域」熱力圖，以 title 字串為 key 而非座標，繞開無 GMCP 問題 — L — 風險：隱私、冷啟動、RW 管理員態度未知
+
+ANTI:
+- 拒絕為 RW 建 Mudlet 式即時 room-graph automap（無可靠 room ID，畫出來必錯，錯的地圖比沒有更糟）
+- 拒絕嘗試「破解」map_d VT 序列反推完整城市拓撲（脆弱、維護地獄、伺服器改版即死）
+- 拒絕在 map_d 畫面上疊加半透明自繪地圖（遮擋伺服器排版，違反「map_d 不可退化」原則）
+- 拒絕承諾「多 MUD 通用 automap 引擎」作為近期賣點（每家的出口格式、map_d 行為都不同，過早抽象）
+
+MAP_D_LEVERAGE:
+- Freeze-frame：按鍵凍結當前 VT 幀，旁邊展開放大版 + 玩家標註層，不影響遊戲流
+- Mirror panel：將最新一幀 map_d 以唯讀 canvas 鏡像到側欄，讓窄視窗 / 多視窗用戶也能看全
+- Diff overlay：連續兩幀做字元級 diff，高亮「剛改變的出口 / 新出現的 NPC 描述」，零拓撲即可提供動態感
+- Title-as-key 索引：每幀提取 title 行做 hash，建立「到過哪些房間」的集合，供搜尋與進度追蹤
+- 匯出 PNG / 文字：一鍵將凍結幀匯出為圖片或純文字，方便玩家貼到 Discord / 攻略 wiki
+
+GRAPH_WHEN:
+- 該區域連續 N 次（如 5 次）無 map_d SAVEC 幀出現 → 判定「無地圖區」，啟動 dead-reckon graph
+- 玩家手動標記「此區無地圖」→ 立即切換為 room-graph 模式
+- 出口解析信心分數（格式匹配率）連續低於閾值 → 降級為純麵包屑，不畫邊
+- 多 MUD 場景：僅當目標 MUD 提供穩定 room ID（GMCP / 唯一 title）才啟用跨區 graph
+- 原則：graph 是 fallback，不是 default；UI 上明確標示「推測地圖，信心 62%」
+
+SPRINTS:
+- P0（Sprint 1 前半）：VT 幀快照管線 + freeze-frame UI + title 提取與 hash 索引；Nav HUD 出口 chips 上線（RW 格式硬編碼適配）
+- P1（Sprint 1 後半）：Trail Breadcrumbs 日誌 + 搜尋；鏡像側欄面板；幀 diff 高亮
+- P2（Sprint 2）：Annotation Layer（錨定 title hash）；無地圖區 dead-reckon graph（帶信心標示）；匯出 PNG；為 Collaborative Heatmap 做資料模型設計（不實作後端）
+
+WILDEST_BUT_USEFUL: 把 map_d 的 VT 幀序列視為「遊戲的截圖影片」，在客戶端建一個本地向量化索引（title + 出口 + 關鍵 NPC 名），讓玩家用自然語言問「我上次在哪裡看到那個賣藥的 NPC？」——客戶端不畫地圖，而是用全文搜尋 + 時間軸回答空間問題。這把「沒有 room ID」的劣勢轉化為「我有完整文字歷史」的優勢，且完全不需要伺服器配合、不碰拓撲重建，對中文 MUD 玩家（習慣記 NPC 名而非座標）直覺命中。技術上只需 IndexedDB + 簡易倒排索引，瀏覽器內即可完成，是 assmud 相對於 Mudlet 的結構性差異化。
+```

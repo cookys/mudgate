@@ -1,0 +1,45 @@
+```text
+ENGINE: QoderCN (model not exposed)
+STANCE: 對 map_d MUD，client 不應自稱「第二張地圖」，而應是 map_d 的導航增強層——凍結、拼接、標注、錄製，把 server 已經算對的 ground truth 變得更好用，而非重新推導 topology。
+
+TOP_IDEAS:
+1. map_d 大圖拼接 (VT Stitch Canvas) — 玩家自然移動時 client 持續從現有 VT buffer 擷取 frame，自動 overlap 對齊拼接成可縮放平移的完整城市大圖。不需推導 topology、不需 OCR，只是把 server render 對的畫面縫起來。玩家終於能看到整座城而非 25×9 viewport — Feasibility: H — Risk: frame overlap 對齊精度、Big5 VT 控制碼 edge case、viewport 捲動方向偵測
+2. POI 釘選 + 路線標注層 (Pin & Route Layer) — 在拼接大圖或 freeze-frame 上釘 POI（商店、NPC、任務點）、畫路線、加備註，本地持久化。等於在 server 地圖上加 Google Maps「我的地點」。高社交 + 個人價值 — Feasibility: H — Risk: 座標對齊當 map_d viewport 變動；需穩定的 freeze/stitch 先決條件
+3. 路線錄製與分享 (Route Recorder) — 錄製移動序列為「路線」（如「銀行→鐵匠→藥舖」），可一鍵自動重走、可分享給其他玩家。把 MUD 走路變成可分享的 GPS 路徑。社交 + 實用性極高 — Feasibility: M — Risk: 移動偵測依賴 text parse（出口/title），RW 格式變動會 break；dead-reckon 累積誤差影響重走準確度
+4. Session 瀏覽軌跡疊加 (Trail Overlay) — Dead-reckon session trail 半透明疊加在 live map_d viewport 上，顯示「本次上線走過哪裡」。不是全圖 graph，只是 session-local 麵包屑。低野心但高度互補 — Feasibility: M — Risk: dead-reckon 漂移在無座標 zone 累積誤差；需 map_d viewport 對齊 trail 座標系
+5. Moonshot: 群眾協作導航圖 (Crowd-Sourced Nav Graph via WSS) — 利用已有的 WSS auth proxy，匿名聚合多位玩家的 session trail，proxy 端漸進式構建社群導航圖，統計降噪後回傳給所有玩家疊加。不需 server GMCP，靠群眾 dead-reckon 統計收斂。等於「不靠 server 開放資料，靠群眾腳步長出 room graph」— Feasibility: L-M — Risk: 需臨界量活躍玩家（cold start 問題）、dead-reckon 噪聲、隱私顧慮、RW ToS 合規性、proxy 端需新增 aggregation backend
+
+ANTI:
+- 傳統 Mudlet 式高精度 room-graph automap（17 方向、精確座標推算）——map_d 已是 ground truth，client 端重推只會產生比 server 更差的圖，玩家困惑
+- 以 text parse room identification 作為主要導航手段——RW 格式脆弱且無契約保證，作為輔助信心度指標可以，作為單一真相來源不行
+- OCR VT map 來萃取 room topology——過度工程，正確率不可控，且拼接 canvas 已能視覺解決問題
+- 從移動推論重新推導城市 topology——server 已提供，重造輪子且必然更差
+- 假裝 RW 會支援 GMCP Room.Info 的任何功能——不會有，不要設計依賴它的架構
+- 全螢幕 client map 搶主畫面——map_d 是 server 的全螢幕 overlay，client 應在 side panel 或 overlay 模式，不搶主畫面
+- 自動 walk / auto-explore bot 功能——超出 nav assistant 定位，且可能違反 RW 遊戲規則
+
+MAP_D_LEVERAGE:
+- Freeze-frame：從現有 VT buffer 一鍵凍結當前 map_d 狀態，可平移、縮放、標注，不需 server 重新繪製
+- 自動拼接（核心）：玩家移動時持續 capture VT frame + overlap 對齊，stitch 成可縮放大圖 canvas——這是最高 leverage 的單一功能
+- 快照歷史 timeline：auto-capture map_d 狀態為時間軸，回溯瀏覽「我去過哪些區域」
+- 注釋層：POI pin、路線、色塊 overlay 直接畫在 VT-rendered map 上，完全不碰 topology 推導
+- 官方 HTML map 嵌入：若 RW 有官方 web map（許多 MUD 有），side-by-side 或 overlay 嵌入，零推導成本
+- 一鍵截圖分享：save current map view as PNG，社交分享場景
+- 區域書籤：在拼接大圖上標記「我在這裡」並可快速跳回該 freeze-frame
+
+GRAPH_WHEN:
+- 該 zone 無 map_d 覆蓋（迷宮、地牢、任務副本、地下區域）
+- 使用者明確進入「探索模式」（手動觸發，不自動）
+- 出口 text parse 信心度 >80%（有可信賴的 exit 偵測）
+- 該 zone 為持久性且會重訪（值得花一次成本 mapping，不為一次性副本）
+- 需多 MUD 支援（非 map_d 系 MUD 的通用 fallback）
+- 該 zone 已累積足夠 dead-reckon 資料點（先有資料再建圖，不硬推）
+- map_d 在該 zone 明確降級或缺失（不是「做得不夠好」而是「沒有」）
+
+SPRINTS:
+- P0: ① map_d freeze-frame——從現有 VT buffer capture + 凍結 + 基礎平移/縮放 ② VT stitch canvas 原型——移動時 auto-capture frame + 基礎 overlap 對齊拼接 ③ POI pin 系統 v1（localStorage）——在 freeze/stitch 上釘選 + 備註
+- P1: ① Stitch canvas 完整版——可縮放大圖 + snapshot history timeline 瀏覽 ② Session trail overlay on live map_d（dead-reckon 麵包屑，信心度標示） ③ Route recorder v1（錄製/一鍵重走/分享） ④ Nearby HUD 信心度評分（exit parse 結果標示可信/猜測/未知）
+- P2: ① 群眾協作導航圖（WSS proxy moonshot，需 cold start 策略） ② 非 map_d zone 的 room-graph automap（gated by GRAPH_WHEN 條件） ③ 官方 HTML map 嵌入整合 ④ 多 MUD 通用 map 框架抽象化
+
+WILDEST_BUT_USEFUL: 最野但有用的構想是「map_d 時光機 + 拼接望遠鏡」——client 不只是 freeze 當下畫面，而是在玩家自然遊戲過程中持續從 VT buffer 偷偷擷取 map_d frame，像 Google Street View 的縫合邏輯一樣自動拼接成一張可縮放、可平移的完整城市大圖。玩家不需做任何事，只是正常走動，client 就把 server 已經 render 正確的 25×9 viewport 一塊一塊縫成全景。沒有 topology 推導、沒有 OCR、沒有 text parse 依賴——純粹是視覺層的 frame stitching，ground truth 來自 server 所以精度天然繼承。結果是一張玩家「用腳走出來」的城市全圖，比任何 client 端 automap 更準確，因為它就是 server 地圖的超集。再疊上 POI、路線、session trail、甚至群眾協作資料，就變成一個 living map——而這一切都建基於 server 已經算對的 truth，client 只是讓它的 viewport 不再是牢籠。
+```

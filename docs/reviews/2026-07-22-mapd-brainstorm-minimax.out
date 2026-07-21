@@ -1,0 +1,45 @@
+Let me review the current Nav Shell and map_d implementation state first.
+
+I'll check the current implementation to ground my recommendations in actual code state.
+
+---
+
+```text
+ENGINE: qoderclicn-1.0.45 (cn)
+STANCE: 對 map_d MUD，Client 是「地圖翻譯官」而非第二張圖——把伺服器的空間真相優雅地轉譯成人可操作的 UI。
+
+TOP_IDEAS:
+1. map_d 自由凍結幀 — 在任意時刻一鍵截取當前地圖快照，存入 localStorage，疊加玩家注釋圖層（出口捷徑、注意事項）。為什麼 wow：高，互動成本極低，玩家自己就能建立私人攻略庫。可行性 H — VT buffer 已有，差一個快照按鈕 + 注釋層。風險：注釋格式需簡單，別做成另一個維基。
+
+2. map_d 出口雷達 HUD — 讀取 map_d 文字區域，OCR-less 解析出口方向，即時疊加在畫面角落的小 compass widget。為什麼 wow：出口決策不再需要回頭看地圖，戰鬥中救命。可行性 H — map_d 的出口字串格式穩定（REMINDS ME），regex 可解。風險：不同 zone 字串變異。
+
+3. Nav Shell × map_d 雙向同步 — 當 map_d 視角移動，自動把對應座標寫入 dead-reckon trail；當玩家手動校正座標，反過來標記 map_d 該區域已探索。為什麼 wow：兩個系統不再是平行存在，而是互相校準，自動填補空白。可行性 M — 需要穩定的座標對照表，RW 目前不完整，但可漸進建立。風險：地圖資料錯誤會傳染。
+
+4. 區域進度護照 — 每進入新 zone，自動建立一張護照頁：map_d 截圖 + 已知出口 + 探索率估算 + 玩家備註。為什麼 wow：玩家有「去過哪裡」的成就感，對 RW 這種漫長練功歷程是強激勵。可行性 M — 依賴 zone title 可靠識別，目前 REMINDS ME title parsing 可行。風險：護照積累後查詢 UI 複雜度。
+
+5. 【月神】跨 session 地圖共識 — 匯出/匯入 map_d 快照 + trail 為標準 JSON，多個玩家可以 merge 差異，自動標記「衝突」與「共識」區塊。為什麼 wow：讓整個 RW 玩家社群自發建立共享地圖，且 client 幫他們對齊版本。可行性 L — 需要社群驅動，client 只提供 merge 工具，但「衝突解決 UI」是 moonshot 等級的 UX 挑戰。風險：社群不活躍就白做。
+
+ANTI:
+- 別做完整 room-graph 拓撲重建（無 GMCP 時必然爛掉，先認清）
+- 別做自動尋路（假資料生出來的路徑比沒路更危險）
+- 別抄 Mudlet 地圖視窗（map_d 已經在做的事，硬做第二套是內耗）
+- 別做 server push 地圖資料（RW 沒有，做了也白搭）
+
+MAP_D_LEVERAGE:
+- 快照 + 注釋層 = 玩家自己的攻略手冊，零額外 fetch
+- map_d viewport 固定，適合做「熱區標記」：滑鼠 hover 某格 → 彈出該格曾記錄的 note
+- 把 map_d 的 SAVEC→CUP 流程封裝成可 replay 的指令序列，未來可做「地圖時間機器」：回到某次探索的 map_d 狀態
+- 官方 HTML 地圖嵌入：若 RW 未來提供官方小圖，client 只做「在哪裡看哪張」的路由，不重繪
+
+GRAPH_WHEN:
+- 當 RW 出現「無 map_d zone」（明確 GMCP Room.Info 或 server 文件確認）才啟動 automap 投資
+- 當「單 MUD 室驗證 room 名稱匹配率 > 80%」才投入 graph 可視化
+- 當有 ≥2 個 MUD 需要 automap 時才抽象成通用 engine，RW first 但架構預留
+
+SPRINTS:
+- P0: map_d 凍結幀按鈕 + localStorage 存圖 + 基本注釋 CRUD（1 sprint）
+- P1: 出口 compass HUD + map_d → trail 座標同步（1 sprint）
+- P2: 區域進度護照 + 護照列表查詢 UI（1 sprint）
+
+WILDEST_BUT_USEFUL: 把 map_d 快照變成「空間記憶資料庫」——每次玩家進入同一 zone 比對當下 map_d 與庫存快照，自動偵測差異（伺服器更新了地圖？某條路被封了？）並推送通知。這不需要 OCR 或 graph，只需要 binary diff。對 RW 這種長生命周期 MUD，玩家最怕「我記得這裡有路」但伺服器已經改圖了，這個 detector 直接消除這個痛點，而且實作是 pure client-side binary diff，技術上乾淨。
+```
