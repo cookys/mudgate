@@ -32,6 +32,11 @@ export type StatusEvent = {
 export type MudSocketHandlers = {
   /** Raw binary frame from MUD (Big5 bytes). */
   onBinary?: (bytes: Uint8Array) => void;
+  /**
+   * Telnet ECHO password-mode: true while server WILL ECHO (mask input);
+   * false on WONT ECHO. Separate from StatusEvent connection lifecycle.
+   */
+  onEchoMask?: (mask: boolean) => void;
 };
 
 /** Reconnect backoff: base * 2^(n-1), capped, with jitter. */
@@ -249,7 +254,11 @@ export class MudSocket {
         const s = ev.data;
         if (s.startsWith("{")) {
           try {
-            const j = JSON.parse(s) as { type?: string; message?: string };
+            const j = JSON.parse(s) as {
+              type?: string;
+              message?: string;
+              mask?: boolean;
+            };
             if (j.type === "error") {
               const detail = sanitizeDetail(j.message ?? "");
               this.setStatus(
@@ -261,6 +270,10 @@ export class MudSocket {
               // full session ready — clear backoff counter
               this.attempt = 0;
               this.setStatus({ code: "connected" });
+              // new mud hop — never leave password mask sticky
+              this.handlers.onEchoMask?.(false);
+            } else if (j.type === "echo") {
+              this.handlers.onEchoMask?.(j.mask === true);
             }
           } catch {
             this.setStatus({ code: "bad_frame" });

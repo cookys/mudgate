@@ -63,6 +63,29 @@ describe("TelnetParser", () => {
     ]);
   });
 
+  it("ECHO password mask: WILL→DO, WONT→DONT, reversed DO→WILL", () => {
+    expect([...replyToNegotiation("will", OPT.ECHO)!]).toEqual([
+      IAC,
+      DO,
+      OPT.ECHO,
+    ]);
+    expect([...replyToNegotiation("wont", OPT.ECHO)!]).toEqual([
+      IAC,
+      DONT,
+      OPT.ECHO,
+    ]);
+    expect([...replyToNegotiation("do", OPT.ECHO)!]).toEqual([
+      IAC,
+      WILL_C,
+      OPT.ECHO,
+    ]);
+    expect([...replyToNegotiation("dont", OPT.ECHO)!]).toEqual([
+      IAC,
+      WONT,
+      OPT.ECHO,
+    ]);
+  });
+
   it("pushUntilMccpStart stops after SE and returns residual", () => {
     const p = new TelnetParser();
     // plaintext Hi + IAC SB MCCP2 IAC SE + residual bytes 0x78 0x9c (zlib header-ish)

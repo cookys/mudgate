@@ -1,0 +1,382 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8431-ceae-7d21-8d1b-6e915e60e1ee
+--------
+user
+Review assmud plan docs/plans/2026-07-21-echo-password-mask.md for W05 Telnet ECHO password masking.
+
+Semantics (must match):
+- Transient mask: WILL ECHO → mask on, WONT ECHO → mask off. NOT permanent local-echo off.
+- NOT trigger-based second-line capture.
+- Proxy sends JSON {type:"echo",mask:bool} — separate from StatusEvent connection codes.
+- replyToNegotiation: WILL ECHO → DO; DO ECHO → WILL (reversed MUD compat).
+- Web input type password only while mask true.
+
+Return exactly:
+VERDICT: APPROVE | APPROVE_WITH_NITS | BLOCK
+MUST_FIX: [list]
+NITS: [list]
+one paragraph rationale.
+
+PLAN:
+# Plan — W05 ECHO password mask（短暫輸入遮罩）
+
+> **Status**: implementing  
+> **Owner**: cookys  
+> **Ship**: `/ship w05`  
+> **SSOT semantics**: [`docs/research/zmud-feature-matrix.md`](../research/zmud-feature-matrix.md) §1.1  
+> **Parent**: [`2026-07-21-rw-connect-protocols.md`](./2026-07-21-rw-connect-protocols.md) C2  
+
+## Goal
+
+MUD 伺服器短暫 `IAC WILL ECHO` 時，web 輸入列 **mask**（`*` / password 樣式）；`IAC WONT ECHO` 後 **立刻恢復**明文。  
+平常玩仍看得到自己打的字。
+
+## Non-goals
+
+- Trigger / prompt 文字猜「第二行是密碼」
+- 全程 `type=password`
+- 指令回顯到 scrollback 的偏好（Echo commands）— 另案
+- Character DB auto-login `#PW`
+
+## Wire contract
+
+| Server | Client reply | UI |
+|--------|--------------|-----|
+| `IAC WILL ECHO` | `IAC DO ECHO` | `mask=true` |
+| `IAC WONT ECHO` | `IAC DONT ECHO` | `mask=false` |
+| `IAC DO ECHO`（反轉 MUD） | `IAC WILL ECHO` | `mask=true`（相容） |
+| `IAC DONT ECHO` | （可忽略或 DONT 已成立） | `mask=false` |
+
+Proxy → browser JSON control（text frame）:
+
+```json
+{ "type": "echo", "mask": true }
+{ "type": "echo", "mask": false }
+```
+
+**不**佔用 `StatusEvent` 連線狀態（避免覆蓋 `connected`）。
+
+## Layers
+
+| Layer | Change |
+|-------|--------|
+| `packages/protocol` `replyToNegotiation` | WILL ECHO → DO；DO ECHO → WILL（反轉） |
+| `apps/proxy` `bridge.ts` | 追蹤 mask；WILL/WONT/DO/DONT ECHO → JSON `echo` |
+| `apps/web` `mudSocket.ts` | parse `type:echo` → `onEchoMask(boolean)` |
+| `apps/web` `TerminalHost` / `App` | 輸入列 `type=password` 或 CSS mask；disconnect 清 mask |
+
+## Acceptance
+
+1. Unit: `replyToNegotiation` ECHO 回覆正確。  
+2. Bridge test: WILL → DO + JSON mask true；WONT → DONT + mask false。  
+3. MudSocket / web: mask 切換不改 `StatusEvent` code 為 connected 以外的連線碼。  
+4. `npm test` + `npm run build -w @assmud/web` 綠。  
+5. matrix W05 → `done`（或 partial 若 RW 實機未驗證 — 實機 checklist residual OK）。  
+
+## Residual (ok to ship)
+
+- RW 實機是否真送 WILL/WONT：連線 checklist 另記，不擋 ship。  
+- 伺服器忘記 WONT：可後加 timeout / 「顯示輸入」按鈕（P2 nit）。  
+
+## Out of scope
+
+Prompt-text fallback、#PW、logging redaction beyond existing security rules.
+
+Also read matrix §1.1 in docs/research/zmud-feature-matrix.md if needed.
+
+codex
+I’m using the audit skill to cross-check the plan against the required W05 semantics and the matrix SSOT, then I’ll return only the requested verdict format.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md && sed -n '1,220p' docs/plans/2026-07-21-echo-password-mask.md && rg -n -C 8 'W05|ECHO|password|mask' docs/research/zmud-feature-matrix.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+# Plan — W05 ECHO password mask（短暫輸入遮罩）
+
+> **Status**: implementing  
+> **Owner**: cookys  
+> **Ship**: `/ship w05`  
+> **SSOT semantics**: [`docs/research/zmud-feature-matrix.md`](../research/zmud-feature-matrix.md) §1.1  
+> **Parent**: [`2026-07-21-rw-connect-protocols.md`](./2026-07-21-rw-connect-protocols.md) C2  
+
+## Goal
+
+MUD 伺服器短暫 `IAC WILL ECHO` 時，web 輸入列 **mask**（`*` / password 樣式）；`IAC WONT ECHO` 後 **立刻恢復**明文。  
+平常玩仍看得到自己打的字。
+
+## Non-goals
+
+- Trigger / prompt 文字猜「第二行是密碼」
+- 全程 `type=password`
+- 指令回顯到 scrollback 的偏好（Echo commands）— 另案
+- Character DB auto-login `#PW`
+
+## Wire contract
+
+| Server | Client reply | UI |
+|--------|--------------|-----|
+| `IAC WILL ECHO` | `IAC DO ECHO` | `mask=true` |
+| `IAC WONT ECHO` | `IAC DONT ECHO` | `mask=false` |
+| `IAC DO ECHO`（反轉 MUD） | `IAC WILL ECHO` | `mask=true`（相容） |
+| `IAC DONT ECHO` | （可忽略或 DONT 已成立） | `mask=false` |
+
+Proxy → browser JSON control（text frame）:
+
+```json
+{ "type": "echo", "mask": true }
+{ "type": "echo", "mask": false }
+```
+
+**不**佔用 `StatusEvent` 連線狀態（避免覆蓋 `connected`）。
+
+## Layers
+
+| Layer | Change |
+|-------|--------|
+| `packages/protocol` `replyToNegotiation` | WILL ECHO → DO；DO ECHO → WILL（反轉） |
+| `apps/proxy` `bridge.ts` | 追蹤 mask；WILL/WONT/DO/DONT ECHO → JSON `echo` |
+| `apps/web` `mudSocket.ts` | parse `type:echo` → `onEchoMask(boolean)` |
+| `apps/web` `TerminalHost` / `App` | 輸入列 `type=password` 或 CSS mask；disconnect 清 mask |
+
+## Acceptance
+
+1. Unit: `replyToNegotiation` ECHO 回覆正確。  
+2. Bridge test: WILL → DO + JSON mask true；WONT → DONT + mask false。  
+3. MudSocket / web: mask 切換不改 `StatusEvent` code 為 connected 以外的連線碼。  
+4. `npm test` + `npm run build -w @assmud/web` 綠。  
+5. matrix W05 → `done`（或 partial 若 RW 實機未驗證 — 實機 checklist residual OK）。  
+
+## Residual (ok to ship)
+
+- RW 實機是否真送 WILL/WONT：連線 checklist 另記，不擋 ship。  
+- 伺服器忘記 WONT：可後加 timeout / 「顯示輸入」按鈕（P2 nit）。  
+
+## Out of scope
+
+Prompt-text fallback、#PW、logging redaction beyond existing security rules.
+1-# zMUD feature matrix — 對照表（assmud / RW）
+2-
+3-> **SSOT**：之後要比「zMUD 有什麼、RW 要不要、我們做到哪」看這份。  
+4:> **更新日期**: 2026-07-21（W05 ECHO survey 補注）  
+5:> **來源**: Zugg zMUD 產品頁／MXP·MCCP 文檔、Mudlet Supported Protocols（ECHO）、Last Outpost ECHO/SGA、RFC 857、TinTin++、本倉 RW probe + code audit  
+6-> **連動 plan**: [`docs/plans/2026-07-21-rw-connect-protocols.md`](../plans/2026-07-21-rw-connect-protocols.md)
+7-
+8-### 欄位說明
+9-
+10-| 欄 | 意義 |
+11-|----|------|
+12-| **zMUD** | 經典 zMUD（含常見後繼 CMUD 玩家預期）是否具備 |
+13-| **RW 相關** | 對 Revival World 實際影響：`必須` / `高` / `中` / `低` / `無` |
+--
+28-## 1. Wire / Telnet / 編碼
+29-
+30-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+31-|----|------|------|---------|--------|------|------|
+32-| W01 | Raw TCP / Telnet NVT | ✅ | **必須** | done | P0 | proxy `bridge` → MUD |
+33-| W02 | IAC 協商（通用） | ✅ | **必須** | done | P0 | `packages/protocol` TelnetParser |
+34-| W03 | TTYPE | ✅ | **必須** | done | P0 | RW DO 24；回 ANSI |
+35-| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+36:| W05 | ECHO（密碼遮罩） | ✅ | 高 | partial | P1 | **短暫 mask**，非全程關 echo；見 §1.1 |
+37-| W06 | EOR / GA 忽略 | ✅ | 中 | partial | P1 | 不崩潰即可 |
+38-| W07 | **MCCP1** | ✅ | 低 | n/a | — | 現代多用 MCCP2 |
+39-| W08 | **MCCP2**（zlib 壓縮） | ✅ | **高** | partial | **P1** | RW WILL 86；現 **DONT**；util 有、bridge 無串流 |
+40-| W09 | MCCP 壓縮率顯示 | ✅ | 低 | todo | P3 | zMUD 有 savings 顯示 |
+41-| W10 | **MXP** 協商 | ✅ | 中 | done* | P0 | *WONT 拒絕；正確 |
+42-| W11 | MXP 標籤渲染（連結／色） | ✅ | 中 | wont | P3 | XSS；明文顯示即可 |
+43-| W12 | MSSP | ✅ | 低 | partial | P2 | RW WILL 70；可 DONT／忽略 |
+44-| W13 | MSP（音效） | ✅ | 低 | wont | P3 | 非 RW 核心 |
+--
+47-| W16 | ATCP | 舊 | 無 | wont | — | 被 GMCP 取代 |
+48-| W17 | CHARSET 協商 | 部分客 | 中 | partial | P2 | RW 用登入列 `BIG5`/`GB` 文字切 |
+49-| W18 | Big5 / DBCS 解碼 | ✅（中文局） | **必須** | done | P0 | `codec-big5` HKSCS |
+50-| W19 | GB 解碼 | ✅ | 中 | todo | P2 | 登入可選 GB；非預設 |
+51-| W20 | UTF-8 MUD | ✅ | 低（RW） | partial | P2 | multi-MUD 路線 |
+52-| W21 | TLS 到 MUD（telnets） | 部分 | 低（RW 明文） | todo | P3 | backlog |
+53-| W22 | 瀏覽器 WSS + auth proxy | ❌（桌面直連） | **必須**（我們） | done | P0 | ADR-002；產品差異 |
+54-
+55:### 1.1 W05 ECHO — 正確語意（2026-07-21 survey）
+56-
+57-> **不是** trigger 抓「第二行輸入」。  
+58-> **不是** 整場連線關掉 local echo（否則平常就看不到自己打的字）。
+59-
+60:#### 協定：短暫 password-mode 旗標
+61-
+62-標準 MUD / Mudlet / line-mode 客端慣例（RFC 857 + 實務）：
+63-
+64-| 時機 | 伺服器 → 客戶端 | 客端行為 |
+65-|------|-----------------|----------|
+66:| 密碼提示前／當下 | `IAC WILL ECHO`（`FF FB 01`） | 輸入列改 **mask**（常見 `*` 或空白） |
+67:| 密碼收完 | `IAC WONT ECHO`（`FF FC 01`） | **立刻恢復**明文輸入列 |
+68-
+69:- 預設 `WONT ECHO`：remote echo 關 → **客端 line editor 自己顯示**正在打的字（平常玩看得到 `n` / `look` 的主因）。  
+70:- `WILL ECHO`：伺服器宣稱「echo 由我負責」→ 客端 **不要本地回顯明文**；密碼時伺服器 **故意不 echo 任何字** → 畫面無明文。  
+71:- 伺服器若忘記 `WONT`，客端會一直 mask（Mudlet 文件明列；並提供 user override 關 password masking）。
+72-
+73:部分 MUD / 舊實作會把 DO/WILL 搞反；zMUD changelog 曾加 **同時處理 `WILL ECHO` 與 `DO ECHO`**。assmud 應以 **server-initiated WILL/WONT** 為主，並對反轉 DO 做防禦性相容。
+74-
+75-#### 三層「echo」（勿混為一談）
+76-
+77-| 層 | 含義 | 平常玩 | 密碼時 |
+78-|----|------|--------|--------|
+79:| **A. 輸入列顯示** | command line 畫正在打的字 | 明文 | `WILL ECHO` → mask |
+80-| **B. 指令回顯到輸出窗** | Enter 後把整行印進 scrollback（zMUD Echo commands / Mudlet Show text you sent） | 可開可關 | 不應印密碼明文 |
+81-| **C. 伺服器 remote echo** | 伺服器 bounce 每個 key | 多數 line-mode MUD **不做** | 密碼更不做 |
+82-
+83:zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連印表機。使用者「看得到自己打什麼」≈ **A（± 可選 B）**；密碼隱藏 ≈ **A 進入 mask**。
+84-
+85-#### zMUD 額外保險（仍非 trigger 抓密碼）
+86-
+87-| 機制 | 作用 |
+88-|------|------|
+89:| Telnet ECHO 狀態 | 輸入當下 mask（主路徑） |
+90-| `#PW` / character DB 送密 | 送出且 **不 echo 到文字窗** |
+91-| 偏好：隱藏含密碼的行 | scrollback 防洩漏 |
+92-
+93-用 trigger 對「Password:」再 `#send` 是 **玩家腳本捷徑**，不穩，也不是內建遮罩實作。
+94-
+95:#### assmud 現況與應做（C2 / W05）
+96-
+97-| 層 | 現況 | 應做 |
+98-|----|------|------|
+99:| `OPT.ECHO = 1` | ✅ `packages/protocol` | 保留 |
+100:| bridge 協商 | 通用 `will→DONT` 等路徑；**未**當 password-mode 處理 | server `WILL ECHO` → `DO ECHO`；`WONT` → `DONT`；狀態上送 web |
+101:| web 輸入列 | 無 mask 旗標 | `masking=true` → password 樣式 / `*`；`false` 恢復 |
+102:| 卡在 mask | 無 | timeout 或 user「顯示輸入」escape；勿永久 password type |
+103:| RW 實機 | 首包 probe **未列** ECHO（多在 login 密碼瞬間才送） | C2 checklist：抓 login 是否真送 WILL/WONT；若 RW 不送再評 prompt fallback（**次選**，非主路徑） |
+104-
+105:**實作位置（建議）**：proxy 解析 ECHO 事件 → `StatusEvent` 或 control frame（如 `{ code: 'echo', params: { mask: true } }`）→ `TerminalHost` 輸入列切換。勿在 script-engine 用 trigger 猜第二行。
+106-
+107----
+108-
+109-## 2. 終端 / 顯示 / VT
+110-
+111-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+112-|----|------|------|---------|--------|------|------|
+113-| T01 | ANSI SGR 16 色 | ✅ | **必須** | done | P0 | soft palette canvas |
+--
+205-| partial | ~18 | 有基礎，缺深度或 flag |
+206-| todo | ~20 | 未做 |
+207-| wont / n/a | ~10 | 刻意不做或形態不同 |
+208-
+209-### 依優先（未 done 的重點）
+210-
+211-| 優先 | 建議下一波 | ID 舉例 |
+212-|------|------------|---------|
+213:| **P1 連線順** | MCCP2 已 ship；下一刀 **ECHO 短暫 mask（W05）** | W05, W09? |
+214-| **P1 顯示** | 字體試掘／1:2、scrollback UI | T11–T14 |
+215-| **P1 腳本** | speedwalk／變數強化 | S03, S05, S06 |
+216-| **P2** | profile auto-login、split、MXP 仍關 | C02, C05 |
+217-| **P3** | GMCP、MSP、.mud 全相容 | W14, S11 |
+218-
+219-### RW「最小可玩」檢查清單
+220-
+221-- [x] W01–W04, W18, T01, T03–T05, T07, C01, C03, C04, C10  
+222-- [x] **W08 MCCP2**（proxy 串流；見 mccp2-stream project）  
+223:- [ ] **W05 ECHO** 短暫 password mask（C2；見 §1.1）  
+224-- [x] W10 MXP 拒絕  
+225-- [x] S01–S02 基礎  
+226-- [ ] T12–T14 字體深度（baseline 有）  
+227-
+228----
+229-
+230-## 8. 怎麼維護這張表
+231-
+232-1. 新功能 PR：改對應列 **assmud** + 筆記一行。  
+233-2. 新 probe（他服）：加「該服」欄或另表 `matrix-<mud>.md`，本表保持 **zMUD × RW × assmud**。  
+234-3. 成案時：從 **優先 P1+todo** 勾到 `docs/plans/`。  
+235-4. **不要**追求 100% zMUD 相容；以 **RW 必須 + multi-MUD 擴充** 為準。
+236-
+237-## 9. 參考連結
+238-
+239:- Zugg zMUD info / MXP / MCCP 說明頁；zMUD version history（WILL ECHO + DO ECHO 相容）  
+240:- Mudlet Manual: Supported Protocols → **ECHO (Password Masking)**（WILL 開 mask / WONT 關）  
+241:- [Last Outpost: ECHO and SGA for MUDs](https://www.last-outpost.com/LO/protocols/echosga.html)（line-mode hidden password entry）  
+242-- [RFC 857 Telnet Echo Option](https://www.rfc-editor.org/rfc/rfc857.html)  
+243-- TinTin++ MCCP2  
+244-- 本倉: `docs/research/rw-probe-2026-07-21.md`, `rw-ansi-and-map-controls.md`  
+
+codex
+VERDICT: BLOCK
+MUST_FIX: [Replace “`type=password` or CSS mask” with “set the web input to `type=password` only while `mask=true`, and restore its normal type when false.”]
+NITS: [Explicitly require unit coverage for the reversed `DO ECHO → WILL ECHO` compatibility path.]
+The plan correctly defines transient WILL/WONT masking, rejects trigger-based capture, uses a separate `{type:"echo",mask:boolean}` control frame, preserves connection `StatusEvent` codes, and specifies both required negotiation replies; only the web-layer implementation choice is too permissive to guarantee the mandated input-type behavior.
+tokens used
+25,830
+VERDICT: BLOCK
+MUST_FIX: [Replace “`type=password` or CSS mask” with “set the web input to `type=password` only while `mask=true`, and restore its normal type when false.”]
+NITS: [Explicitly require unit coverage for the reversed `DO ECHO → WILL ECHO` compatibility path.]
+The plan correctly defines transient WILL/WONT masking, rejects trigger-based capture, uses a separate `{type:"echo",mask:boolean}` control frame, preserves connection `StatusEvent` codes, and specifies both required negotiation replies; only the web-layer implementation choice is too permissive to guarantee the mandated input-type behavior.

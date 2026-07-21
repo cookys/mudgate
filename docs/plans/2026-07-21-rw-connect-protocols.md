@@ -68,7 +68,7 @@ Charset：**BIG5**（可切 GB）；地圖靠 **完整 VT**（CUP / SAVEC / REST
 3. **Big5** 解碼  
 4. **VT 完整**（map 不花）  
 5. **MXP 繼續關**（WONT；文字當 plain）  
-6. **ECHO** 若伺服器 DO ECHO — 確認不會弄亂密碼列（需對照 bridge）
+6. **ECHO（密碼遮罩）** — 見 matrix **§1.1**：伺服器短暫 `WILL ECHO` → 輸入列 mask；`WONT ECHO` → 恢復明文。**不是**全程關 local echo，**不是** trigger 抓第二行
 
 ### P1 — 立刻加值「能連且順」（zMUD 玩家預期）
 
@@ -142,7 +142,7 @@ ASSMUD_MCCP=0   // force DONT（除錯）
 |-------|------|------|
 | **C0** | 文件凍結 + flag 設計（本 plan Board GO） | S |
 | **C1** | proxy 串流 MCCP2 DO + inflate；status 可觀測 | L |
-| **C2** | ECHO / 邊角 IAC 穩定性 + 實機 RW 連線 checklist | S |
+| **C2** | **W05 ECHO 短暫 password mask**：proxy 傳 mask 狀態 → web 輸入列；RW login 實機確認 WILL/WONT；邊角 IAC 不炸 | S |
 | **C3** | （可選）UI 顯示「壓縮中」；MSSP ignore 明確化 | S |
 
 **Out of scope this plan**: MXP on、GMCP、zMUD import。

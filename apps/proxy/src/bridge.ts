@@ -85,8 +85,25 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   let closed = false;
   let finishing = false;
   let errorSent = false;
+  /** Server ECHO option active → client should mask local input (password). */
+  let echoMask = false;
 
   const sock = net.connect({ host: opts.host, port: opts.port });
+
+  const sendJson = (obj: Record<string, unknown>) => {
+    if (closed || ws.readyState !== ws.OPEN) return;
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const setEchoMask = (mask: boolean) => {
+    if (echoMask === mask) return;
+    echoMask = mask;
+    sendJson({ type: "echo", mask });
+  };
 
   const destroy = (reason: string) => {
     if (closed) return;
@@ -140,12 +157,26 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
           mccp: mccpEnabled,
         });
         if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "wont") {
+        const reply = replyToNegotiation("wont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
       } else if (ev.type === "do") {
         const reply = replyToNegotiation("do", ev.option, {
           mccp: mccpEnabled,
         });
         if (reply) sendTcp(reply);
         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+        if (ev.option === OPT.ECHO) setEchoMask(true);
+      } else if (ev.type === "dont") {
+        const reply = replyToNegotiation("dont", ev.option, {
+          mccp: mccpEnabled,
+        });
+        if (reply) sendTcp(reply);
+        if (ev.option === OPT.ECHO) setEchoMask(false);
       } else if (ev.type === "sb" && ev.option === OPT.TTYPE) {
         if (ev.payload.length > 0 && ev.payload[0] === 1) {
           sendTcp(ttypeIs("ANSI"));
