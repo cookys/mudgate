@@ -1,51 +1,68 @@
 ---
 name: ship
 description: >
-  assmud /ship — CEO ship: hetero-review + qc-gate all docs/plans, merge to
-  develop, keep LAN proxy/web up. Use for /ship, "ship", "qc all plans".
+  assmud /ship overlay — after hetero, expand ready plans, implement with
+  grok-4.5 medium (overridable), loop review to green, then depth-0 qc-gate
+  + develop merge + LAN servers.
 ---
 
 # /ship (assmud project overlay)
 
-Follow the user-global skill `ship` (`~/.grok/skills/ship/SKILL.md`) with these **project pins**:
+Follow **user-global** `~/.grok/skills/ship/SKILL.md` with these pins.
 
-## Plans inventory
+## Implementer default
 
-| Plan | Expected ship stance |
-|------|----------------------|
-| `docs/plans/2026-07-21-web-zmud-rw.md` | already SHIP — smoke only |
-| `docs/plans/2026-07-21-ui-shell-ship.md` | SHIP package for shell |
-| `docs/plans/2026-07-21-ui-redesign.md` | shell SHIP; i18n/fonts deferred |
-| `docs/plans/2026-07-21-i18n-locale.md` | **approved next** — not shippable until I1–I3 code |
-| `docs/design/terminal-fonts.md` | **approved next** — not shippable until F1–F3 |
+| Key | Value |
+|-----|--------|
+| Model | **`grok-4.5`** |
+| Tier | **medium** (override: `/ship model=…` or `/ship tier=high`) |
+| Branch target | **`develop`** |
 
-## LAN servers (required after ship)
+## Plans inventory (expand policy)
 
-```bash
-# Proxy
-ASSMUD_PROXY_MODE=localhost-dev \
-ASSMUD_BIND_HOST=0.0.0.0 \
-ASSMUD_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173,http://192.168.101.20:5173" \
-npm run dev:proxy
+| Plan | Ship stance |
+|------|-------------|
+| `docs/plans/2026-07-21-web-zmud-rw.md` | done/SHIP — smoke only |
+| `docs/plans/2026-07-21-ui-shell-ship.md` | SHIP — smoke only |
+| `docs/plans/2026-07-21-ui-redesign.md` | shell SHIP; residual U2+ optional |
+| `docs/plans/2026-07-21-i18n-locale.md` | **expand when /ship** if Board frozen (is) → I1–I3 |
+| `docs/design/terminal-fonts.md` | **expand when /ship** after or with i18n → F1–F3 |
 
-# Web
-VITE_HOST=0.0.0.0 \
-VITE_PROXY_WS="ws://192.168.101.20:7788/ws" \
-npm run dev:web
-```
+On full `/ship` (no `only-qc` / `no-expand`):
 
-- Web: http://192.168.101.20:5173/  
-- WS: `ws://192.168.101.20:7788/ws`  
+1. Hetero open plans (i18n + fonts + any draft).  
+2. **Expand** i18n (and fonts if capacity) into `implementing` + feature branch.  
+3. Impl **grok-4.5 medium** (or session model if dispatch cannot set).  
+4. Loop review until StatusEvent + locales / font acceptance green.  
+5. **depth-0** `npm test` + `npm run build -w @assmud/web`.  
+6. Merge develop + LAN servers.
 
-Never leave web on `127.0.0.1` only after `/ship` unless user is local-only.
+Do **not** depth-0-qc-only and call i18n/fonts shipped.
 
-## QC commands
+## QC (depth-0 only, post-loop)
 
 ```bash
 npm test
 npm run build -w @assmud/web
 ```
 
-## Default branch
+## LAN servers (after land)
 
-Merge feature work into **`develop`**.  
+```bash
+ASSMUD_PROXY_MODE=localhost-dev \
+ASSMUD_BIND_HOST=0.0.0.0 \
+ASSMUD_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173,http://192.168.101.20:5173" \
+npm run dev:proxy
+
+VITE_HOST=0.0.0.0 \
+VITE_PROXY_WS="ws://192.168.101.20:7788/ws" \
+npm run dev:web
+```
+
+- http://192.168.101.20:5173/  
+- `ws://192.168.101.20:7788/ws`  
+
+## False-ship guards (Skeptic)
+
+- No `i18n/` + StatusEvent → cannot SHIP i18n plan.  
+- No `setTypography` / termFont storage → cannot SHIP fonts.  
