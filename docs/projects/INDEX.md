@@ -7,13 +7,15 @@
 
 | Date | Project | Target | Branch | Status |
 |------|---------|--------|--------|--------|
-| 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | P0–P5 on develop | `develop` | 🟢 完成實作 / QC 中 |
+| 2026-07-21 | i18n locale + StatusEvent | Board frozen | next | 📋 plan only |
+| 2026-07-21 | terminal dual-width fonts | Spec ready | next | 📋 plan only |
 
 ## 已完成 (Completed)
 
 | Date | Project | Version | Merge | Plan |
 |------|---------|---------|-------|------|
-| — | — | — | — | 尚無完成的專案 |
+| 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | 0.1 | develop | [web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) |
+| 2026-07-21 | UI shell + terminal copy UX | 0.1 | develop | [ui-shell-ship](../plans/2026-07-21-ui-shell-ship.md) |
 
 ## 已封存 (Archived)
 
