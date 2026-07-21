@@ -19,11 +19,7 @@ type Props = {
   onServerLine?: (line: string) => void;
 };
 
-type CopyMenu = {
-  x: number;
-  y: number;
-  mode: "selection" | "screen";
-};
+type CopyMenuMode = "selection" | "screen";
 
 // @refresh reset
 
@@ -71,7 +67,7 @@ export function TerminalHost({
   const selRef = useRef<SelectionRange | null>(null);
 
   const [selection, setSelection] = useState<SelectionRange | null>(null);
-  const [menu, setMenu] = useState<CopyMenu | null>(null);
+  const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const helloRef = useRef(hello);
@@ -107,7 +103,7 @@ export function TerminalHost({
       text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
     }
     const ok = await writeClipboard(text);
-    setMenu(null);
+    setMenuMode(null);
     flash(
       ok
         ? kind === "ansi"
@@ -194,7 +190,7 @@ export function TerminalHost({
     if (e.button !== 0) return;
     const hit = rendererRef.current.hitTest(e.clientX, e.clientY);
     if (!hit) return;
-    setMenu(null);
+    setMenuMode(null);
     selecting.current = true;
     const next = { r0: hit.r, c0: hit.c, r1: hit.r, c1: hit.c };
     selRef.current = next;
@@ -213,7 +209,7 @@ export function TerminalHost({
     redraw();
   };
 
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerUp = () => {
     if (!selecting.current) return;
     selecting.current = false;
     const sel = selRef.current;
@@ -222,29 +218,17 @@ export function TerminalHost({
     if (sel.r0 === sel.r1 && sel.c0 === sel.c1) {
       selRef.current = null;
       setSelection(null);
+      setMenuMode(null);
       redraw();
       return;
     }
-    // show copy menu near pointer
-    const wrap = wrapRef.current?.getBoundingClientRect();
-    if (wrap) {
-      setMenu({
-        x: Math.min(e.clientX - wrap.left + 8, wrap.width - 180),
-        y: Math.min(e.clientY - wrap.top + 8, wrap.height - 100),
-        mode: "selection",
-      });
-    }
+    // float copy bar above command input (bottom of terminal stage)
+    setMenuMode("selection");
   };
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    const wrap = wrapRef.current?.getBoundingClientRect();
-    if (!wrap) return;
-    setMenu({
-      x: Math.min(e.clientX - wrap.left, wrap.width - 180),
-      y: Math.min(e.clientY - wrap.top, wrap.height - 120),
-      mode: selRef.current ? "selection" : "screen",
-    });
+    setMenuMode(selRef.current ? "selection" : "screen");
   };
 
   return (
@@ -304,75 +288,95 @@ export function TerminalHost({
         }}
       />
 
-      {menu && (
+      {/* Float on the bottom edge of the terminal stage → sits on top of shell input bar */}
+      {menuMode && (
         <div
-          className="absolute z-20 min-w-[10.5rem] rounded-[var(--radius-sm)] border py-1 shadow-[var(--shadow)] text-xs"
-          style={{
-            left: menu.x,
-            top: menu.y,
-            background: "var(--bg-panel)",
-            borderColor: "var(--border)",
-            color: "var(--text)",
-          }}
-          role="menu"
+          className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-2 pt-1 pointer-events-none"
         >
           <div
-            className="px-3 py-1 text-[10px] uppercase tracking-wide"
-            style={{ color: "var(--text-faint)" }}
+            className="pointer-events-auto flex flex-wrap items-center justify-center gap-1 rounded-[var(--radius)] border px-2 py-1.5 text-xs max-w-full"
+            style={{
+              background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+              backdropFilter: "blur(10px)",
+              borderColor: "var(--border)",
+              color: "var(--text)",
+              boxShadow: "0 8px 28px rgba(0,0,0,0.5)",
+            }}
+            role="menu"
+            aria-label="複製選單"
           >
-            {menu.mode === "selection" ? "選取範圍" : "整屏"}
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            className="block w-full text-left px-3 py-2 hover:opacity-90"
-            style={{ background: "transparent", color: "var(--text)" }}
-            onClick={() => void copyText("plain", menu.mode)}
-          >
-            複製純文字
-            <span className="block text-[10px]" style={{ color: "var(--text-faint)" }}>
-              移除色碼 · Ctrl+C
+            <span
+              className="px-1.5 text-[10px] font-mono shrink-0"
+              style={{ color: "var(--text-faint)" }}
+            >
+              {menuMode === "selection" ? "選取" : "整屏"}
             </span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="block w-full text-left px-3 py-2 hover:opacity-90"
-            style={{ background: "transparent", color: "var(--text)" }}
-            onClick={() => void copyText("ansi", menu.mode)}
-          >
-            複製含色碼
-            <span className="block text-[10px]" style={{ color: "var(--text-faint)" }}>
-              ANSI / SGR · Shift+Ctrl+C
-            </span>
-          </button>
-          {selection && (
             <button
               type="button"
               role="menuitem"
-              className="block w-full text-left px-3 py-2 border-t"
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 font-medium min-h-[36px]"
               style={{
-                background: "transparent",
-                color: "var(--text-dim)",
+                background: "var(--bg-elevated)",
                 borderColor: "var(--border)",
+                color: "var(--text)",
               }}
-              onClick={() => {
-                selRef.current = null;
-                setSelection(null);
-                setMenu(null);
-                redraw();
-              }}
+              onClick={() => void copyText("plain", menuMode)}
             >
-              清除選取
+              純文字
+              <span className="hidden sm:inline" style={{ color: "var(--text-faint)" }}>
+                {" "}
+                · 去色碼
+              </span>
             </button>
-          )}
+            <button
+              type="button"
+              role="menuitem"
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 font-medium min-h-[36px]"
+              style={{
+                background: "var(--accent-dim)",
+                borderColor: "var(--accent)",
+                color: "var(--accent)",
+              }}
+              onClick={() => void copyText("ansi", menuMode)}
+            >
+              含色碼
+              <span className="hidden sm:inline opacity-80"> · ANSI</span>
+            </button>
+            {selection && (
+              <button
+                type="button"
+                role="menuitem"
+                className="rounded-[var(--radius-sm)] px-2 py-1.5 min-h-[36px]"
+                style={{ color: "var(--text-dim)" }}
+                onClick={() => {
+                  selRef.current = null;
+                  setSelection(null);
+                  setMenuMode(null);
+                  redraw();
+                }}
+              >
+                清除
+              </button>
+            )}
+            <button
+              type="button"
+              className="rounded-[var(--radius-sm)] px-2 py-1.5 min-h-[36px]"
+              style={{ color: "var(--text-faint)" }}
+              aria-label="關閉"
+              onClick={() => setMenuMode(null)}
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
       {toast && (
         <div
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 rounded-full px-3 py-1 text-xs font-medium"
+          className="fixed left-1/2 -translate-x-1/2 z-40 rounded-full px-3 py-1 text-xs font-medium pointer-events-none"
           style={{
+            // sit just above typical command bar (~cmd + thumb pad)
+            bottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 5rem))",
             background: "var(--accent-dim)",
             color: "var(--accent)",
             border: "1px solid var(--border)",
