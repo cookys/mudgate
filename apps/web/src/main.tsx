@@ -1,5 +1,4 @@
 import { Buffer } from "buffer";
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { applyAccent, loadAccent } from "./lib/theme";
@@ -11,8 +10,5 @@ import "./index.css";
 // restore accent before first paint of themed chrome
 applyAccent(loadAccent());
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// StrictMode double-mounts effects (hostile to live WebSockets in dev) — off for now.
+createRoot(document.getElementById("root")!).render(<App />);

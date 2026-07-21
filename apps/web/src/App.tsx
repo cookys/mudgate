@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TerminalHost, type HelloMsg } from "./TerminalHost";
 import {
   DEFAULT_PROFILES,
@@ -95,12 +95,33 @@ export function App() {
 
   const anyConnected = tabs.some((t) => t.connected);
 
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
+
+  // Stable forever — never recreated, so children cannot loop on identity.
   const setTabStatus = useCallback((id: string, status: string) => {
     setTabs((ts) => {
       const cur = ts.find((t) => t.id === id);
-      if (!cur || cur.status === status) return ts; // no-op → no re-render
+      if (!cur || cur.status === status) return ts;
       return ts.map((t) => (t.id === id ? { ...t, status } : t));
     });
+  }, []);
+
+  const handleStatus = useCallback(
+    (s: string) => {
+      setTabStatus(tabIdRef.current, s);
+    },
+    [setTabStatus],
+  );
+
+  const handleServerLine = useCallback((line: string) => {
+    engine.onServerLine(line);
+    const id = tabIdRef.current;
+    setTabs((ts) =>
+      ts.map((t) =>
+        t.id === id ? { ...t, log: [...t.log.slice(-5000), line] } : t,
+      ),
+    );
   }, []);
 
   // Prefer loopback WS when page is loopback (avoids LAN hairpin / fd storms).
@@ -335,17 +356,8 @@ export function App() {
                   injectCommand={cmd}
                   onInjectConsumed={() => setCmd("")}
                   expandInput={onSendThroughEngine}
-                  onServerLine={(line) => {
-                    engine.onServerLine(line);
-                    setTabs((ts) =>
-                      ts.map((t) =>
-                        t.id === tabId
-                          ? { ...t, log: [...t.log.slice(-5000), line] }
-                          : t,
-                      ),
-                    );
-                  }}
-                  onStatus={(s) => setTabStatus(tabId, s)}
+                  onServerLine={handleServerLine}
+                  onStatus={handleStatus}
                 />
               ) : (
                 <div
