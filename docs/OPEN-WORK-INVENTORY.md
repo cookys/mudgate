@@ -9,10 +9,10 @@
 
 | ID | Source | Tag | Reason |
 |----|--------|-----|--------|
-| T1-S3 | `plans/2026-07-22-t1-site-proxy-and-core-daemon.md` Phase S3 | **ship-now** | ADR + Session Protocol v0 docs/spike; not Rust rewrite |
+| T1-S3 | `plans/2026-07-22-t1-site-proxy-and-core-daemon.md` Phase S3 | **SHIP** | ADR-003 + session-protocol-v0 (daemon binary deferred) |
 | T1-S0–S2 | same plan | **SHIP** | already landed |
 | Companion C0 | `plans/2026-07-22-mapd-nav-companion.md` | **SHIP** | landed + pre-smoke |
-| Companion C1 | same plan Phase C1 | **ship-now** | journey/search/fingerprint/stitch per approved plan (parent hetero ALL_CLEAR R4) |
+| Companion C1 | same plan Phase C1 | **SHIP** | journey/search/fingerprint/stitch (commit b585e8a) |
 | Companion C2 | same plan Phase C2 | **deferred** | expedition/moonshot; capacity after C1; not required this goal |
 | Vault plan | `plans/2026-07-22-profile-secrets-vault.md` | **SHIP** | vault already on develop (INDEX/queue stale row fixed in hygiene) |
 | Automap nav shell | `plans/2026-07-22-automap-nav-shell.md` | **SHIP** | P1 done |
@@ -57,7 +57,7 @@
 
 | Bucket | Count |
 |--------|-------|
-| ship-now formal | 2 (S3, C1) |
+| ship-now formal (closed this goal) | 2 (S3, C1) → both **SHIP** |
 | already SHIP formal | rest of 2026-07-21/22 queue + C0 + S0–S2 |
 | deferred BACKLOG/wishlist | 12+ unchecked rows (no promote this goal) |
 | C2 deferred | 1 phase |
