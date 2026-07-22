@@ -1121,10 +1121,10 @@ export function App() {
         </button>
       </header>
 
-      {/* Main stage */}
+      {/* Main stage — min padding on phone so portrait/landscape get more rows */}
       <div className="flex-1 min-h-0 flex relative">
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div className="flex-1 min-h-0 p-2 sm:p-3">
+          <div className="flex-1 min-h-0 p-1 sm:p-3">
             <div
               className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
               style={{
@@ -1855,9 +1855,9 @@ export function App() {
           </button>
         </form>
 
-        {/* Thumb pad — hide while keyboard / cmd focused (hetero consensus) */}
+        {/* Thumb pad — hide while typing; also hide in short landscape (more term rows) */}
         {!hideThumbPad && (
-          <div className="flex flex-nowrap gap-1.5 mt-1.5 pb-0.5 overflow-x-auto">
+          <div className="flex flex-nowrap gap-1.5 mt-1.5 pb-0.5 overflow-x-auto mud-thumb-pad">
             {(
               [
                 ["n", "n"],

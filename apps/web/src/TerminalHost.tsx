@@ -736,7 +736,7 @@ export function TerminalHost({
           </button>
         )}
         <span
-          className="rounded border px-2 py-1 text-[10px] font-mono tabular-nums hidden sm:inline"
+          className="rounded border px-1.5 py-1 text-[10px] font-mono tabular-nums"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",

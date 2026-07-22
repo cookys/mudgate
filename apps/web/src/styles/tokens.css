@@ -60,14 +60,20 @@ html.kb-open {
   --cmd-h: 48px;
 }
 
+/* Only hide chrome when *actually* typing (see useVisualViewport). */
 html.kb-open .kb-hide-toolbar {
-  display: none;
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
   :root {
     --topbar-h: 36px;
-    --cmd-h: 48px;
+    --cmd-h: 44px;
+  }
+  /* Free vertical budget for terminal rows (was ~90×10) */
+  .mud-thumb-pad {
+    display: none !important;
   }
 }
 
