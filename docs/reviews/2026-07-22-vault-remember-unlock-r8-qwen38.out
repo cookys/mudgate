@@ -1,0 +1,9 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- §4.3 probe: specify a non-"default" record ID (e.g. `__probe__`) for the round-trip key so a concurrent non-queued UI probe can never shadow the real record, even though serial-queue ordering already prevents this in practice.
+- §4.5 `withExclusiveVaultLock`: consider an implementation-time acquisition timeout (e.g. 10 s → degrade) so a browser bug holding a lock from a crashed tab doesn't indefinitely stall the serial queue; plan already documents IDB onblocked timeout but not lock-wait timeout.
+- §4.6 step 3: "zeroize temporary keyBytes after import when not needed for noble path" — clarify at impl that `keyBytes.fill(0)` must happen in a `finally` so a thrown `importKey` doesn't leave unzeroed material.
+SECURITY_NOTES: Threat model is honest and correctly scoped: non-extractable prevents key exfiltration but NOT on-origin XSS decrypt at any time while IDB holds the key. Default OFF + explicit consent text + no false claims. restoreAllowed fail-closed (0 on any revoke-path error) ensures ordinary F5 restore is blocked even when IDB delete fails; residual risk is XSS-only and documented. No raw key material touches any storage tier.
+C0_SHIP_OK: yes
+ONE_LINE: Seven hetero rounds produced a tight, honestly-threat-modeled plan with correct three-layer race protocol (tab queue + Web Lock + atomic opToken CAS) and fail-closed revocation; no blockers remain.

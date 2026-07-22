@@ -1,0 +1,613 @@
+# Plan — Vault「記住解鎖」（non-extractable CryptoKey + IndexedDB）
+
+> **Status**: **SHIP**  
+
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Extends**: [`2026-07-22-profile-secrets-vault.md`](./2026-07-22-profile-secrets-vault.md)（SHIP；V2 原寫「重載需 unlock」）  
+> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）  
+> **Hetero**: R9 **5/5 live seats APPROVED** · see [`docs/reviews/2026-07-22-vault-remember-unlock-hetero.md`](../reviews/2026-07-22-vault-remember-unlock-hetero.md)  
+> **Impl**: SHIP — feat/vault-remember-unlock merged to develop
+
+---
+
+## 0. Problem
+
+| 現況 | 痛點 |
+|------|------|
+| 解鎖 key 只在 RAM | **F5 / 硬重新整理** → 一定再問主密碼；autologin 斷 |
+| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+| 使用者要 | 「同一瀏覽器好用」+「不要改出安全問題」 |
+
+### 0.1 與既有 plan 關係
+
+| 原 V2 | 本 plan |
+|-------|---------|
+| 重載後需 unlock | **改為可選**：「記住解鎖」開啟且環境允許時，重載可免主密碼 |
+| 金鑰不落盤 | **維持**：不落 **exportable raw key**；允許落 **non-extractable CryptoKey**（瀏覽器保管） |
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+| ID | Goal |
+|----|------|
+| **R1** | 可選「記住解鎖」：解鎖成功後 F5 **不必**再輸主密碼（環境允許時） |
+| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+| **R3** | 使用 WebCrypto **`extractable: false`** CryptoKey + **IndexedDB** 持久化 |
+| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+| **R5** | 手動鎖定 / 清除 vault → 刪 IDB key；下次必問主密碼 |
+| **R6** | 威脅模型 + UI 同意文案更新；單元測試 + 安全負向測試 |
+| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 把主密碼存任何 storage | 直接洩密 |
+| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+| Anti-XSS password manager | vault 本來就不是 |
+| WebAuthn / 硬體綁定 | 可列 P3 |
+| 跨裝置同步記住解鎖 | 非本機 |
+| noble-only 路徑「假裝」non-extractable | 假安全 |
+
+---
+
+## 2. Threat model（誠實 · 必寫進 UI · R1 fold）
+
+| 威脅 | 記住解鎖 **OFF** | 記住解鎖 **ON**（IDB 有 CryptoKey） |
+|------|------------------|-------------------------------------|
+| 靜態 dump localStorage vault 密文 alone | **擋** | **擋**（仍無 plaintext） |
+| XSS 拿走 raw key 字串（export） | n/a（無持久 key） | **擋** non-extractable |
+| XSS 開 `indexedDB` 取 CryptoKey 並 `subtle.decrypt` | 無 IDB key | **不擋** — **任何時刻**（不必等使用者「當下解鎖」） |
+| XSS 呼叫 app `getVaultSecret`（RAM 已 unlock） | **不擋** | **不擋** |
+| 本機瀏覽器 profile / 惡意擴充 | **不擋** | **不擋** |
+| 關瀏覽器再開 | 要主密碼 | **可免主密碼**（S-manual）直到手動鎖定 |
+
+**R1 fold（Codex + Gemini MUST_FIX）**：  
+開啟「記住解鎖」= 在 origin 上留下**持久解密能力**。同源腳本**不必**等 session 已 unlock 即可從 IDB 取 key handle 解密 vault。  
+non-extractable **只**防 raw bytes 外帶離站，**不**防 on-origin 使用。
+
+**一句話**：比 sessionStorage raw key 好；**延長**同源攻擊窗口到「IDB 有 key 的整段期間」。
+
+**禁止宣稱**：「端到端」「XSS 也偷不到」「比 1Password 還硬」「僅已解鎖時才有 XSS 風險」。
+
+---
+
+## 3. Product / UX
+
+### 3.1 開關（預設）
+
+| 項 | 預設 | 說明 |
+|----|------|------|
+| **記住解鎖** | **OFF** | 使用者明確打開才寫 IDB |
+| 位置 | 密碼庫面板（解鎖區旁） | 勾選 + 短威脅文案 |
+| 無 subtle | 開關 disabled + 說明 | 不可開 |
+
+### 3.2 壽命策略（鎖定寫死 · 可再 hetero）
+
+| 策略 ID | 行為 | 本 plan 預設 |
+|---------|------|--------------|
+| **S-manual** | 記住直到使用者按「鎖定」或清 vault | **預設採用** |
+| S-browser | 關閉瀏覽器後失效 | 可選 P2（需 visibility/session 啟發式，不可靠處要寫） |
+| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+
+**R1 鎖定**：先做 **S-manual** only。S-browser / S-tab 列 backlog，不挡 R1 ship。
+
+### 3.3 文案（zh-TW 草案 · R1 fold）
+
+**開關：**
+
+> 記住解鎖（本機）  
+> 重新整理後不必再輸主密碼。金鑰由瀏覽器保管（**無法匯出**原始金鑰位元組）。  
+> **警告：開啟後，同源惡意腳本可隨時從本機 IndexedDB 取得金鑰並解密密碼庫，不必等你在當下輸入主密碼。**  
+> 這比「只把密文放 localStorage」方便，但**不是**防 XSS。  
+> 按「鎖定」或清除密碼庫會嘗試刪除本機金鑰（刪除失敗會明確提示，不會假裝已忘記）。
+
+**無 capability：**
+
+> 此環境無法啟用記住解鎖（需要 WebCrypto SubtleCrypto + IndexedDB + 可 clone 的 non-extractable 金鑰）。  
+> 重新整理後請再解鎖。
+
+---
+
+## 4. 技術設計
+
+### 4.1 存儲分工（R3 fold · durable restore gate）
+
+| 存什麼 | 哪裡 | extractable / 說明 |
+|--------|------|-------------------|
+| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+| 解鎖用 AES key | **IndexedDB** `assmud-vault-keys` | **false** |
+| 記住解鎖**偏好** | `localStorage` `assmud.vault.rememberUnlock=0\|1` | 非 secret；使用者意圖 |
+| **restore 授權** | `localStorage` `assmud.vault.restoreAllowed=0\|1` | **durable · 非 secret**；**獨立**於 preference |
+| 主密碼 | **永不**持久化 | — |
+| raw key bytes in sessionStorage | **禁止** | — |
+
+**R3 鎖定（Codex + Gemini MUST_FIX）— `restoreAllowed` 語意：**
+
+| 規則 | 說明 |
+|------|------|
+| **Durable** | 寫入 `localStorage`；**F5 後仍可讀**（Goal R1） |
+| **≠ preference** | **禁止** boot 時 `restoreAllowed = getRememberUnlock()` 推導（會破壞 lock 刪 IDB 失敗後的 fail-closed） |
+| 設 **1** | 僅在 remember ON **且** `idb.put` **成功** 且 `ticket.stillOwner()` 之後 |
+| 設 **0** | `lockVault` / `clearVault` / `setRememberUnlock(false)` 的**第一個 durable 寫入**（先於 `idb.delete`） |
+| Boot | 讀 durable bit as-is；不重設、不從 preference 推導 |
+| lock 刪 IDB 失敗 | `restoreAllowed` **保持 0** → 一般 F5 **不會** auto-restore；IDB 殘留僅 XSS 風險（UI 已寫） |
+
+**Restore 條件（全 true）**：  
+`rememberUnlock=1` ∧ **`restoreAllowed=1`（durable）** ∧ valid IDB key ∧ gen match ∧ mutation ticket stillOwner at install
+
+### 4.2 IndexedDB schema
+
+```text
+DB: assmud-vault-keys
+version: 1
+store: keys
+  keyPath: id
+  record: {
+    id: "default",           // 單 vault 本機一份
+    cryptoKey: CryptoKey,    // structured-cloneable, extractable:false
+    gen: number,             // must match envelope.gen
+    rev: number,             // last known rev (hint only)
+    createdAt: number,
+    opToken: string,         // **globally unique** token at put (see §4.5); not tab-local counter alone
+  }
+```
+
+**條件刪除（R4 fold · 必須 atomic）**：
+
+```text
+// 單一 IndexedDB readwrite transaction — 禁止 get 完再另開 tx delete
+atomicDeleteIfOpToken(expectedToken: string): Promise<boolean>
+  tx = db.transaction("keys", "readwrite")
+  rec = await tx.store.get("default")
+  if rec && rec.opToken === expectedToken:
+    await tx.store.delete("default")
+    await tx.done
+    return true
+  await tx.done
+  return false   // newer/other tab record — leave alone
+
+atomicDeleteIfGen(expectedGen: number): Promise<boolean>
+  // same single-tx compare-and-delete on rec.gen === expectedGen
+  // used when restore saw gen mismatch for the rec it read
+```
+
+### 4.3 Capability detection（R1 fold · 非僅 `!!subtle`）
+
+```text
+canRememberUnlock() → boolean  // sync best-effort cache after probe
+
+async probeRememberUnlock(): Promise<boolean>
+  require:
+    - globalThis.crypto?.subtle
+    - typeof indexedDB !== "undefined"
+    - probe: importKey(random 32B AES-GCM, extractable:false, [encrypt,decrypt])
+    - probe: structured-clone / IDB put+get round-trip of that CryptoKey
+      **record id MUST be reserved** e.g. `"__probe__"` — **never** `"default"`
+    - restored key: type secret, algorithm AES-GCM 256, extractable===false,
+      usages includes encrypt+decrypt
+  on any failure → false
+  cleanup: atomicDeleteIfOpToken(probeToken) or delete only id==="__probe__";
+           null local CryptoKey refs (D1)
+```
+
+UI 開關 enable 前必須 `await probeRememberUnlock()`。
+
+### 4.4 Session shape after unlock / restore（R2 fold · CryptoKey write path）
+
+| 狀態 | RAM 持有 | `persistSession` / setVaultSecret |
+|------|----------|-----------------------------------|
+| 傳統 unlock（remember OFF 或無 subtle） | `keyBytes: Uint8Array` | 今日 path（subtle 或 noble） |
+| unlock + remember ON 成功寫 IDB | `cryptoKey` **+** 可選暫留 `keyBytes` 僅 RAM | **必須**能用 `cryptoKey` 做 AES-GCM encrypt 寫 envelope（**禁止** exportKey） |
+| **restore 成功** | **`cryptoKey` only**（無 raw keyBytes） | **同一** CryptoKey encrypt path |
+
+**R2 鎖定（Codex MUST_FIX）**：
+
+1. 抽出  
+   `encryptEnvelope(key: CryptoKey | Uint8Array, payload: VaultPayload): Promise<string /* raw envelope */>`  
+   — 正式型別：union key，兩 path 皆 AES-GCM；**禁止** `exportKey`  
+2. restore 後 `session.cryptoKey` 必有 `usages` 含 `encrypt`+`decrypt`  
+3. 單測：restore → `setVaultSecret` → 重讀 envelope 成功（mock subtle）  
+4. **禁止** restore 後因缺 encrypt path 而 silent no-op 寫入  
+
+### 4.5 Mutation protocol（R3+R4 fold · tab serial + cross-tab Web Lock + atomic opToken）
+
+**問題**：
+
+1. 僅 `opEpoch` 擋不住 in-flight `idb.put`/`delete` 在較新 op 後 resolve  
+2. **tab-local queue 不夠**：IDB / localStorage 是 **origin-wide**；tab A lock/restore 可與 tab B put 競態（R4 Codex）
+
+**契約（三層）**：
+
+```text
+kinds = lock | clear | unlock | create | remember-on | remember-off | restore
+
+// A) tab-local serial queue
+let vaultOpTail: Promise<unknown> = Promise.resolve()
+
+// B) cross-tab exclusive Web Lock (origin-wide)
+const VAULT_LOCK_NAME = "assmud-vault-lifecycle"
+
+// C) tab epoch ticket for RAM session install cancel
+let opEpoch = 0
+beginMutation(kind): MutationTicket
+  opEpoch += 1
+  const id = opEpoch
+  // globally unique token for IDB record identity (NOT id alone)
+  // R8 fold (GLM MUST_FIX): **禁止** hard-depend on crypto.randomUUID()
+  // (secure-context only — 缺於部分 HTTP LAN，會讓 *全部* enqueue 路徑炸，含 noble 無-subtle 的 lock/unlock)
+  const opToken = mintOpToken(id)
+  return { id, opToken, kind, stillOwner: () => id === opEpoch }
+
+mintOpToken(id: number): string
+  // Prefer randomUUID when available (secure context)
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${crypto.randomUUID()}:${id}`
+  }
+  // Fallback: CSPRNG via getRandomValues (available outside secure context on modern browsers)
+  // 16 bytes → hex; still globally unique for practical purposes
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, "0")).join("")
+  return `${hex}:${id}:${Date.now()}`
+  // If even getRandomValues missing (ancient): throw explicit "no CSPRNG" — do not use Math.random
+
+enqueueVaultOp<T>(kind, body: (ticket: MutationTicket) => Promise<T>): Promise<T>
+  const run = vaultOpTail.catch(() => {}).then(async () => {
+    const runBody = async () => {
+      const ticket = beginMutation(kind)
+      return body(ticket)
+    }
+    return withExclusiveVaultLock(runBody)
+  })
+  vaultOpTail = run.then(() => {}, () => {})
+  return run
+
+// R6 fold (Codex): NEVER re-run body after it started — catch only lock-acquisition failure
+withExclusiveVaultLock<T>(fn: () => Promise<T>): Promise<T>
+  if (typeof navigator === "undefined" || !navigator.locks?.request) {
+    return fn()   // API absence → tab-local serial only
+  }
+  let bodyStarted = false
+  try {
+    return await navigator.locks.request(
+      VAULT_LOCK_NAME,
+      { mode: "exclusive" },
+      async () => {
+        bodyStarted = true
+        return fn()          // body errors propagate out of request()
+      },
+    )
+  } catch (err) {
+    if (bodyStarted) throw err   // body threw — do NOT degrade-rerun (would duplicate unlock/clear)
+    // lock acquisition rejection / abort / NotSupported only:
+    console.warn("[vault] Web Lock acquire failed; multi-tab IDB races weakened", err)
+    return fn()                  // single degrade run
+  }
+```
+
+**寫入門禁（每一處）**：
+
+| 動作 | 前必須 |
+|------|--------|
+| `session = …`（install / 復活） | `ticket.stillOwner()` |
+| durable `restoreAllowed` / `rememberUnlock` 寫 localStorage | 在 **Web Lock 持有期間**寫入；若仍要 stillOwner：RAM 相關仍 check |
+| `idb.put` 成功 → 設 restoreAllowed=1 | put 的 record 必須含 `opToken: ticket.opToken`；commit 後若 `!stillOwner()` → **`atomicDeleteIfOpToken(ticket.opToken)`**，**不**設 restoreAllowed=1 |
+| restore decrypt fail / gen mismatch 清 key | **`atomicDeleteIfOpToken(rec.opToken)`**（或 gen 對齊的 atomicDeleteIfGen）；**禁止** bare `idb.delete("default")` |
+| lock/clear 無條件撤銷 | 在 Web Lock 內：durable restoreAllowed=0 → `idb.delete("default")`（此路徑要刪掉誰都行） |
+| `notifyVaultListeners` | stillOwner 且 state 已提交後 |
+
+**禁止**：
+
+- 先 `session = …` 再 `if (!stillOwner) return`  
+- 跨 tx 的 get-then-delete 當 compensate（非 atomic → 可刪到他 tab 新 key）  
+- 用 **僅 tab-local 遞增數字** 當跨 tab 的 record identity
+
+### 4.6 Unlock / create path（有 capability）
+
+```text
+unlockVault(masterPassword) = enqueueVaultOp("unlock", async (ticket) => {
+  // body runs under tab queue + exclusive Web Lock (when available)
+  1. PBKDF2 → keyBytes
+  2. decrypt envelope → payload
+  3. if subtle: cryptoKey = importKey(keyBytes, extractable:false, [encrypt,decrypt])
+     zeroize temporary keyBytes after import when not needed for noble path
+  4. if !ticket.stillOwner() → discard key material; return {ok:false, reason:"superseded"}
+  5. session = { keyBytes?, cryptoKey?, payload, gen, rev, raw, salt, iter }  // ONLY after stillOwner
+  6. if getRememberUnlock() && await probe ok:
+       try {
+         await idb.put({ id:"default", cryptoKey, gen, rev, createdAt, opToken: ticket.opToken })
+         if !ticket.stillOwner():
+           await atomicDeleteIfOpToken(ticket.opToken)
+           // do NOT set restoreAllowed=1
+         else:
+           setDurableRestoreAllowed(1)
+       } catch:
+         // fail-soft: unlock stays memory-only; restoreAllowed unchanged (typically 0)
+  7. if ticket.stillOwner(): notifyVaultListeners()
+  8. return {ok:true}  // unlock succeeded even if IDB put failed
+})
+
+createVault(...):
+  // SAME mutation + Web Lock + stillOwner + optional IDB put (opToken) as unlockVault
+  enqueueVaultOp("create", async (ticket) => { /* mirror unlock commit rules */ })
+```
+
+**禁止**：IDB put 失敗導致 unlock/create throw。  
+**禁止**：在 stillOwner 檢查之前 assign `session`。
+
+### 4.7 `setRememberUnlock(on)` 排序
+
+```text
+setRememberUnlock(true) = enqueueVaultOp("remember-on", async (ticket) => {
+  1. !session → error
+  2. !await probe → error; leave preference OFF
+  3. ensure session.cryptoKey or importKey(session.keyBytes, extractable:false, [encrypt,decrypt])
+  4. await idb.put({ ..., opToken: ticket.opToken })
+  5. if !ticket.stillOwner():
+       await atomicDeleteIfOpToken(ticket.opToken); return / throw superseded
+  6. setDurableRememberUnlock(1); setDurableRestoreAllowed(1)
+  7. notify if needed
+})
+
+setRememberUnlock(false) = enqueueVaultOp("remember-off", async (ticket) => {
+  // R8 fold (Codex MUST_FIX): same independent best-effort as §4.9 lock/clear
+  // restoreAllowed=0 FIRST among durable writes; no early-return if any step throws
+  reasons: string[] = []
+  1. try { setDurableRestoreAllowed(0) } catch { reasons.push("restore_flag_write_failed") }
+  2. try { setDurableRememberUnlock(0) } catch { reasons.push("remember_flag_write_failed") }
+  3. session 保留（本 tab 仍可當次使用）— 不因 flag 寫失敗而改變
+  4. try { await idb.delete("default") } catch { reasons.push("idb_delete_failed") }
+  5. try { setDurableRestoreAllowed(0) } catch { /* re-assert; ignore */ }
+  6. return reasons empty ? {ok:true} : {ok:false, reasons}
+     UI: residual IDB / flag write fail → 同源腳本仍可能用殘 key；
+         ordinary F5 restore blocked iff restoreAllowed durable is 0
+})
+```
+
+### 4.8 Restore + boot
+
+```text
+tryRestoreVaultSession() = enqueueVaultOp("restore", async (ticket) => {
+  if session → return true          // already unlocked this tab
+  // durable reads (not RAM-only):
+  if getRememberUnlock() !== true → return false
+  if getRestoreAllowed() !== true → return false   // durable localStorage bit
+  if !await probeRememberUnlock() → return false
+  rec = await idb.get("default"); validate CryptoKey usages encrypt+decrypt
+  if !rec → return false
+  const seenToken = rec.opToken
+  const seenGen = rec.gen
+  raw = envelope; if !raw or gen mismatch:
+    await atomicDeleteIfOpToken(seenToken)   // or atomicDeleteIfGen(seenGen)
+    return false
+  if !ticket.stillOwner() → return false
+  try:
+    plain = await decrypt(rec.cryptoKey, raw)
+  catch:
+    // R4: identity-checked atomic delete — never bare delete("default")
+    await atomicDeleteIfOpToken(seenToken)
+    return false
+  if !ticket.stillOwner() → return false
+  session = { cryptoKey: rec.cryptoKey, payload: plain, ... }  // cryptoKey only — no keyBytes
+  notifyVaultListeners()
+  return true
+})
+```
+
+**Boot**：
+
+1. 讀 durable `rememberUnlock` / `restoreAllowed` **as-is**（不推導、不重置）  
+2. **await** `tryRestoreVaultSession()` settle  
+3. 然後才跑 autologin 決策  
+
+### 4.9 Lock / clear（async · best-effort independent cleanup · R6 fold）
+
+**R6 Codex MUST_FIX**：durable `localStorage` 寫入 throw **不得** 跳過本 tab `session=null` 或 IDB delete 嘗試。各步驟 **獨立 best-effort**；彙總失敗原因回 UI。
+
+```text
+lockVault() = enqueueVaultOp("lock", async (ticket) => {
+  reasons: string[] = []
+
+  // 1) durable revoke — prefer first, but catch
+  try { setDurableRestoreAllowed(0) }
+  catch (e) { reasons.push("restore_flag_write_failed"); log(e) }
+
+  // 2) RAM clear — ALWAYS attempt even if step 1 failed
+  session = null
+  try { notifyVaultListeners() } catch (e) { log(e) }
+
+  // 3) IDB delete — ALWAYS attempt even if step 1 failed
+  try { await idb.delete("default") }
+  catch (e) { reasons.push("idb_delete_failed"); log(e) }
+
+  // 4) re-assert durable revoke after IDB (best-effort; ignore throw)
+  try { setDurableRestoreAllowed(0) } catch { /* already noted */ }
+
+  if reasons empty → return { ok: true }
+  return {
+    ok: false,
+    reasons,
+    // UI always: 本頁 RAM 已視為鎖定（session null）
+    // if restore_flag_write_failed: F5 可能仍 auto-restore — 請重試鎖定 / 清站資料
+    // if idb_delete_failed: 同源腳本仍可能用殘 IDB key（threat 已寫）
+  }
+})
+
+clearVault() = enqueueVaultOp("clear", async (ticket) => {
+  reasons = []
+  try { setDurableRestoreAllowed(0) } catch { reasons.push("restore_flag_write_failed") }
+  try { setDurableRememberUnlock(0) } catch { reasons.push("remember_flag_write_failed") }
+  session = null
+  try { notifyVaultListeners() } catch {}
+  try { await idb.delete("default") } catch { reasons.push("idb_delete_failed") }
+  try { localStorage.removeItem(envelopeKey) } catch { reasons.push("envelope_delete_failed") }
+  try { setDurableRestoreAllowed(0); setDurableRememberUnlock(0) } catch {}
+  return reasons empty ? {ok:true} : {ok:false, reasons}
+})
+```
+
+**禁止**：`setDurableRestoreAllowed(0)` throw 後 early-return 而留下 `session` 仍解鎖。
+
+**Helpers（non-secret）**：
+
+```text
+getRestoreAllowed(): boolean     // localStorage assmud.vault.restoreAllowed === "1"
+setDurableRestoreAllowed(v: 0|1) // sync localStorage write
+getRememberUnlock(): boolean
+setDurableRememberUnlock(v: 0|1)
+```
+
+### 4.10 多 tab（誠實語意 · R4：IDB 有 Web Lock，RAM 仍 tab-local）
+
+| 事實 | 契約 |
+|------|------|
+| 刪 IDB **不能**撤銷 tab B 已在 RAM 的 session / CryptoKey | **不宣稱**跨 tab 即時吊銷 **RAM** |
+| tab A lock | A: RAM 清 + durable revoke + Web Lock 內刪 IDB；B: **仍可**用既有 RAM 讀密直到 B 自己 lock/refresh |
+| tab B refresh after A deleted IDB | B restore fail → 需主密碼 |
+| lifecycle op 跨 tab | **Web Locks** `assmud-vault-lifecycle` exclusive（§4.5）；無 API 時降級為 tab-local serial + 文件化殘餘 race |
+| BroadcastChannel | **P1 不做**（不做即時 RAM 吊銷） |
+| 敏感 API | `getVaultSecret` 只看 **本 tab RAM session**；不每 call 重讀 IDB（避免假安全感） |
+
+### 4.11 與 autologin
+
+- Boot: await restore settle → then existing autologin effects  
+- `subscribeVault` on successful restore/unlock  
+- restore 失敗 + remember ON 但無 key：不 spam toast；僅 log
+---
+
+## 5. API surface（`@assmud/profiles`）
+
+| API | 行為 |
+|-----|------|
+| `getRememberUnlock(): boolean` | 讀 preference bit（durable） |
+| `getRestoreAllowed(): boolean` | 讀 durable restore gate（§4.1） |
+| `setRememberUnlock(on: boolean): Promise<void>` | §4.7；ON 需先 put key 再 commit 兩 bit |
+| `probeRememberUnlock(): Promise<boolean>` | §4.3 完整 capability |
+| `canRememberUnlock(): boolean` | 上次 probe 快取（boot 先 probe） |
+| `tryRestoreVaultSession(): Promise<boolean>` | §4.8 enqueue + durable gate |
+| `unlockVault` / `createVault` | §4.6 同 mutation 契約；remember ON → put IDB fail-soft |
+| `lockVault(): Promise<LockResult>` | **async** §4.9 |
+| `clearVault(): Promise<...>` | 含 IDB 清除 + preference/restoreAllowed 歸零 |
+| `encryptEnvelope(key: CryptoKey \| Uint8Array, payload)` | §4.4 共用寫入 path |
+
+---
+
+## 6. Testing
+
+| 層 | 內容 |
+|----|------|
+| Unit | remember OFF → restore false |
+| Unit | restoreAllowed durable=0 + remember=1 → restore false（lock 後 F5 模型） |
+| Unit | restoreAllowed durable=1 + remember=1 + IDB key → restore true（boot 模型） |
+| Unit | **禁止** key bytes 寫入 sessionStorage/localStorage（grep / invariant） |
+| Unit | setRememberUnlock(true) without successful put → preference stays OFF、restoreAllowed 不升 |
+| Unit | lock: durable restoreAllowed=0 **before** delete；delete fail → restore still blocked |
+| Unit | restore decrypt fail → `atomicDeleteIfOpToken(seenToken)` 刪同 token；不同 token 不刪 |
+| Unit | gen mismatch → atomic delete by token/gen；不 bare-delete |
+| Unit | unlock + IDB put fail → still unlocked memory-only；restoreAllowed 不升 |
+| Unit | enqueue：unlock put 後再 lock → 最終 locked + restoreAllowed=0 + 無有效 restore |
+| Unit | stale put compensate：`atomicDeleteIfOpToken` 不刪較新 token |
+| Unit | unlock/create：`session` 僅在 stillOwner 後 install |
+| Unit | restore → setVaultSecret via CryptoKey encryptEnvelope（無 keyBytes） |
+| Unit / mock | Web Lock API 缺失 → degrade 單次執行 body |
+| Unit / mock | Web Lock callback **throws** → error 原樣傳播、body **恰好一次**（不重跑） |
+| Unit / mock | Web Lock **acquire** rejects（bodyStarted=false）→ degrade 單次 fn() |
+| Unit | lock：`setItem` throw 仍 `session=null` 且仍 attempt IDB delete |
+| Unit | clear：各 storage 步驟獨立 fail 仍清 RAM |
+| Manual / real browser | CryptoKey survives reload（**mock 不能代替**此條 · ship gate） |
+| Manual | 無 subtle：開關 disabled |
+| Manual | 鎖定後 F5 → 需主密碼（即使 remember preference 仍 ON） |
+
+**CSPRNG**：LAN/noble 路徑 **禁止** `Math.random` 產生 vault salt/IV（沿用既有 vault 要求；本 plan 不放寬）。
+
+---
+
+## 7. Phased delivery
+
+| Phase | 交付 | 驗收 |
+|-------|------|------|
+| **P0** | Plan + hetero ALL_CLEAR | 本文件 |
+| **P1** | `canRememberUnlock` + preference + UI 開關（disabled 路徑） | 無 subtle 不能開 |
+| **P2** | IDB put/get/delete CryptoKey；unlock/create 寫入 | 單測 |
+| **P3** | `tryRestoreVaultSession` + App boot | F5 免主密碼（有 subtle） |
+| **P4** | lock/clear 清 IDB；autologin 還原後可送 | 手動 + log |
+| **P5** | 威脅文案 i18n；docs 一小節 | 無「XSS 也安全」 |
+
+**不做進 P1–P5**：S-browser 壽命、BroadcastChannel、WebAuthn。
+
+---
+
+## 8. Open questions（預設若 owner 不回）
+
+| # | 問題 | 預設 |
+|---|------|------|
+| Q1 | 預設 remember ON 還 OFF？ | **OFF** |
+| Q2 | 關瀏覽器是否自動鎖？ | **否**（S-manual）；P2 可加 |
+| Q3 | 無 subtle 是否允許任何 fallback 記住？ | **否** |
+| Q4 | restore 後 session 是否允許 RAM 持有 keyBytes 複本？ | **否** — restore 為 **cryptoKey-only**（non-extractable 無法 export；§4.4/§4.8）。傳統 password-unlock 路徑可暫留 keyBytes 僅 RAM |
+
+---
+
+## 9. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| 實作偷懶又寫回 sessionStorage | 測試 grep + code review 紅線 |
+| IDB 在隱私模式失敗 | unlock fail-soft；setRemember ON fail-closed preference |
+| 使用者以為「記住＝絕對安全」 | UI 寫明 **隨時** XSS 可從 IDB 取 key |
+| 假跨 tab 吊銷 | §4.10 誠實 tab-local RAM |
+| lock async 漏改 caller | 全庫改 await lockVault；型別強制 |
+| IDB onblocked / hang | open timeout + onblocked handler |
+| 把 restoreAllowed 誤當 RAM-only | §4.1 durable + 單測 boot 模型 |
+| 並發 IDB put/delete（同 tab） | §4.5 tab serial + atomic opToken |
+| 跨 tab IDB 競態 | §4.5 Web Lock exclusive；無 API 則降級並寫明 |
+| 條件刪除誤殺他 tab key | atomic compare-and-delete by opToken in one tx |
+
+---
+
+## 10. Success metrics
+
+| 指標 | 目標 |
+|------|------|
+| 有 subtle + remember ON | F5 後 `isVaultUnlocked()` true 無需主密碼 |
+| 安全 | storage 無 raw key；無主密碼 persistence |
+| 無 subtle | 行為與今日相同，無假 remember |
+| Autologin | restore 後 connected 可送帳密 |
+
+---
+
+## 11. References
+
+- Parent vault plan + threat：`2026-07-22-profile-secrets-vault.md`  
+- 撤回 commit：`e9788b4` security(vault): revert sessionStorage unlock-key  
+- WebCrypto: `importKey` extractable false；IndexedDB structured clone of CryptoKey  
+
+---
+
+## 12. Status transitions
+
+| Status | When |
+|--------|------|
+| **draft** | R1–R8 |
+| **approved** | **now** — R9 owner-matrix ALL_CLEAR (5 live seats; claude skip) |
+| **impl P1–P5** | after owner go |
+| **SHIP** | tests + manual F5 smoke |
+
+## 13. Hetero fold log（摘要）
+
+| Round | Families | Verdict | Folded |
+|-------|----------|---------|--------|
+| R1 | codex, gemini | CHANGES_REQUIRED | threat/UI XSS anytime；IDB fail-soft；lock async fail-closed；setRemember put-first；tab-local honesty |
+| R2 | codex CHANGES / gemini APPROVED | partial | CryptoKey encryptEnvelope path；unified opEpoch |
+| R3 | codex, gemini | CHANGES_REQUIRED | durable restoreAllowed ≠ preference；serial queue + stillOwner；createVault parity |
+| R4 | codex CHANGES / gemini **auth dead** | partial family | **Web Lock cross-tab**；**atomic opToken compare-and-delete**；Q4=cryptoKey-only restore |
+| R5 | codex APPROVED / agy tool-perm fail | partial | Web Lock reject → degrade（nit） |
+| R6 | codex CHANGES / agy flag-parse fail | — | **bodyStarted** 防 body 重跑；lock/clear **independent best-effort** cleanup |
+| R7 | codex+agy only | **weak** ALL_CLEAR | superseded by owner 6-seat matrix |
+| R8 | codex CHANGES · **M3 APPROVED** · glm CHANGES · qwen/gemini APPROVED · claude quota | fold | remember-off best-effort；mintOpToken getRandomValues；`__probe__` |
+| **R9** | **5× APPROVED** (codex·M3·glm·qwen·gemini) · claude quota skip | **ALL_CLEAR** | nits deferred to impl |

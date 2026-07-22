@@ -1,0 +1,6 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+SECURITY_NOTES: Durable restore revocation, atomic token-checked cleanup, cross-tab serialization, non-extractable key handling, and honest residual XSS/race semantics are adequately specified.
+C0_SHIP_OK: yes
+ONE_LINE: R8 resolves the remaining security and race blockers without expanding scope.

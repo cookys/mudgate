@@ -1,0 +1,10 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- `probeRememberUnlock()` incorrectly succeeds without IndexedDB by falling back to `memoryKeys`; capability must require real IndexedDB, and `canRememberUnlock()` must not report capable when it is absent.
+- Clear-vault UI discards `clearVault()` failure results, violating the required explicit warning when durable flags, IDB deletion, or envelope deletion fail.
+- Lock failure UI always claims refresh will not auto-unlock, even when `restore_flag_write_failed`; the plan requires warning that F5 may restore in that case.
+- The “cryptoKey-only restore” test never simulates reload: `tryRestoreVaultSession()` returns early because the existing session remains unlocked. Add a real RAM-session reset test covering restore → `setVaultSecret` → decrypt/readback, plus the specified atomic-delete and independent-cleanup failure cases.
+NITS:
+- `mintOpToken()` fallback omits the plan’s `Date.now()` suffix, though 128 CSPRNG bits remain practically unique.
+SECURITY_NOTES: No raw key or master password persistence found; restored sessions are CryptoKey-only and writes use `encryptEnvelope` without exporting the key.
+ONE_LINE: Core design is present, but missing real-IDB capability gating, honest cleanup warnings, and genuine restore-path verification block approval.

@@ -1,0 +1,11 @@
+All checklist items verified against the implementation. No blockers found.
+
+VERDICT: APPROVED
+MUST_FIX:
+- (empty)
+NITS:
+- `canRememberUnlock()` sync hint (vault.ts:748-753) tests `memoryKeys !== undefined` which is always true; a no-subtle + no-IDB env could report a spurious `true`. Harmless since `probeRememberUnlock()` is the real gate and returns false without subtle, but the sync fallback is misleading.
+- `mintOpToken` (vault.ts:110-127) drops the plan's `:${Date.now()}` suffix from the getRandomValues fallback. 128-bit random hex is sufficient for uniqueness, so this is fine.
+- Leftover `assmud.vault.tabSession.v1` sessionStorage `removeItem` calls (vault.ts:352-353, 1126-1127) are dead cleanup from the reverted raw-key approach; safe to delete for clarity.
+SECURITY_NOTES: No raw key bytes in sessionStorage/localStorage (only `removeItem` of a stale key). IDB persists solely a non-extractable CryptoKey validated for `extractable===false` + encrypt/decrypt usages. `atomicDeleteIfOpToken` does single-tx compare-and-delete, preventing cross-tab record clobbering. Boot awaits `tryRestoreVaultSession` settle (`vaultBootReady`) before any autologin decision. Lock/clear/remember-off are independent best-effort — `session=null` runs even if durable-flag write throws. Restore installs cryptoKey-only (no keyBytes), and `encryptEnvelope`/`persistSession` use the CryptoKey path. UI copy honestly warns same-origin scripts can use the IDB key anytime.
+ONE_LINE: Implementation faithfully matches the R9 plan across all seven checklist axes; no blockers, three minor nits only.

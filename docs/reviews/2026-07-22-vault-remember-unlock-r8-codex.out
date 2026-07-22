@@ -1,0 +1,8 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- `setRememberUnlock(false)` contradicts §4.1: it writes `rememberUnlock=0` before `restoreAllowed=0`, and either write can abort before RAM-independent IDB deletion. Make `restoreAllowed=0` the first attempted durable write and perform preference write plus IDB delete as independent best-effort steps with aggregated failure reporting.
+NITS:
+- Use a unique reserved probe-record ID and identity-checked cleanup so capability probing cannot overwrite or delete the real `"default"` key.
+SECURITY_NOTES: Threat model is honest: non-extractability prevents raw export, not same-origin/XSS use; cross-tab RAM revocation is correctly excluded.
+C0_SHIP_OK: no
+ONE_LINE: The core restore and race protocol is sound, but disabling remember must reliably attempt every revocation step even when localStorage writes fail.

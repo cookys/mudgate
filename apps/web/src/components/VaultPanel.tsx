@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   vaultExists,
   isVaultUnlocked,
@@ -10,6 +10,9 @@ import {
   migrateLegacyIntoVault,
   discardLegacyPlaintext,
   hasWebCryptoSubtle,
+  getRememberUnlock,
+  setRememberUnlock,
+  probeRememberUnlock,
   VaultError,
 } from "@assmud/profiles";
 
@@ -21,14 +24,25 @@ export function VaultPanel({ onChange }: Props) {
   const [master, setMaster] = useState("");
   const [master2, setMaster2] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [rememberCapable, setRememberCapable] = useState(false);
   const exists = vaultExists();
   const unlocked = isVaultUnlocked();
   const legacy = hasLegacyPlaintextSecrets();
 
+  useEffect(() => {
+    setRemember(getRememberUnlock());
+    void probeRememberUnlock().then((ok) => {
+      setRememberCapable(ok);
+    });
+  }, [unlocked, exists]);
+
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setErr(null);
+    setWarn(null);
     try {
       await fn();
       setMaster("");
@@ -196,7 +210,14 @@ export function VaultPanel({ onChange }: Props) {
                   )
                 ) {
                   void run(async () => {
-                    await clearVault();
+                    const r = await clearVault();
+                    if (!r.ok) {
+                      setWarn(
+                        "清除未完全成功（" +
+                          r.reasons.join(", ") +
+                          "）。請重試或手動清除站台資料。",
+                      );
+                    }
                   });
                 }
               }}
@@ -208,35 +229,112 @@ export function VaultPanel({ onChange }: Props) {
       )}
 
       {exists && unlocked && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="rounded border px-2 py-1"
-            style={{ borderColor: "var(--border)" }}
-            onClick={() => {
-              lockVault();
-              onChange();
-            }}
-          >
-            鎖定
-          </button>
-          <button
-            type="button"
-            className="rounded border px-2 py-1"
-            style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
-            onClick={() => {
-              if (confirm("清除密碼庫？不可恢復。")) {
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--border)" }}
+              onClick={() =>
                 void run(async () => {
-                  await clearVault();
-                });
+                  const r = await lockVault();
+                  if (!r.ok) {
+                    const flagFail = r.reasons.includes(
+                      "restore_flag_write_failed",
+                    );
+                    setWarn(
+                      flagFail
+                        ? "本頁 RAM 已鎖，但撤銷標記寫入失敗 — 重新整理「可能」仍自動解鎖。請重試鎖定或清除站台資料。（" +
+                            r.reasons.join(", ") +
+                            "）"
+                        : "本頁已鎖定；本機 IDB 金鑰清除可能未完成（" +
+                            r.reasons.join(", ") +
+                            "）。一般 F5 因 restoreAllowed=0 不會 auto-restore；同源腳本仍可能用殘 key。",
+                    );
+                  }
+                })
               }
-            }}
+            >
+              鎖定
+            </button>
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+              onClick={() => {
+                if (confirm("清除密碼庫？不可恢復。")) {
+                  void run(async () => {
+                    const r = await clearVault();
+                    if (!r.ok) {
+                      setWarn(
+                        "清除未完全成功（" +
+                          r.reasons.join(", ") +
+                          "）。本頁已視為鎖定；請重試或手動清除站台資料。",
+                      );
+                    }
+                  });
+                }
+              }}
+            >
+              清除密碼庫
+            </button>
+          </div>
+
+          <label
+            className="flex items-start gap-2 cursor-pointer"
+            style={{ color: "var(--text-dim)" }}
           >
-            清除密碼庫
-          </button>
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={remember}
+              disabled={busy || !rememberCapable}
+              onChange={(e) => {
+                const on = e.target.checked;
+                void run(async () => {
+                  const r = await setRememberUnlock(on);
+                  setRemember(getRememberUnlock());
+                  if (!r.ok) {
+                    setWarn(
+                      on
+                        ? "無法啟用記住解鎖"
+                        : "已關閉偏好；本機金鑰清除可能未完成（" +
+                            r.reasons.join(", ") +
+                            "）",
+                    );
+                  }
+                });
+              }}
+            />
+            <span className="text-[10px] leading-snug">
+              <strong style={{ color: "var(--text)" }}>記住解鎖（本機）</strong>
+              {!rememberCapable && (
+                <span>
+                  {" "}
+                  — 此環境無法啟用（需要 WebCrypto SubtleCrypto + IndexedDB）。
+                </span>
+              )}
+              {rememberCapable && (
+                <>
+                  <br />
+                  重新整理後不必再輸主密碼。金鑰由瀏覽器保管（無法匯出原始金鑰位元組）。
+                  <br />
+                  <span style={{ color: "var(--danger)" }}>
+                    警告：開啟後，同源惡意腳本可隨時從本機 IndexedDB
+                    取得金鑰並解密密碼庫，不必等你在當下輸入主密碼。這不是防 XSS。
+                  </span>
+                </>
+              )}
+            </span>
+          </label>
         </div>
       )}
 
+      {warn && (
+        <p style={{ color: "var(--accent)" }} className="text-[11px]">
+          {warn}
+        </p>
+      )}
       {err && (
         <p style={{ color: "var(--danger)" }} className="text-[11px]">
           {err}

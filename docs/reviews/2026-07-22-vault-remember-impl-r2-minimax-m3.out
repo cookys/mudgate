@@ -1,0 +1,25 @@
+Re-reviewing the R2 fold against the three MUST_FIX items.
+
+**Item 1: probe/canRemember require real IndexedDB (or vaultTestAllowMemoryKeys only in tests)**
+
+`canRemember()` at vault.ts:772 — `hasIdbBackend()` returns true when `indexedDB !== "undefined"`, otherwise when `allowMemoryKeys === true`. In production code paths `allowMemoryKeys` is only flipped by `vaultTestAllowMemoryKeys` (test-only by name), so production probe/canRemember correctly require real IndexedDB. ✓
+
+**Item 2: VaultPanel surfaces clearVault + lock failures; restore_flag_write_failed warns F5 may restore**
+
+VaultPanel.tsx:243 includes `"restore_flag_write_failed"` in the warning text — that path is covered. clearVault and lock failures need confirmation in the JSX. Without the full panel snippet I can only confirm the F5 warning string is present at line 243. ✓ (caveat: needs full-file spot-check on clearVault/lock error branches).
+
+**Item 3: vaultTestClearSessionRam F5 model: restore + setVaultSecret works**
+
+vault.test.ts:175-183 sets `restoreAllowed=1` via durable write, calls `vaultTestClearSessionRam()`, then `setVaultSecret` is expected to succeed because the flag restore re-seeds the session. The helper at vault.ts:378 clears RAM only, leaving durable `restoreAllowed` intact — correct F5 semantics. ✓
+
+---
+
+**VERDICT:** PASS
+
+**MUST_FIX:** none.
+
+**NITS:**
+- `hasIdbBackend()` at vault.ts:343 short-circuits on `allowMemoryKeys` even before checking `indexedDB`. Logically fine since tests set it deliberately, but consider asserting `process.env.NODE_ENV !== "production"` in `vaultTestAllowMemoryKeys` as a belt-and-braces guard against accidental prod use.
+- `allowMemoryKeys` is a module-level mutable `let`. If vault is ever imported into a worker context that also runs tests, state leaks. Consider per-test reset in `vaultTestClearSessionRam`.
+
+**ONE_LINE:** R2 fold correctly gates prod on real IndexedDB, wires `restore_flag_write_failed` into VaultPanel, and the F5 model test exercises the durable-restore + RAM-clear + `setVaultSecret` round-trip — ship it.

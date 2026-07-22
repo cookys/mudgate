@@ -1,0 +1,8 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- `mintOpToken` fallback appends `Date.now()` — harmless but redundant given 128-bit CSPRNG; if a reviewer flags determinism in tests, note it's uniqueness padding not security entropy.
+- Web Locks API is itself secure-context-gated in some engines; the degrade path covers this implicitly but a one-line comment in `withExclusiveVaultLock` ("locks absent on HTTP LAN → tab-local only") would save future readers the lookup.
+SECURITY_NOTES: Threat model is honest (on-origin XSS can use IDB CryptoKey at any time; non-extractable only prevents exfiltration off-origin). Fail-closed ordering (restoreAllowed=0 first) is correct across lock/clear/remember-off. Atomic compare-and-delete by opToken prevents cross-tab key murder. bodyStarted guard ensures exactly-once mutation body. No raw key material touches any storage tier. Degrade-without-WebLocks residual race is documented, not hidden.
+C0_SHIP_OK: yes
+ONE_LINE: R8 fold correctly closes the remember-off ordering gap, removes the secure-context hard dependency on randomUUID from the shared mutation path, and isolates the probe from the live record — no remaining blockers; ship after the manual F5 CryptoKey-survives-reload smoke.
