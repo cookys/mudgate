@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ViewportModalPanel, ViewportSurface } from "./ViewportSurface";
 
 type Props = {
   open: boolean;
@@ -38,8 +39,8 @@ export function ConfirmModal({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    <ViewportSurface
+      className="z-50 flex items-center justify-center p-4"
       role="presentation"
     >
       <button
@@ -48,7 +49,7 @@ export function ConfirmModal({
         aria-label={dismissLabel}
         onClick={onCancel}
       />
-      <div
+      <ViewportModalPanel
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="mudgate-confirm-title"
@@ -99,7 +100,7 @@ export function ConfirmModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+      </ViewportModalPanel>
+    </ViewportSurface>
   );
 }
