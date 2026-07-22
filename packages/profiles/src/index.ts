@@ -115,16 +115,14 @@ export function validateProfile(p: unknown): MudProfile {
 const KEY = "mudgate.profiles.v1";
 
 /**
- * Retired mis-seeds (never RW on public list).
- * taiwanmudlist: RW = mud.revivalworld.org:4000; 5000/6000 belong to other MUDs.
+ * Built-in seeds for mud.revivalworld.org.
+ * Verified by telnet banner (all four ports: 重生的世界 / RWlib, same `rw driver`).
+ * Users can add custom host:port via ProfileManager (non-site shell).
  */
-export const RETIRED_SEED_IDS = new Set(["rw-5000", "rw-6000"]);
-
-/** Built-in seeds. Users can always add custom host:port via ProfileManager (non-site). */
 export const DEFAULT_PROFILES: MudProfile[] = [
   {
     id: "rw-4000",
-    name: "重生的世界 Revival World",
+    name: "重生的世界 :4000",
     host: "mud.revivalworld.org",
     port: 4000,
     charset: "big5hkscs",
@@ -132,18 +130,33 @@ export const DEFAULT_PROFILES: MudProfile[] = [
   },
   {
     id: "rw-4001",
-    name: "重生的世界（巫師 4001）",
+    name: "重生的世界 :4001",
     host: "mud.revivalworld.org",
     port: 4001,
+    charset: "big5hkscs",
+    moveDialect: "en",
+  },
+  {
+    id: "rw-5000",
+    name: "重生的世界 :5000",
+    host: "mud.revivalworld.org",
+    port: 5000,
+    charset: "big5hkscs",
+    moveDialect: "en",
+  },
+  {
+    id: "rw-6000",
+    name: "重生的世界 :6000",
+    host: "mud.revivalworld.org",
+    port: 6000,
     charset: "big5hkscs",
     moveDialect: "en",
   },
 ];
 
 /**
- * Load profiles; merge in any missing DEFAULT seed ids (e.g. new rw-4001)
+ * Load profiles; merge in any missing DEFAULT seed ids
  * without overwriting user-edited entries of the same id.
- * Drops retired mis-seeds (rw-5000 / rw-6000).
  */
 export function loadProfiles(): MudProfile[] {
   if (typeof localStorage === "undefined") return [...DEFAULT_PROFILES];
@@ -154,14 +167,9 @@ export function loadProfiles(): MudProfile[] {
     if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_PROFILES];
     const out: MudProfile[] = [];
     const seen = new Set<string>();
-    let pruned = false;
     for (const item of parsed) {
       try {
         const p = validateProfile(item);
-        if (RETIRED_SEED_IDS.has(p.id)) {
-          pruned = true;
-          continue;
-        }
         if (seen.has(p.id)) continue;
         seen.add(p.id);
         out.push(p);
@@ -170,19 +178,11 @@ export function loadProfiles(): MudProfile[] {
       }
     }
     if (!out.length) return [...DEFAULT_PROFILES];
-    // Append new built-in seeds the user does not have yet (wiz 4001, etc.)
+    // Append new built-in seeds the user does not have yet
     for (const seed of DEFAULT_PROFILES) {
       if (!seen.has(seed.id)) {
         out.push({ ...seed });
         seen.add(seed.id);
-        pruned = true;
-      }
-    }
-    if (pruned) {
-      try {
-        localStorage.setItem(KEY, JSON.stringify(out));
-      } catch {
-        /* quota */
       }
     }
     return out;

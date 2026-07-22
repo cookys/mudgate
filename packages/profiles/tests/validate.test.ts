@@ -6,8 +6,10 @@ import {
 } from "../src/index.js";
 
 describe("validateProfile / import", () => {
-  it("accepts DEFAULT_PROFILES seeds: RW player 4000 + wiz 4001 only", () => {
-    expect(DEFAULT_PROFILES.map((p) => p.port).sort()).toEqual([4000, 4001]);
+  it("accepts DEFAULT_PROFILES seeds for all RW driver ports", () => {
+    expect(DEFAULT_PROFILES.map((p) => p.port).sort()).toEqual([
+      4000, 4001, 5000, 6000,
+    ]);
     expect(DEFAULT_PROFILES.every((p) => p.host === "mud.revivalworld.org")).toBe(
       true,
     );
