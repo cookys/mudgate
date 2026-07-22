@@ -31,12 +31,22 @@ export {
   discardLegacyPlaintext,
   vaultTestResetStorage,
   hasWebCryptoSubtle,
+  getRememberUnlock,
+  getRestoreAllowed,
+  setRememberUnlock,
+  tryRestoreVaultSession,
+  probeRememberUnlock,
+  canRememberUnlock,
+  encryptEnvelope,
   VaultError,
   VAULT_KEY,
   VAULT_META_KEY,
   LEGACY_SECRETS_KEY,
+  REMEMBER_UNLOCK_KEY,
+  RESTORE_ALLOWED_KEY,
   type VaultSecretEntry,
   type VaultPayload,
+  type LockResult,
 } from "./vault.js";
 import type { WidthMode } from "./widthMode.js";
 

@@ -14,6 +14,7 @@ import {
   getProfileAutoLogin,
   isVaultUnlocked,
   subscribeVault,
+  tryRestoreVaultSession,
 } from "@assmud/profiles";
 import {
   BurstDetector,
@@ -132,6 +133,19 @@ export function App() {
   const [customAck, setCustomAck] = useState(() => loadCustomAck());
   const [fontTrialOpen, setFontTrialOpen] = useState(false);
   const [accent, setAccent] = useState<AccentId>(() => loadAccent());
+  /** Boot: await remember-unlock restore before autologin decisions. */
+  const [vaultBootReady, setVaultBootReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void tryRestoreVaultSession()
+      .catch(() => false)
+      .finally(() => {
+        if (!cancelled) setVaultBootReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [activeProfile, setActiveProfile] = useState(
     profiles[0]?.id ?? "rw-4000",
   );
@@ -697,7 +711,9 @@ export function App() {
   // 1) After connected → send account once per wire hop
   // 2) When Telnet WILL ECHO (mask) → send password once per hop
   // Flags reset on connecting/reconnect_wait/handshaking/disconnected.
+  // Wait for tryRestoreVaultSession boot settle before deciding locked.
   useEffect(() => {
+    if (!vaultBootReady) return;
     if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
       console.info("[assmud autologin] skip account: vault locked — unlock vault first");
@@ -734,6 +750,7 @@ export function App() {
     }, 700);
     return () => window.clearTimeout(t);
   }, [
+    vaultBootReady,
     tab.connected,
     tab.status.code,
     tab.id,
@@ -743,6 +760,7 @@ export function App() {
   ]);
 
   useEffect(() => {
+    if (!vaultBootReady) return;
     if (!echoMask) return;
     if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
@@ -767,7 +785,15 @@ export function App() {
       fireInject(pw, { secret: true, keepDraft: true });
     }, 250);
     return () => window.clearTimeout(t);
-  }, [echoMask, tab.connected, tab.status.code, profile.id, fireInject, vaultTick]);
+  }, [
+    vaultBootReady,
+    echoMask,
+    tab.connected,
+    tab.status.code,
+    profile.id,
+    fireInject,
+    vaultTick,
+  ]);
 
   // Type-anywhere + Enter-anywhere → command line (zMUD)
   useEffect(() => {

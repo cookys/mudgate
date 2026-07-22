@@ -1,0 +1,8 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- `mintOpToken(-1)` for probe uses a non-positive id; consider a dedicated constant like `IDB_PROBE_ID` (already defined) for clarity.
+- `tryRestoreVaultSession` has multiple `atomicDeleteIfOpToken(seenToken)` branches — consider a small helper to reduce repetition.
+- `setDurableRememberUnlock(0)` in `clearVault` after a lock already cleared restoreAllowed is idempotent; fine, but worth a comment that order is intentional.
+SECURITY_NOTES: restoreAllowed persisted independently of rememberUnlock so disabling remember cannot silently keep restore window open. opToken single-use via atomic IDB delete with __probe__ sentinel prevents replay. CryptoKey held only in module memory; no raw key material in storage. lockVault is async and awaited before boot settlement; clearVault/remember-off best-effort do not gate UX on partial failures.
+ONE_LINE: Plan implemented faithfully; durable restoreAllowed, atomic opToken, key-only restore, and async lockVault all wired correctly.

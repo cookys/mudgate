@@ -1,0 +1,17 @@
+I read the full plan and the R7 hetero log. Tracing the five claims adversarially, focusing on race correctness and the noble/HTTP-LAN path.
+
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- §4.5 `beginMutation` generates `opToken = \`${randomUUID()}:${id}\`` with the note "crypto.randomUUID() required" for **every** op kind (lock/clear/unlock/create/restore/remember). `crypto.randomUUID` is only defined in secure contexts — it is **absent** on HTTP LAN (non-localhost), the exact environment R4 says the noble vault must still work in. Since §4.6/§4.9 route *all* lock/unlock/clear ops through `enqueueVaultOp`, following the plan literally makes every vault op throw on HTTP LAN. Fix the spec: use a CSPRNG token via `crypto.getRandomValues` (available in non-secure contexts) or generate `opToken` lazily only when an IDB record is actually put/deleted; do not gate the shared mutation protocol on a secure-context-only API.
+
+NITS:
+- §4.8 restore validates `cryptoKey` usages (encrypt+decrypt) but not `extractable===false`; add the assertion for defense-in-depth (key is self-sourced, so not a vuln, but it's cheap and matches §4.3).
+- §4.5 `stillOwner` checks are effectively guards against unawaited leaked side-effects — the tab-local `vaultOpTail` + Web Lock already prevent within-tab body overlap, so `stillOwner` can never be false inside a well-behaved body. Say so, so reviewers don't think a real intra-tab race is being blocked.
+- `enqueueVaultOp` is non-reentrant: a body that calls `enqueueVaultOp` deadlocks on `vaultOpTail` waiting for itself. Document the constraint.
+- D1 (deferred): `probeRememberUnlock` should null the transient CryptoKey handle after deleting probe records (RAM hygiene, non-security).
+
+SECURITY_NOTES: Threat model is honest — non-extractable CryptoKey stops raw-byte exfil off-origin but on-origin XSS can `subtle.decrypt` anytime the IDB key exists; UI states this and forbids "XSS-proof" claims. No raw key/secret in storage. The atomic single-transaction compare-and-delete by `opToken` correctly prevents stale-delete of a newer tab's IDB key, and Web Lock + `vaultOpTail` make `restoreAllowed`/IDB writes race-free cross-tab when the Locks API is present. Residual: without Web Locks (HTTP LAN) only tab-local serial remains — but there's no `subtle`, hence no IDB key record to race over, so the degrade is safe there. The one real gap is the `randomUUID` hard-dependency above, not a crypto weakness.
+
+C0_SHIP_OK: no
+
+ONE_LINE: Sound and honest crypto/race design, but §4.5's hard `crypto.randomUUID()` in the shared mutation path breaks the HTTP-LAN noble vault that R4 explicitly requires — spec a `getRandomValues` fallback before P1–P5.

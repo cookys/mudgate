@@ -1,0 +1,7 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+SECURITY_NOTES:
+The threat model is accurate: non-extractable `CryptoKey` in IndexedDB prevents raw key byte exfiltration via XSS, but permits on-origin exfiltration/decryption while stored. Honest UI disclosure and explicit user opt-in (default OFF) properly bound this threat model.
+C0_SHIP_OK: yes
+ONE_LINE: The plan comprehensively addresses cross-tab/tab-local race conditions, ensures atomic IndexedDB mutations with opTokens, and maintains strict fail-closed state isolation.

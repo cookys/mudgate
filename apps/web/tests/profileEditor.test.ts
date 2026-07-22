@@ -52,7 +52,7 @@ describe("profile secrets via vault", () => {
     expect(exp).not.toContain("s3cret");
     expect(exp).not.toContain("hero");
 
-    lockVault();
+    await lockVault();
     expect(isVaultUnlocked()).toBe(false);
     expect(getProfilePassword(p.id)).toBeUndefined();
 

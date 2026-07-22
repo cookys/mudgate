@@ -1,0 +1,37 @@
+I've thoroughly reviewed the full plan, focusing on security, races, and the three R8 fold changes.
+
+**R8 Change 1 (setRememberUnlock(false) ordering):** Correct. `restoreAllowed=0` is first durable write (§4.7 step 1), preference and IDB delete are independent best-effort with aggregated reasons, matching §4.9 lock/clear pattern. Re-assert in step 5 is belt-and-suspenders. If step 1 fails, steps 2-4 still execute — no early return. Honest UI surfacing of residual risk. ✓
+
+**R8 Change 2 (mintOpToken fallback):** Correct. `randomUUID` preferred when available (secure context); `getRandomValues` fallback works on HTTP LAN (non-secure context) where `crypto.subtle` is absent but `crypto.getRandomValues` is present. No hard dependency on secure-context-only API in the shared `enqueueVaultOp` path — noble lock/unlock can still mint tokens. ✓
+
+**R8 Change 3 (probe id `__probe__`):** Correct. Probe record uses reserved id, never collides with `"default"` read by restore. Cleanup via `atomicDeleteIfOpToken(probeToken)` or scoped delete. Residual probe record is harmless (restore only reads `"default"`). ✓
+
+**Full plan security/race review:**
+
+- **Web Lock + tab-local serial + atomic compare-and-delete**: Three-layer defense is sound. Cross-tab lifecycle ops serialized by exclusive Web Lock; within-tab by promise chain; IDB mutations by single-tx compare-and-delete. No get-then-delete TOCTOU. ✓
+- **Durable `restoreAllowed` ≠ preference**: Correctly separated. Boot reads as-is, never derives from preference. Written to 0 first in lock/clear/remember-off, written to 1 only after IDB put success + stillOwner. Fail-closed for F5 restore. ✓
+- **`withExclusiveVaultLock` body-once guarantee**: `bodyStarted` flag correctly distinguishes lock-acquisition failure (degrade single run) from body failure (propagate, no rerun). R6 fix is solid. ✓
+- **Threat model honesty**: Non-extractable CryptoKey prevents raw byte exfiltration but NOT on-origin use. Plan explicitly forbids claiming "XSS-safe". Window extended to "IDB has key period", not "session unlocked period". ✓
+- **Cross-tab RAM honesty**: §4.10 correctly does not claim cross-tab RAM revocation. Tab B keeps RAM session after Tab A locks. ✓
+- **Restore path cryptoKey-only**: No keyBytes after restore. `encryptEnvelope` union type handles both CryptoKey and Uint8Array. Probe validates usages include encrypt+decrypt. ✓
+
+**Nits found (none blocking):**
+
+1. `mintOpToken` code sketch: if `crypto` is entirely undefined (not just `crypto.subtle`), the getRandomValues line would throw TypeError rather than the intended explicit "no CSPRNG". Should add guard: `if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") throw new Error("no CSPRNG")`. Intent is clear from prose; extreme edge case (pre-2015 browser).
+
+2. IDB open timeout/onblocked handler mentioned in §9 Risks but not specified in §4.2 design. Should be in the design section, not just risk table.
+
+3. Probe tests importKey + structured-clone round-trip + usage validation, but doesn't test actual `subtle.encrypt`/`subtle.decrypt` with the round-tripped key. Manual ship gate ("CryptoKey survives reload") covers this in practice, but an explicit encrypt/decrypt in probe would be more robust.
+
+4. `stillOwner()` check is technically always true given the tab-local serial queue (next op's `beginMutation` can't run until current body's promise settles). Defensive and harmless — no issue, just noting the invariant.
+
+VERDICT: APPROVED
+MUST_FIX: (empty)
+NITS:
+- mintOpToken: add explicit guard for `crypto` undefined before getRandomValues call (sketch throws TypeError instead of "no CSPRNG" — intent clear, extreme edge case)
+- IDB open timeout/onblocked handler in §9 Risks should also be specified in §4.2 design sections
+- Probe could test actual encrypt/decrypt (not just importKey + round-trip); manual ship gate covers this
+- stillOwner() is technically always-true under serial queue (defensive, harmless)
+SECURITY_NOTES: Threat model is honest — non-extractable CryptoKey blocks raw byte exfiltration but not on-origin XSS use; durable restoreAllowed gate is correctly fail-closed; atomic compare-and-delete prevents cross-tab IDB key clobbering; no raw key bytes in sessionStorage/localStorage.
+C0_SHIP_OK: yes
+ONE_LINE: R8 fold is correct — no blockers; mintOpToken getRandomValues fallback, `__probe__` isolation, and remember-off best-effort ordering are all sound; plan is ship-ready pending owner-matrix ALL_CLEAR.

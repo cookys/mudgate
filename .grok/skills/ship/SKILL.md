@@ -10,16 +10,22 @@ description: >
 
 Follow **user-global** `~/.grok/skills/ship/SKILL.md` with these pins.
 
-## Hetero engines (assmud)
+## Hetero engines (assmud) — owner pin 2026-07-22
 
 **hetero = 異質 = 多家不同 LLM**，不是單引擎多角色。
 
-| Family | CLI (this machine) | Use |
-|--------|--------------------|-----|
-| Grok | session / `grok` | always |
-| Claude | `claude -p` | always when auth works |
-| Codex | `codex exec` | always when auth works |
-| Qwen / GLM / MiniMax | when CLI present | add to matrix |
+| Seat | Model | CLI / harness | Forbidden |
+|------|-------|---------------|-----------|
+| Codex | **gpt-5.6-sol** | `codex exec -m gpt-5.6-sol` | — |
+| MiniMax | **MiniMax-M3**（minimax 3） | direct / harness that hits **M3**（見 knowledge） | **禁止**用 MiniMax-M2.7 頂替 |
+| GLM | **GLM-5.2** | `qoderclicn -m GLM-5.2` | — |
+| Qwen | **Qwen3.8-Max**（preview id 可） | `qoderclicn -m Qwen3.8-Max-Preview` | — |
+| Gemini | **gemini-3.6-flash-high** | **`agy --model gemini-3.6-flash-high`**（`-p` 在 prompt 後） | **禁止** `@google/gemini-cli` / `gemini` binary |
+| Claude | **opus-4.8** | `claude -p` + opus-4.8 model | weekly limit 時記 FAIL，不拿別 seat 冒充 |
+
+Grok（本 session）可當 orchestrator；**claim hetero** 仍要上表 **≥2 families** 在 **latest round** APPROVE*（MUST_FIX=[]），見 ALL_CLEAR。
+
+**Forbidden:** 列表沒有就「closest」換代（user catch：minimax 3 ≠ 2.7）。缺 auth / 模型 → 該 seat **FAIL/skip**，寫進 hetero.md，不靜默降級。
 
 Ship / expand claims require **≥2 families** APPROVE* (no BLOCK) **on the latest round**, with **ALL_CLEAR**.
 

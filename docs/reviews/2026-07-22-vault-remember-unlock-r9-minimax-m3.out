@@ -1,0 +1,13 @@
+VERDICT: APPROVED
+MUST_FIX: (empty)
+NITS:
+- `mintOpToken` fallback concatenates `:Date.now()` after the CSPRNG hex — fine for uniqueness, but `stillOwner()` / atomic delete only compares on the full `opToken` string, so make sure IDB stores/exact-compares the full composed string including the timestamp and epoch id; document this contract in code comment so a future "let's trim the token" refactor doesn't silently break atomic delete.
+- `probeRememberUnlock` cleanup says "delete only id==='__probe__'" as an alternative to `atomicDeleteIfOpToken(probeToken)` — pick one path and stick to it; mixing both invites a future bug where probe deletes somebody else's record via name collision (mitigated only by convention, not by the atomic opToken contract).
+- `withExclusiveVaultLock`: when `navigator.locks` is unavailable, consider returning the raw `fn()` promise (not `await fn()`) to preserve error-propagation semantics consistent with the locked branch.
+SECURITY_NOTES:
+- Threat model honestly states IDB-resident non-extractable key = "anytime XSS can decrypt on-origin" — UI copy must keep this wording (R1 fold honored).
+- `opToken` atomic compare-and-delete in a single `readwrite` tx is the right primitive for cross-tab compensation; the `mintOpToken` getRandomValues fallback preserves the noble/HTTP-LAN path's lock/unlock capability without weakening uniqueness enough to matter for origin-wide IDB scope.
+- `restoreAllowed` durable bit driven by IDB put commit (not preference read) — correct fail-closed posture for lock-failed-to-delete.
+- `session = null` is independent best-effort from durable writes and IDB delete — good; verify no caller still treats `lockVault()` as sync.
+C0_SHIP_OK: yes
+ONE_LINE: R8 fold lands correctly — durable `restoreAllowed` write-first, CSPRNG-fallback `mintOpToken`, and reserved `__probe__` ID eliminate the three real race/security concerns introduced by the previous round; plan is implementation-ready.

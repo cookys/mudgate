@@ -1,15 +1,26 @@
 /**
  * Encrypted profile secrets vault (AES-256-GCM + PBKDF2-SHA-256).
  * Spec: docs/plans/2026-07-22-profile-secrets-vault.md
+ * Remember-unlock: docs/plans/2026-07-22-vault-remember-unlock.md
  *
  * Backend:
  * - Prefer WebCrypto `crypto.subtle` (HTTPS / localhost secure context)
  * - Fallback `@noble/*` when subtle is missing (e.g. http://192.168.x.x LAN)
+ * - Optional remember-unlock: non-extractable CryptoKey in IndexedDB (never raw key in storage)
  */
 
 export const VAULT_KEY = "assmud.vault.v1";
 export const VAULT_META_KEY = "assmud.vault.meta.v1";
 export const LEGACY_SECRETS_KEY = "assmud.profileSecrets";
+export const REMEMBER_UNLOCK_KEY = "assmud.vault.rememberUnlock";
+export const RESTORE_ALLOWED_KEY = "assmud.vault.restoreAllowed";
+
+const IDB_NAME = "assmud-vault-keys";
+const IDB_VERSION = 1;
+const IDB_STORE = "keys";
+const IDB_DEFAULT_ID = "default";
+const IDB_PROBE_ID = "__probe__";
+const VAULT_LOCK_NAME = "assmud-vault-lifecycle";
 
 export const VAULT_DEFAULT_ITER = 600_000;
 export const VAULT_MAX_ITER = 2_000_000;
@@ -32,6 +43,10 @@ export type VaultPayload = {
     entries: Record<string, VaultSecretEntry>;
   };
 };
+
+export type LockResult =
+  | { ok: true }
+  | { ok: false; reasons: string[] };
 
 type Envelope = {
   v: 1;
@@ -69,7 +84,9 @@ export class VaultError extends Error {
       | "persist"
       | "legacy"
       | "size"
-      | "iter",
+      | "iter"
+      | "capability"
+      | "superseded",
   ) {
     super(message);
     this.name = "VaultError";
@@ -87,9 +104,26 @@ function randomBytes(n: number): Uint8Array {
     globalThis.crypto.getRandomValues(u);
     return u;
   }
-  // Extremely rare; not cryptographically strong
-  for (let i = 0; i < n; i++) u[i] = (Math.random() * 256) | 0;
-  return u;
+  throw new VaultError("no CSPRNG", "capability");
+}
+
+function mintOpToken(id: number): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `${crypto.randomUUID()}:${id}`;
+  }
+  if (
+    typeof crypto === "undefined" ||
+    typeof crypto.getRandomValues !== "function"
+  ) {
+    throw new VaultError("no CSPRNG", "capability");
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex}:${id}`;
 }
 
 /** Raw 32-byte AES key via PBKDF2-SHA-256 (noble — works without subtle). */
@@ -122,13 +156,34 @@ async function deriveKeyBytes(
     );
     return new Uint8Array(bits);
   }
-  // LAN HTTP / non-secure context
   const { pbkdf2 } = await import("@noble/hashes/pbkdf2.js");
   const { sha256 } = await import("@noble/hashes/sha2.js");
   return pbkdf2(sha256, password, salt, { c: iter, dkLen: 32 });
 }
 
-async function aesGcmEncrypt(
+async function importAesCryptoKey(
+  keyBytes: Uint8Array,
+): Promise<CryptoKey> {
+  if (!hasWebCryptoSubtle()) {
+    throw new VaultError("no subtle", "capability");
+  }
+  return globalThis.crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+function validateCryptoKey(key: CryptoKey): boolean {
+  if (key.type !== "secret") return false;
+  if (key.extractable !== false) return false;
+  const usages = new Set(key.usages);
+  return usages.has("encrypt") && usages.has("decrypt");
+}
+
+async function aesGcmEncryptBytes(
   keyBytes: Uint8Array,
   iv: Uint8Array,
   plain: Uint8Array,
@@ -154,7 +209,7 @@ async function aesGcmEncrypt(
   return gcm(keyBytes, iv).encrypt(plain);
 }
 
-async function aesGcmDecrypt(
+async function aesGcmDecryptBytes(
   keyBytes: Uint8Array,
   iv: Uint8Array,
   ct: Uint8Array,
@@ -183,6 +238,38 @@ async function aesGcmDecrypt(
   try {
     const { gcm } = await import("@noble/ciphers/aes.js");
     return gcm(keyBytes, iv).decrypt(ct);
+  } catch {
+    throw new VaultError("wrong password or corrupt vault", "auth");
+  }
+}
+
+async function aesGcmEncryptKey(
+  cryptoKey: CryptoKey,
+  iv: Uint8Array,
+  plain: Uint8Array,
+): Promise<Uint8Array> {
+  return new Uint8Array(
+    await globalThis.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: iv as BufferSource },
+      cryptoKey,
+      plain as BufferSource,
+    ),
+  );
+}
+
+async function aesGcmDecryptKey(
+  cryptoKey: CryptoKey,
+  iv: Uint8Array,
+  ct: Uint8Array,
+): Promise<Uint8Array> {
+  try {
+    return new Uint8Array(
+      await globalThis.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv as BufferSource },
+        cryptoKey,
+        ct as BufferSource,
+      ),
+    );
   } catch {
     throw new VaultError("wrong password or corrupt vault", "auth");
   }
@@ -239,15 +326,35 @@ function storageDel(key: string): void {
 /** Node/test memory backend when no localStorage */
 const memoryKV = new Map<string, string>();
 
+/** In-memory IDB stand-in — **tests only** when vaultTestAllowMemoryKeys(true) */
+type KeyRecord = {
+  id: string;
+  cryptoKey: CryptoKey;
+  gen: number;
+  rev: number;
+  createdAt: number;
+  opToken: string;
+};
+const memoryKeys = new Map<string, KeyRecord>();
+/** When true, allow memoryKeys as IDB stand-in (vitest). Production always false. */
+let allowMemoryKeys = false;
+
+function hasIdbBackend(): boolean {
+  return typeof indexedDB !== "undefined" || allowMemoryKeys;
+}
+
 /** Test helper */
 export function vaultTestResetStorage(): void {
   memoryKV.clear();
+  memoryKeys.clear();
+  allowMemoryKeys = false;
   if (typeof localStorage !== "undefined") {
     localStorage.removeItem(VAULT_KEY);
     localStorage.removeItem(VAULT_META_KEY);
     localStorage.removeItem(LEGACY_SECRETS_KEY);
+    localStorage.removeItem(REMEMBER_UNLOCK_KEY);
+    localStorage.removeItem(RESTORE_ALLOWED_KEY);
   }
-  // Also purge any legacy tab-session key from the unsafe refresh experiment
   try {
     if (typeof sessionStorage !== "undefined") {
       sessionStorage.removeItem("assmud.vault.tabSession.v1");
@@ -255,6 +362,20 @@ export function vaultTestResetStorage(): void {
   } catch {
     /* ignore */
   }
+  session = null;
+  opEpoch = 0;
+  vaultOpTail = Promise.resolve();
+  probeCache = null;
+}
+
+/** Test-only: enable in-memory CryptoKey store (simulates IDB). */
+export function vaultTestAllowMemoryKeys(on: boolean): void {
+  allowMemoryKeys = on;
+  probeCache = null;
+}
+
+/** Test-only: drop RAM session without lock (simulate F5 mid-session). */
+export function vaultTestClearSessionRam(): void {
   session = null;
 }
 
@@ -330,8 +451,9 @@ function parseEnvelope(raw: string): Envelope {
   return env;
 }
 
-async function encryptPayload(
-  keyBytes: Uint8Array,
+/** Encrypt envelope with CryptoKey or raw keyBytes — never exportKey. */
+export async function encryptEnvelope(
+  key: CryptoKey | Uint8Array,
   payload: VaultPayload,
   gen: number,
   rev: number,
@@ -343,7 +465,12 @@ async function encryptPayload(
     throw new VaultError("payload too large", "size");
   }
   const iv = randomBytes(12);
-  const ct = await aesGcmEncrypt(keyBytes, iv, plain);
+  let ct: Uint8Array;
+  if (key instanceof Uint8Array) {
+    ct = await aesGcmEncryptBytes(key, iv, plain);
+  } else {
+    ct = await aesGcmEncryptKey(key, iv, plain);
+  }
   if (ct.length > MAX_CT_BYTES) {
     throw new VaultError("ciphertext too large", "size");
   }
@@ -360,7 +487,7 @@ async function encryptPayload(
   return JSON.stringify(env);
 }
 
-async function decryptEnvelope(
+async function decryptEnvelopeWithPassword(
   password: string,
   raw: string,
 ): Promise<{ keyBytes: Uint8Array; payload: VaultPayload; env: Envelope }> {
@@ -372,7 +499,7 @@ async function decryptEnvelope(
     throw new VaultError("ciphertext too large", "size");
   }
   const keyBytes = await deriveKeyBytes(password, salt, env.iter);
-  const plain = await aesGcmDecrypt(keyBytes, iv, ct);
+  const plain = await aesGcmDecryptBytes(keyBytes, iv, ct);
   if (plain.byteLength > MAX_PLAIN_BYTES) {
     throw new VaultError("plaintext too large", "size");
   }
@@ -388,8 +515,35 @@ async function decryptEnvelope(
   return { keyBytes, payload, env };
 }
 
+async function decryptEnvelopeWithCryptoKey(
+  cryptoKey: CryptoKey,
+  raw: string,
+): Promise<VaultPayload> {
+  const env = parseEnvelope(raw);
+  const iv = b64decode(env.iv_b64);
+  const ct = b64decode(env.ct_b64);
+  if (ct.length > MAX_CT_BYTES) {
+    throw new VaultError("ciphertext too large", "size");
+  }
+  const plain = await aesGcmDecryptKey(cryptoKey, iv, ct);
+  if (plain.byteLength > MAX_PLAIN_BYTES) {
+    throw new VaultError("plaintext too large", "size");
+  }
+  let payload: VaultPayload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(plain)) as VaultPayload;
+  } catch {
+    throw new VaultError("bad payload json", "corrupt");
+  }
+  if (!payload.profiles || typeof payload.profiles !== "object") {
+    payload = { profiles: {} };
+  }
+  return payload;
+}
+
 type Session = {
-  keyBytes: Uint8Array;
+  keyBytes?: Uint8Array;
+  cryptoKey?: CryptoKey;
   payload: VaultPayload;
   gen: number;
   rev: number;
@@ -399,6 +553,272 @@ type Session = {
 };
 
 let session: Session | null = null;
+
+// --- Mutation protocol (plan §4.5) ---
+
+let opEpoch = 0;
+let vaultOpTail: Promise<unknown> = Promise.resolve();
+
+type MutationTicket = {
+  id: number;
+  opToken: string;
+  kind: string;
+  stillOwner: () => boolean;
+};
+
+function beginMutation(kind: string): MutationTicket {
+  opEpoch += 1;
+  const id = opEpoch;
+  const opToken = mintOpToken(id);
+  return {
+    id,
+    opToken,
+    kind,
+    stillOwner: () => id === opEpoch,
+  };
+}
+
+async function withExclusiveVaultLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (
+    globalThis as unknown as {
+      navigator?: {
+        locks?: {
+          request: (
+            name: string,
+            opts: { mode: string },
+            cb: () => Promise<T>,
+          ) => Promise<T>;
+        };
+      };
+    }
+  ).navigator?.locks;
+
+  if (!locks?.request) {
+    return fn();
+  }
+
+  let bodyStarted = false;
+  try {
+    return await locks.request(
+      VAULT_LOCK_NAME,
+      { mode: "exclusive" },
+      async () => {
+        bodyStarted = true;
+        return fn();
+      },
+    );
+  } catch (err) {
+    if (bodyStarted) throw err;
+    console.warn(
+      "[vault] Web Lock acquire failed; multi-tab IDB races weakened",
+      err,
+    );
+    return fn();
+  }
+}
+
+function enqueueVaultOp<T>(
+  kind: string,
+  body: (ticket: MutationTicket) => Promise<T>,
+): Promise<T> {
+  const run = vaultOpTail.catch(() => {}).then(async () => {
+    return withExclusiveVaultLock(async () => {
+      const ticket = beginMutation(kind);
+      return body(ticket);
+    });
+  });
+  vaultOpTail = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+
+// --- Durable flags ---
+
+export function getRememberUnlock(): boolean {
+  return storageGet(REMEMBER_UNLOCK_KEY) === "1";
+}
+
+export function getRestoreAllowed(): boolean {
+  return storageGet(RESTORE_ALLOWED_KEY) === "1";
+}
+
+function setDurableRememberUnlock(v: 0 | 1): void {
+  storageSet(REMEMBER_UNLOCK_KEY, String(v));
+}
+
+function setDurableRestoreAllowed(v: 0 | 1): void {
+  storageSet(RESTORE_ALLOWED_KEY, String(v));
+}
+
+// --- IndexedDB key store ---
+
+function openKeysDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("no indexedDB"));
+      return;
+    }
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onerror = () => reject(req.error ?? new Error("idb open failed"));
+    req.onblocked = () => reject(new Error("idb blocked"));
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+async function idbPut(rec: KeyRecord): Promise<void> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    memoryKeys.set(rec.id, rec);
+    return;
+  }
+  const db = await openKeysDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("idb put failed"));
+      tx.objectStore(IDB_STORE).put(rec);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbGet(id: string): Promise<KeyRecord | null> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    return memoryKeys.get(id) ?? null;
+  }
+  const db = await openKeysDb();
+  try {
+    return await new Promise<KeyRecord | null>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(id);
+      req.onsuccess = () => resolve((req.result as KeyRecord) ?? null);
+      req.onerror = () => reject(req.error ?? new Error("idb get failed"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbDelete(id: string): Promise<void> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    memoryKeys.delete(id);
+    return;
+  }
+  const db = await openKeysDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("idb delete failed"));
+      tx.objectStore(IDB_STORE).delete(id);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Single-tx compare-and-delete by opToken. */
+async function atomicDeleteIfOpToken(expectedToken: string): Promise<boolean> {
+  if (!expectedToken) return false;
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) return false;
+    const rec = memoryKeys.get(IDB_DEFAULT_ID);
+    if (rec && rec.opToken === expectedToken) {
+      memoryKeys.delete(IDB_DEFAULT_ID);
+      return true;
+    }
+    return false;
+  }
+  const db = await openKeysDb();
+  try {
+    return await new Promise<boolean>((resolve, reject) => {
+      let deleted = false;
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      const store = tx.objectStore(IDB_STORE);
+      const getReq = store.get(IDB_DEFAULT_ID);
+      getReq.onsuccess = () => {
+        const rec = getReq.result as KeyRecord | undefined;
+        if (rec && rec.opToken === expectedToken) {
+          store.delete(IDB_DEFAULT_ID);
+          deleted = true;
+        }
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("idb cas delete failed"));
+      tx.oncomplete = () => resolve(deleted);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+// --- Capability probe ---
+
+let probeCache: boolean | null = null;
+
+export function canRememberUnlock(): boolean {
+  if (probeCache != null) return probeCache;
+  return hasWebCryptoSubtle() && hasIdbBackend();
+}
+
+export async function probeRememberUnlock(): Promise<boolean> {
+  try {
+    if (!hasWebCryptoSubtle() || !hasIdbBackend()) {
+      probeCache = false;
+      return false;
+    }
+    const keyBytes = randomBytes(32);
+    const cryptoKey = await importAesCryptoKey(keyBytes);
+    keyBytes.fill(0);
+    if (!validateCryptoKey(cryptoKey)) {
+      probeCache = false;
+      return false;
+    }
+    const opToken = mintOpToken(-1);
+    const rec: KeyRecord = {
+      id: IDB_PROBE_ID,
+      cryptoKey,
+      gen: 0,
+      rev: 0,
+      createdAt: Date.now(),
+      opToken,
+    };
+    await idbPut(rec);
+    const got = await idbGet(IDB_PROBE_ID);
+    await idbDelete(IDB_PROBE_ID);
+    if (!got || !validateCryptoKey(got.cryptoKey)) {
+      probeCache = false;
+      return false;
+    }
+    // smoke encrypt/decrypt
+    const iv = randomBytes(12);
+    const plain = utf8("probe");
+    const ct = await aesGcmEncryptKey(got.cryptoKey, iv, plain);
+    const back = await aesGcmDecryptKey(got.cryptoKey, iv, ct);
+    if (new TextDecoder().decode(back) !== "probe") {
+      probeCache = false;
+      return false;
+    }
+    probeCache = true;
+    return true;
+  } catch {
+    probeCache = false;
+    return false;
+  }
+}
+
+// --- Public vault API ---
 
 export function vaultExists(): boolean {
   return storageGet(VAULT_KEY) != null;
@@ -432,99 +852,6 @@ function notifyVaultListeners(): void {
   }
 }
 
-export function lockVault(): void {
-  session = null;
-  // Purge any leftover key material from the reverted tab-session experiment
-  try {
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.removeItem("assmud.vault.tabSession.v1");
-    }
-  } catch {
-    /* ignore */
-  }
-  notifyVaultListeners();
-}
-
-async function withVaultLock<T>(fn: () => Promise<T>): Promise<T> {
-  const locks = (
-    globalThis as unknown as {
-      navigator?: { locks?: { request: Function } };
-    }
-  ).navigator?.locks;
-  if (locks?.request) {
-    return locks.request("assmud.vault", { mode: "exclusive" }, () => fn());
-  }
-  return fn();
-}
-
-export async function createVault(masterPassword: string): Promise<void> {
-  if (!masterPassword || masterPassword.length < 4) {
-    throw new VaultError("master password too short", "auth");
-  }
-  await withVaultLock(async () => {
-    const before = readSnap();
-    if (before.kind === "present") {
-      throw new VaultError("vault already exists", "exists");
-    }
-    // Envelope must still be absent
-    if (storageGet(VAULT_KEY) != null) {
-      throw new VaultError("vault conflict", "conflict");
-    }
-    const metaGen = before.metaGen + 1;
-    const salt = randomBytes(16);
-    const iter = VAULT_DEFAULT_ITER;
-    const keyBytes = await deriveKeyBytes(masterPassword, salt, iter);
-    const payload: VaultPayload = { profiles: {} };
-    const raw = await encryptPayload(
-      keyBytes,
-      payload,
-      metaGen,
-      1,
-      salt,
-      iter,
-    );
-    if (storageGet(VAULT_KEY) != null) {
-      throw new VaultError("vault conflict", "conflict");
-    }
-    writeMeta({ gen: metaGen });
-    storageSet(VAULT_KEY, raw);
-    const after = readSnap();
-    if (after.kind !== "present" || after.raw !== raw || after.gen !== metaGen) {
-      throw new VaultError("persist failed", "persist");
-    }
-    session = {
-      keyBytes,
-      payload,
-      gen: metaGen,
-      rev: 1,
-      raw,
-      salt,
-      iter,
-    };
-    notifyVaultListeners();
-  });
-}
-
-export async function unlockVault(masterPassword: string): Promise<void> {
-  const raw = storageGet(VAULT_KEY);
-  if (!raw) throw new VaultError("no vault", "missing");
-  const { keyBytes, payload, env } = await decryptEnvelope(
-    masterPassword,
-    raw,
-  );
-  const salt = b64decode(env.salt_b64);
-  session = {
-    keyBytes,
-    payload: structuredClonePayload(payload),
-    gen: env.gen,
-    rev: env.rev,
-    raw,
-    salt,
-    iter: env.iter,
-  };
-  notifyVaultListeners();
-}
-
 function structuredClonePayload(p: VaultPayload): VaultPayload {
   return JSON.parse(JSON.stringify(p)) as VaultPayload;
 }
@@ -535,7 +862,9 @@ function requireSession(): Session {
 }
 
 async function persistSession(s: Session): Promise<void> {
-  await withVaultLock(async () => {
+  const key = s.cryptoKey ?? s.keyBytes;
+  if (!key) throw new VaultError("vault locked", "locked");
+  await enqueueVaultOp("persist", async () => {
     const before = readSnap();
     if (before.kind !== "present") {
       throw new VaultError("vault missing", "missing");
@@ -544,8 +873,8 @@ async function persistSession(s: Session): Promise<void> {
       throw new VaultError("vault conflict", "conflict");
     }
     const nextRev = s.rev + 1;
-    const raw = await encryptPayload(
-      s.keyBytes,
+    const raw = await encryptEnvelope(
+      key,
       s.payload,
       s.gen,
       nextRev,
@@ -563,6 +892,280 @@ async function persistSession(s: Session): Promise<void> {
     }
     s.rev = nextRev;
     s.raw = raw;
+  });
+}
+
+async function maybePutRememberKey(
+  ticket: MutationTicket,
+  cryptoKey: CryptoKey | undefined,
+  gen: number,
+  rev: number,
+): Promise<void> {
+  if (!getRememberUnlock()) return;
+  if (!cryptoKey) return;
+  if (!(await probeRememberUnlock())) return;
+  try {
+    await idbPut({
+      id: IDB_DEFAULT_ID,
+      cryptoKey,
+      gen,
+      rev,
+      createdAt: Date.now(),
+      opToken: ticket.opToken,
+    });
+    if (!ticket.stillOwner()) {
+      await atomicDeleteIfOpToken(ticket.opToken);
+      return;
+    }
+    setDurableRestoreAllowed(1);
+  } catch (e) {
+    console.warn("[vault] IDB put failed; memory-only unlock", e);
+  }
+}
+
+export async function createVault(masterPassword: string): Promise<void> {
+  if (!masterPassword || masterPassword.length < 4) {
+    throw new VaultError("master password too short", "auth");
+  }
+  await enqueueVaultOp("create", async (ticket) => {
+    const before = readSnap();
+    if (before.kind === "present") {
+      throw new VaultError("vault already exists", "exists");
+    }
+    if (storageGet(VAULT_KEY) != null) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    const metaGen = before.metaGen + 1;
+    const salt = randomBytes(16);
+    const iter = VAULT_DEFAULT_ITER;
+    const keyBytes = await deriveKeyBytes(masterPassword, salt, iter);
+    let cryptoKey: CryptoKey | undefined;
+    if (hasWebCryptoSubtle()) {
+      try {
+        cryptoKey = await importAesCryptoKey(keyBytes);
+      } catch {
+        cryptoKey = undefined;
+      }
+    }
+    const payload: VaultPayload = { profiles: {} };
+    const raw = await encryptEnvelope(
+      cryptoKey ?? keyBytes,
+      payload,
+      metaGen,
+      1,
+      salt,
+      iter,
+    );
+    if (storageGet(VAULT_KEY) != null) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    if (!ticket.stillOwner()) {
+      keyBytes.fill(0);
+      throw new VaultError("superseded", "superseded");
+    }
+    writeMeta({ gen: metaGen });
+    storageSet(VAULT_KEY, raw);
+    const after = readSnap();
+    if (after.kind !== "present" || after.raw !== raw || after.gen !== metaGen) {
+      throw new VaultError("persist failed", "persist");
+    }
+    session = {
+      keyBytes,
+      cryptoKey,
+      payload,
+      gen: metaGen,
+      rev: 1,
+      raw,
+      salt,
+      iter,
+    };
+    await maybePutRememberKey(ticket, cryptoKey, metaGen, 1);
+    if (ticket.stillOwner()) notifyVaultListeners();
+  });
+}
+
+export async function unlockVault(masterPassword: string): Promise<void> {
+  await enqueueVaultOp("unlock", async (ticket) => {
+    const raw = storageGet(VAULT_KEY);
+    if (!raw) throw new VaultError("no vault", "missing");
+    const { keyBytes, payload, env } = await decryptEnvelopeWithPassword(
+      masterPassword,
+      raw,
+    );
+    const salt = b64decode(env.salt_b64);
+    let cryptoKey: CryptoKey | undefined;
+    if (hasWebCryptoSubtle()) {
+      try {
+        cryptoKey = await importAesCryptoKey(keyBytes);
+      } catch {
+        cryptoKey = undefined;
+      }
+    }
+    if (!ticket.stillOwner()) {
+      keyBytes.fill(0);
+      throw new VaultError("superseded", "superseded");
+    }
+    session = {
+      keyBytes,
+      cryptoKey,
+      payload: structuredClonePayload(payload),
+      gen: env.gen,
+      rev: env.rev,
+      raw,
+      salt,
+      iter: env.iter,
+    };
+    await maybePutRememberKey(ticket, cryptoKey, env.gen, env.rev);
+    if (ticket.stillOwner()) notifyVaultListeners();
+  });
+}
+
+export async function setRememberUnlock(on: boolean): Promise<LockResult> {
+  if (on) {
+    return enqueueVaultOp("remember-on", async (ticket) => {
+      const s = session;
+      if (!s) throw new VaultError("vault locked", "locked");
+      if (!(await probeRememberUnlock())) {
+        throw new VaultError("remember unlock unavailable", "capability");
+      }
+      let cryptoKey = s.cryptoKey;
+      if (!cryptoKey) {
+        if (!s.keyBytes) throw new VaultError("no key material", "locked");
+        cryptoKey = await importAesCryptoKey(s.keyBytes);
+        s.cryptoKey = cryptoKey;
+      }
+      if (!validateCryptoKey(cryptoKey)) {
+        throw new VaultError("bad crypto key", "capability");
+      }
+      await idbPut({
+        id: IDB_DEFAULT_ID,
+        cryptoKey,
+        gen: s.gen,
+        rev: s.rev,
+        createdAt: Date.now(),
+        opToken: ticket.opToken,
+      });
+      if (!ticket.stillOwner()) {
+        await atomicDeleteIfOpToken(ticket.opToken);
+        throw new VaultError("superseded", "superseded");
+      }
+      setDurableRememberUnlock(1);
+      setDurableRestoreAllowed(1);
+      return { ok: true as const };
+    });
+  }
+
+  return enqueueVaultOp("remember-off", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    try {
+      setDurableRememberUnlock(0);
+    } catch {
+      reasons.push("remember_flag_write_failed");
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      /* ignore */
+    }
+    return reasons.length === 0
+      ? { ok: true as const }
+      : { ok: false as const, reasons };
+  });
+}
+
+export async function tryRestoreVaultSession(): Promise<boolean> {
+  return enqueueVaultOp("restore", async (ticket) => {
+    if (session) return true;
+    if (!getRememberUnlock()) return false;
+    if (!getRestoreAllowed()) return false;
+    if (!(await probeRememberUnlock())) return false;
+    const rec = await idbGet(IDB_DEFAULT_ID);
+    if (!rec || !validateCryptoKey(rec.cryptoKey)) return false;
+    const seenToken = rec.opToken;
+    const raw = storageGet(VAULT_KEY);
+    if (!raw) {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    let env: Envelope;
+    try {
+      env = parseEnvelope(raw);
+    } catch {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (env.gen !== rec.gen) {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (!ticket.stillOwner()) return false;
+    let payload: VaultPayload;
+    try {
+      payload = await decryptEnvelopeWithCryptoKey(rec.cryptoKey, raw);
+    } catch {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (!ticket.stillOwner()) return false;
+    session = {
+      cryptoKey: rec.cryptoKey,
+      // no keyBytes after restore
+      payload: structuredClonePayload(payload),
+      gen: env.gen,
+      rev: env.rev,
+      raw,
+      salt: b64decode(env.salt_b64),
+      iter: env.iter,
+    };
+    notifyVaultListeners();
+    return true;
+  });
+}
+
+export async function lockVault(): Promise<LockResult> {
+  return enqueueVaultOp("lock", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    session = null;
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem("assmud.vault.tabSession.v1");
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      notifyVaultListeners();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      /* ignore */
+    }
+    return reasons.length === 0
+      ? { ok: true as const }
+      : { ok: false as const, reasons };
   });
 }
 
@@ -593,15 +1196,48 @@ export async function setVaultSecret(
   await persistSession(s);
 }
 
-export async function clearVault(): Promise<void> {
-  await withVaultLock(async () => {
-    const before = readSnap();
-    const metaGen = before.metaGen + 1;
-    writeMeta({ gen: metaGen });
-    storageDel(VAULT_KEY);
+export async function clearVault(): Promise<LockResult> {
+  return enqueueVaultOp("clear", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    try {
+      setDurableRememberUnlock(0);
+    } catch {
+      reasons.push("remember_flag_write_failed");
+    }
     session = null;
+    try {
+      notifyVaultListeners();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      const before = readSnap();
+      const metaGen = before.metaGen + 1;
+      writeMeta({ gen: metaGen });
+      storageDel(VAULT_KEY);
+    } catch {
+      reasons.push("envelope_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+      setDurableRememberUnlock(0);
+    } catch {
+      /* ignore */
+    }
+    return reasons.length === 0
+      ? { ok: true as const }
+      : { ok: false as const, reasons };
   });
-  notifyVaultListeners();
 }
 
 function deepEqualEntry(
@@ -656,7 +1292,7 @@ export async function migrateLegacyIntoVault(
   const s = requireSession();
   const entries: Record<string, VaultSecretEntry> = {};
   for (const id of legacyKeys) {
-    if (s.payload.profiles[id]) continue; // skip existing
+    if (s.payload.profiles[id]) continue;
     const e = legacy[id]!;
     const clean: VaultSecretEntry = {};
     if (e.account?.trim()) clean.account = e.account.trim();
@@ -674,7 +1310,6 @@ export async function migrateLegacyIntoVault(
   };
   await persistSession(s);
 
-  // verify receipt
   if (!canDeleteLegacy(s.payload, legacy)) {
     throw new VaultError("migration verify failed", "legacy");
   }

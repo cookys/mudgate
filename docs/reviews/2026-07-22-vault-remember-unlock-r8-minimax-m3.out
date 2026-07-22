@@ -1,0 +1,17 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- §4.5 `opToken` uses `crypto.randomUUID()` — fine, but worth noting that `randomUUID` requires a secure context; capability probe (§4.3) doesn't currently gate on `window.isSecureContext`. Add `isSecureContext` to the probe requirements so the gate and the token source stay consistent.
+- §4.9 step 4 re-asserts `setDurableRestoreAllowed(0)` after IDB delete "ignore throw", but if step 1 already threw and step 4 also throws silently you have no record that step 4 failed distinct from step 1 — minor telemetry gap, not a blocker.
+- §6 "lock: setItem throw 仍 session=null 且仍 attempt IDB delete" — there's no test listed for the symmetric `clearVault` case where `localStorage.removeItem(envelopeKey)` throws between RAM null and IDB delete. The plan says it's independent best-effort; the test matrix should mirror that explicitly.
+- §4.10 notes `getVaultSecret` must not re-read IDB — good — but doesn't explicitly say `session` is the only source post-restore. Worth stating once in §4.4 that RAM `cryptoKey` is the sole decrypt handle after restore, with IDB treated as cold storage.
+SECURITY_NOTES:
+- Threat model (§2) is honest about on-origin XSS being unmitigated whenever the IDB key exists; UI copy forbids misleading claims. Good.
+- `extractable:false` CryptoKey via structured-clone into IDB is the correct primitive; no raw bytes ever touch session/localStorage. Probe (§4.3) covers the clone round-trip, not just `!!subtle`.
+- Restore path is cryptoKey-only by design (Q4), so post-restore `session` cannot be coerced into an `exportKey` call even by a compromised same-tab script (browser enforces non-extractable). This is the main win over the reverted sessionStorage approach.
+- `restoreAllowed` is deliberately independent of `rememberUnlock` so a failed IDB delete on lock can fail closed without flipping the user's stated preference — correct.
+- Web Lock + `opToken` compare-and-delete in a single readwrite tx correctly closes the cross-tab race where tab A's compensate-delete could otherwise nuke tab B's freshly-put record.
+- `bodyStarted` guard prevents re-running unlock/clear bodies on lock-acquisition failure, which would otherwise cause duplicate IDB writes or duplicate session installs.
+- Honest residual: cross-tab RAM revocation is not provided (no BroadcastChannel in P1); documented.
+C0_SHIP_OK: yes
+ONE_LINE: Plan correctly replaces the unsafe sessionStorage raw-key path with a non-extractable CryptoKey in IndexedDB, gates restore on an independent durable bit, and uses tab serial queue + cross-tab Web Lock + atomic opToken compare-and-delete to keep lock/clear/restore race-free — honest threat model, no blockers.
