@@ -73,6 +73,17 @@ describe("RoomTracker trail (dead-reckon)", () => {
     expect(t.nearby().title).toBe("起點");
   });
 
+  it("RW humorous wall-bump undoes last dig", () => {
+    const t = new RoomTracker();
+    t.noteOutbound("s", "s");
+    expect(t.rooms.size).toBe(2);
+    t.onServerLine(
+      "你明明知道南邊方是牆，卻依然從正面撞了下去，把嘴唇撞的跟香腸一樣。",
+    );
+    expect(t.lastEvent).toBe("move_fail");
+    expect(t.rooms.size).toBe(1);
+  });
+
   it("follow existing edge revisits room", () => {
     const t = new RoomTracker();
     t.noteOutbound("e", "e");

@@ -17,6 +17,10 @@ describe("journeyReplay gate (C1.2)", () => {
       kind: "stop",
       reason: "move_fail",
     });
+    const wall =
+      "你明明知道南邊方是牆，卻依然從正面撞了下去，把嘴唇撞的跟香腸一樣。";
+    expect(isMoveFail(wall)).toBe(true);
+    expect(verdictOnServerLine(wall)?.kind).toBe("stop");
   });
 
   it("does not stop on ordinary room chatter", () => {

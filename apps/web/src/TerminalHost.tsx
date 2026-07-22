@@ -8,6 +8,7 @@ import {
 import {
   ScreenBuffer,
   Canvas2DRenderer,
+  viewportToAbs,
   type MapFrameCells,
   type SelectionRange,
   type VtCaptureEvent,
@@ -270,10 +271,11 @@ export function TerminalHost({
     if (scope === "history") {
       text = buf.snapshotScrollbackPlain();
     } else if (scope === "selection" && sel) {
+      // Selection uses absolute document rows (follows text when scrolled)
       text =
         kind === "ansi"
-          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
-          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+          ? buf.exportAbsSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+          : buf.exportAbsSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
     } else {
       text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
     }
@@ -574,7 +576,12 @@ export function TerminalHost({
     if (!hit) return;
     setMenuMode(null);
     selecting.current = true;
-    const next = { r0: hit.r, c0: hit.c, r1: hit.r, c1: hit.c };
+    const absR = viewportToAbs(
+      bufRef.current.scrollbackDepth(),
+      scrollOffsetRef.current,
+      hit.r,
+    );
+    const next = { r0: absR, c0: hit.c, r1: absR, c1: hit.c };
     selRef.current = next;
     setSelection(next);
     redraw();
@@ -585,7 +592,12 @@ export function TerminalHost({
     if (!selecting.current) return;
     const hit = rendererRef.current.hitTest(e.clientX, e.clientY);
     if (!hit || !selRef.current) return;
-    const next = { ...selRef.current, r1: hit.r, c1: hit.c };
+    const absR = viewportToAbs(
+      bufRef.current.scrollbackDepth(),
+      scrollOffsetRef.current,
+      hit.r,
+    );
+    const next = { ...selRef.current, r1: absR, c1: hit.c };
     selRef.current = next;
     setSelection(next);
     redraw();
@@ -605,7 +617,9 @@ export function TerminalHost({
       onRequestFocusCmdRef.current?.();
       return;
     }
-    // float copy bar above command input (bottom of terminal stage)
+    // zMUD habit: selecting text copies plain text immediately
+    void copyText("plain", "selection");
+    // float copy bar (plain primary; Shift+Ctrl+C still does ANSI)
     setMenuMode("selection");
   };
 

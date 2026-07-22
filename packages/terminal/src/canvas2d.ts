@@ -1,14 +1,42 @@
 import type { ScreenBuffer } from "./buffer.js";
 import { colorFor, VOID_BG } from "./colors.js";
+import { isWide } from "./width.js";
 
 const VOID = VOID_BG;
 
+/**
+ * Selection in **document** (absolute) row coordinates:
+ * - abs row 0..scrollbackDepth-1 = history lines
+ * - abs row scrollbackDepth..scrollbackDepth+rows-1 = live cells
+ * Viewport paint converts via scrollOffset.
+ */
 export type SelectionRange = {
   r0: number;
   c0: number;
   r1: number;
   c1: number;
 };
+
+/** Viewport row → absolute document row for current scroll. */
+export function viewportToAbs(
+  scrollbackLen: number,
+  scrollOffset: number,
+  viewRow: number,
+): number {
+  return scrollbackLen - scrollOffset + viewRow;
+}
+
+/** Absolute document row → viewport row, or null if off-screen. */
+export function absToViewport(
+  scrollbackLen: number,
+  scrollOffset: number,
+  rows: number,
+  absRow: number,
+): number | null {
+  const viewRow = absRow - (scrollbackLen - scrollOffset);
+  if (viewRow < 0 || viewRow >= rows) return null;
+  return viewRow;
+}
 
 export class Canvas2DRenderer {
   private canvas: HTMLCanvasElement | null = null;
@@ -127,11 +155,13 @@ export class Canvas2DRenderer {
     ctx.textAlign = "left";
 
     const off = Math.max(0, Math.min(scrollOffset, buf.scrollbackDepth()));
+    const sbLen = buf.scrollbackDepth();
 
     for (let r = 0; r < buf.rows; r++) {
       // Continuous history: [scrollback tail…] then live cells[0…]
       const hist = buf.scrollbackViewLine(off, r);
       if (hist != null) {
+        // Dim history; respect dual-width (same as live buffer paint)
         ctx.fillStyle = "#7a808c";
         let col = 0;
         for (const ch of hist) {
@@ -143,7 +173,7 @@ export class Canvas2DRenderer {
               Math.round(r * this.cellH + 1),
             );
           }
-          col += 1;
+          col += isWide(ch, buf.widthMode) ? 2 : 1;
         }
         continue;
       }
@@ -165,9 +195,8 @@ export class Canvas2DRenderer {
       }
     }
 
-    // Selection only on live viewport
-    if (selection && off === 0) {
-      this.paintSelection(ctx, buf, selection);
+    if (selection) {
+      this.paintSelection(ctx, buf, selection, off, sbLen);
     }
   }
 
@@ -175,30 +204,35 @@ export class Canvas2DRenderer {
     ctx: CanvasRenderingContext2D,
     buf: ScreenBuffer,
     sel: SelectionRange,
+    scrollOffset: number,
+    sbLen: number,
   ): void {
-    // linear selection highlight
-    let sr = sel.r0;
+    // Selection stored as absolute document rows; map into viewport
+    let ar0 = sel.r0;
     let sc = sel.c0;
-    let er = sel.r1;
+    let ar1 = sel.r1;
     let ec = sel.c1;
-    if (sr > er || (sr === er && sc > ec)) {
-      sr = sel.r1;
+    if (ar0 > ar1 || (ar0 === ar1 && sc > ec)) {
+      ar0 = sel.r1;
       sc = sel.c1;
-      er = sel.r0;
+      ar1 = sel.r0;
       ec = sel.c0;
     }
-    sr = Math.max(0, Math.min(buf.rows - 1, sr));
-    er = Math.max(0, Math.min(buf.rows - 1, er));
+    const maxAbs = sbLen + buf.rows - 1;
+    ar0 = Math.max(0, Math.min(maxAbs, ar0));
+    ar1 = Math.max(0, Math.min(maxAbs, ar1));
     sc = Math.max(0, Math.min(buf.cols - 1, sc));
     ec = Math.max(0, Math.min(buf.cols - 1, ec));
 
     ctx.fillStyle = "rgba(91, 157, 255, 0.32)";
-    for (let r = sr; r <= er; r++) {
-      const ca = r === sr ? sc : 0;
-      const cb = r === er ? ec : buf.cols - 1;
+    for (let abs = ar0; abs <= ar1; abs++) {
+      const vr = absToViewport(sbLen, scrollOffset, buf.rows, abs);
+      if (vr == null) continue;
+      const ca = abs === ar0 ? sc : 0;
+      const cb = abs === ar1 ? ec : buf.cols - 1;
       ctx.fillRect(
         ca * this.cellW,
-        r * this.cellH,
+        vr * this.cellH,
         (cb - ca + 1) * this.cellW,
         this.cellH,
       );

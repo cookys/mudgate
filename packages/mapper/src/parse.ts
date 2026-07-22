@@ -103,6 +103,13 @@ export function isMoveFail(line: string): boolean {
     /這個方向沒有|这个方向没有/.test(t) ||
     /似乎沒有這條路|似乎没有这条路/.test(t) ||
     /門是關|门是关|上了鎖|上了锁/.test(t) ||
+    // RW-style humorous wall bumps (e.g. 明明知道南邊是牆…撞了下去)
+    /明明知道/.test(t) ||
+    /依然從正面撞|依然从正面撞|從正面撞|从正面撞/.test(t) ||
+    /撞了下去|撞了上去|撞上去|撞下去/.test(t) ||
+    /把嘴唇撞|撞的跟香腸|撞得跟香腸|撞的跟香肠|撞得跟香肠/.test(t) ||
+    /(是牆|是墙).{0,24}(撞|依然)/.test(t) ||
+    /(撞).{0,12}(牆|墙)/.test(t) ||
     /you can't go/i.test(t) ||
     /no (?:obvious )?exit/i.test(t) ||
     /alas, you cannot/i.test(t)

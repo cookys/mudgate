@@ -418,6 +418,7 @@ export class ScreenBuffer {
   /**
    * Linear selection (terminal-style): from (r0,c0) through (r1,c1) in reading order.
    * Emits plain text; wide-char trail cells skipped.
+   * Rows are **live buffer** 0-based (not absolute document).
    */
   exportSelectionPlain(
     r0: number,
@@ -436,6 +437,78 @@ export class ScreenBuffer {
     c1: number,
   ): string {
     return this.walkSelection(r0, c0, r1, c1, true);
+  }
+
+  /**
+   * Selection in absolute document rows (history + live).
+   * abs 0..scrollbackLen-1 = history plain lines; rest = live cells.
+   */
+  exportAbsSelectionPlain(
+    ar0: number,
+    c0: number,
+    ar1: number,
+    c1: number,
+  ): string {
+    return this.walkAbsSelection(ar0, c0, ar1, c1, false);
+  }
+
+  exportAbsSelectionAnsi(
+    ar0: number,
+    c0: number,
+    ar1: number,
+    c1: number,
+  ): string {
+    return this.walkAbsSelection(ar0, c0, ar1, c1, true);
+  }
+
+  private walkAbsSelection(
+    ar0: number,
+    c0: number,
+    ar1: number,
+    c1: number,
+    ansi: boolean,
+  ): string {
+    let a0 = ar0;
+    let a1 = ar1;
+    let sc = c0;
+    let ec = c1;
+    if (a0 > a1 || (a0 === a1 && sc > ec)) {
+      a0 = ar1;
+      sc = c1;
+      a1 = ar0;
+      ec = c0;
+    }
+    const sbLen = this.scrollback.length;
+    const maxAbs = sbLen + this.rows - 1;
+    a0 = Math.max(0, Math.min(maxAbs, a0));
+    a1 = Math.max(0, Math.min(maxAbs, a1));
+    sc = Math.max(0, Math.min(this.cols - 1, sc));
+    ec = Math.max(0, Math.min(this.cols - 1, ec));
+
+    const lines: string[] = [];
+    for (let abs = a0; abs <= a1; abs++) {
+      const ca = abs === a0 ? sc : 0;
+      const cb = abs === a1 ? ec : this.cols - 1;
+      if (abs < sbLen) {
+        // History is plain; no SGR. Slice by visual cell width when possible.
+        const raw = this.scrollback[abs] ?? "";
+        const cells: string[] = [];
+        let col = 0;
+        for (const ch of raw) {
+          if (col > cb) break;
+          const w = isWide(ch, this.widthMode) ? 2 : 1;
+          if (col + w - 1 >= ca && col <= cb) cells.push(ch);
+          col += w;
+        }
+        let s = cells.join("");
+        if (!ansi) s = s.replace(/\s+$/, "");
+        lines.push(s);
+      } else {
+        const lr = abs - sbLen;
+        lines.push(this.walkSelection(lr, ca, lr, cb, ansi));
+      }
+    }
+    return lines.join("\n");
   }
 
   /** Full screen rectangle plain (all columns). */

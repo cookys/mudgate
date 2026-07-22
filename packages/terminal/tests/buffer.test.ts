@@ -185,6 +185,17 @@ describe("ScreenBuffer", () => {
     expect(b.scrollbackViewLine(0, 0)).toBeNull();
   });
 
+  it("exportAbsSelectionPlain reads history + live by document row", () => {
+    const b = new ScreenBuffer(20, 3, "western");
+    b.writeDecoded("histA\r\nhistB\r\nlive0\r\nlive1\r\n");
+    // After scroll, hist has early lines; abs 0 should be oldest retained
+    const sb = b.scrollbackDepth();
+    expect(sb).toBeGreaterThan(0);
+    // Select first history line fully
+    const plain = b.exportAbsSelectionPlain(0, 0, 0, 19);
+    expect(plain).toMatch(/hist/);
+  });
+
   it("RW MOTD: committed golden cols under cjk mode", () => {
     const goldenPath = join(
       dirname(fileURLToPath(import.meta.url)),
