@@ -18,7 +18,12 @@ import {
 import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
-import { fitTypographyToStage, TERM_FIT, V_SCROLLBAR_GUTTER_PX } from "./lib/termFit";
+import {
+  fitResponsiveTypographyToStage,
+  TERM_FIT,
+  V_SCROLLBAR_GUTTER_PX,
+} from "./lib/termFit";
+import { VV_EVENT } from "./lib/useVisualViewport";
 
 export type { HelloMsg, StatusEvent };
 
@@ -257,7 +262,7 @@ export function TerminalHost({
         lineHeightScale,
       });
 
-      const fitted = fitTypographyToStage(
+      const fitted = fitResponsiveTypographyToStage(
         cssW,
         cssH,
         fontSizePx,
@@ -409,13 +414,17 @@ export function TerminalHost({
         ? new ResizeObserver(scheduleFit)
         : null;
     ro?.observe(stage);
-    // Fallback if RO missing
+    // Multiple invalidation signals feed one coalesced fit transaction.
     window.addEventListener("resize", scheduleFit);
+    window.addEventListener("orientationchange", scheduleFit);
+    window.addEventListener(VV_EVENT, scheduleFit);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(trailing);
       ro?.disconnect();
       window.removeEventListener("resize", scheduleFit);
+      window.removeEventListener("orientationchange", scheduleFit);
+      window.removeEventListener(VV_EVENT, scheduleFit);
     };
   }, [wsUrl]);
 
