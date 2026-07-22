@@ -44,7 +44,7 @@ MUDGATE_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173" \
 npm run dev:proxy
 
 VITE_HOST=0.0.0.0 \
-VITE_PROXY_WS="ws://127.0.0.1:7788/ws" \
+VITE_PROXY_WS="ws://127.0.0.1:17788/ws" \
 npm run dev:web
 ```
 

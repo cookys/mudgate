@@ -87,7 +87,7 @@
 
 | 產物 | 路徑 | 說明 |
 |------|------|------|
-| Compose | `deploy/docker-compose.proxy.yml` | proxy **預設 `127.0.0.1:7788`** |
+| Compose | `deploy/docker-compose.proxy.yml` | proxy **預設 `127.0.0.1:17788`** |
 | Caddy 範例 | `deploy/Caddyfile.proxy.example` | 公網 **僅 443** → reverse_proxy 到 loopback |
 | Installer | `scripts/deploy/install-proxy.sh` | **版本釘選**；見 §3.3 |
 | cloud-init | `scripts/deploy/oracle-cloud-init.yaml` | 調用 **固定 URL + SHA-256** 的 installer |
@@ -97,7 +97,7 @@
 
 | 項 | 預設 |
 |----|------|
-| 綁定 | **`127.0.0.1:7788` only**（compose / install **不得**預設 `0.0.0.0:7788`） |
+| 綁定 | **`127.0.0.1:17788` only**（compose / install **不得**預設 `0.0.0.0:17788`） |
 | 對外 | **僅** Caddy／nginx／**cloudflared**  terminat TLS 後轉 loopback |
 | Mode | `remote-prod`（自架對外）或本機日常模式（另名，見 T0a） |
 | Token | `openssl rand -hex 24` → 檔案 **`0600` root-owned**（如 `/etc/mudgate/auth_token`） |
@@ -162,7 +162,7 @@
 手機/外網 ──WSS──► Cloudflare Edge (Access 政策)
                       │ Tunnel
                       ▼
-              家裡 cloudflared ──► 127.0.0.1:7788 mudgate-proxy
+              家裡 cloudflared ──► 127.0.0.1:17788 mudgate-proxy
                       │
                       ▼ Telnet（出口 = 家用 ISP IP）
                     台灣 MUD
@@ -176,7 +176,7 @@
 | **Origin allowlist** | `https://你的域名` | 與 Access 應用 hostname 一致 |
 | **Token** | 仍要 | Access ≠ 取代 MUDGATE_AUTH_TOKEN |
 
-**文件產物**：`docs/deploy/HOME-CLOUDFLARE-TUNNEL.md`（cloudflared 安裝、Public Hostname → `localhost:7788`、Access 政策、Web 選 T1b）。
+**文件產物**：`docs/deploy/HOME-CLOUDFLARE-TUNNEL.md`（cloudflared 安裝、Public Hostname → `localhost:17788`、Access 政策、Web 選 T1b）。
 
 **不要**：把 Tunnel 講成「換出口 IP 躲多開」——那是錯的。
 
@@ -244,7 +244,7 @@
 
 1. 文件齊：Oracle、Home CF Tunnel、compose、installer pin 說明。  
 2. Prod：**無 token 或無 Origin → 不起服務**。  
-3. 預設 **不** 監聽 `0.0.0.0:7788`。  
+3. 預設 **不** 監聽 `0.0.0.0:17788`。  
 4. Installer／image pin 鏈寫進 release 檢查清單。  
 5. UI T3 阻擋；export 無 token。  
 6. threat-model 含硬限制與 CF 入口／家用出口說明。  

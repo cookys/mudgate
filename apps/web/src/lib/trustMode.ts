@@ -127,7 +127,7 @@ export function resolveWsUrl(
   }
   switch (mode) {
     case "local":
-      return opts.envDefault || "ws://127.0.0.1:7788/ws";
+      return opts.envDefault || "ws://127.0.0.1:17788/ws";
     case "selfhost":
     case "custom":
       return opts.customWs.trim() || null;

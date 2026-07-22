@@ -4,7 +4,7 @@ Expose **your** home mudgate-proxy without opening router ports.
 **Egress to the MUD stays your home ISP IP** (good for multi-login). Tunnel is **ingress only**.
 
 ```
-Phone ──WSS──► Cloudflare Access ──Tunnel──► cloudflared ──► 127.0.0.1:7788
+Phone ──WSS──► Cloudflare Access ──Tunnel──► cloudflared ──► 127.0.0.1:17788
                                                       │
                                                       └── Telnet ──► MUD (home IP)
 ```
@@ -12,7 +12,7 @@ Phone ──WSS──► Cloudflare Access ──Tunnel──► cloudflared ─
 ## Steps
 
 1. Run proxy on loopback (`MUDGATE_BIND_HOST=127.0.0.1`, token + Origin set).
-2. Install `cloudflared`; create a Tunnel with Public Hostname → `http://127.0.0.1:7788` (path `/ws` as needed).
+2. Install `cloudflared`; create a Tunnel with Public Hostname → `http://127.0.0.1:17788` (path `/ws` as needed).
 3. **Zero Trust Access** policy: allow **only your email / IdP**.  
    **Forbidden:** world **Bypass** on the app.
 4. Set `MUDGATE_ORIGIN_ALLOWLIST=https://your-cf-hostname`.

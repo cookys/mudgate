@@ -15,7 +15,7 @@ Aligns with `apps/proxy` `policy.ts` / remote-prod.
 ## Topology
 
 ```
-Browser ──WSS──► Caddy/nginx (TLS) ──► 127.0.0.1:7788 proxy ──TCP──► MUD
+Browser ──WSS──► Caddy/nginx (TLS) ──► 127.0.0.1:17788 proxy ──TCP──► MUD
 ```
 
 See `deploy/Caddyfile.proxy.example`, `deploy/docker-compose.proxy.yml`.

@@ -47,7 +47,7 @@ if [ -x "$HOME/.acme.sh/acme.sh" ]; then
   chmod 644 /usr/local/etc/ssl/mudgate/fullchain.pem 2>/dev/null || true
 fi
 
-curl -sS -m 3 http://127.0.0.1:7788/health || echo "proxy health fail"
+curl -sS -m 3 http://127.0.0.1:17788/health || echo "proxy health fail"
 echo
 curl -sS -m 5 -o /dev/null -w "https:%{http_code}\n" https://mud.revivalworld.org/
 REMOTE

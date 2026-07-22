@@ -110,7 +110,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       mode,
       siteMode,
       bindHost: "127.0.0.1",
-      bindPort: 7788,
+      bindPort: 17788,
       authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
       allowlist: mergeAllowlist(
         [
@@ -135,7 +135,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     siteMode,
     // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
     bindHost: process.env.MUDGATE_BIND_HOST ?? "127.0.0.1",
-    bindPort: Number(process.env.PORT ?? 7788),
+    bindPort: Number(process.env.PORT ?? 17788),
     authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
     allowlist,
     relaxAllowlist: false,

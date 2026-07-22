@@ -9,7 +9,7 @@
 # Site deploy (mud.revivalworld.org → mudgate)
 
 - [ ] `./deploy/site-deploy.sh` (builds SPA with `VITE_PROXY_WS=wss://mud.revivalworld.org/ws`)
-- [ ] nginx includes `mudgate.conf`, root `/usr/local/www/mudgate`, `/ws` → `127.0.0.1:7788`
+- [ ] nginx includes `mudgate.conf`, root `/usr/local/www/mudgate`, `/ws` → `127.0.0.1:17788`
 - [ ] TLS: acme.sh ECC → `/usr/local/etc/ssl/mudgate/{fullchain,privkey}.pem` + reloadcmd
 - [ ] cron: `acme.sh --cron` + `@reboot mudgate-proxy-start.sh`
 - [ ] Manual renew: `~/bin/renew-mud-cert.sh` (standalone :80, 443-only nginx ok)

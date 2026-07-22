@@ -18,10 +18,10 @@ describe("trustMode", () => {
   it("resolveWsUrl by mode", () => {
     expect(
       resolveWsUrl("local", {
-        envDefault: "ws://127.0.0.1:7788/ws",
+        envDefault: "ws://127.0.0.1:17788/ws",
         customWs: "",
       }),
-    ).toBe("ws://127.0.0.1:7788/ws");
+    ).toBe("ws://127.0.0.1:17788/ws");
     expect(
       resolveWsUrl("selfhost", {
         envDefault: "ws://x",

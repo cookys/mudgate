@@ -44,7 +44,7 @@ Players use **this site only** — no T1/T3 trust radios, no manual auth-token f
 
 | Layer | Role |
 |-------|------|
-| nginx **443** | SPA + `wss://…/ws` → `127.0.0.1:7788` |
+| nginx **443** | SPA + `wss://…/ws` → `127.0.0.1:17788` |
 | mudgate-proxy | `remote-prod` + `MUDGATE_SITE_MODE=1` + allowlist |
 | Auth | Shared site token as **HttpOnly** cookie (`mudgate_session`); Origin allowlist |
 | MUD | Telnet to allowlisted ports (RW: 4000 / 4001 / 5000 / 6000 — same driver, verified by banner) |

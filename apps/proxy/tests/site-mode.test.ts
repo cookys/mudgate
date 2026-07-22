@@ -44,7 +44,7 @@ function baseSiteCfg(over: Partial<ProxyConfig> = {}): ProxyConfig {
     mode: "remote-prod",
     siteMode: true,
     bindHost: "127.0.0.1",
-    bindPort: 7788,
+    bindPort: 17788,
     authToken: "site-secret",
     allowlist: [{ host: "127.0.0.1", ports: [4000] }],
     relaxAllowlist: false,
