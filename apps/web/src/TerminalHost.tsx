@@ -19,7 +19,8 @@ import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
 import {
-  fitResponsiveTypographyToStage,
+  fitTypographyToStage,
+  resolveTerminalGrid,
   TERM_FIT,
   V_SCROLLBAR_GUTTER_PX,
 } from "./lib/termFit";
@@ -78,6 +79,8 @@ type Props = {
   onVtCaptureEvent?: (e: VtCaptureEvent) => void;
   /** Imperative snapshot + arm for BurstDetector */
   captureApiRef?: MutableRefObject<TerminalCaptureApi | null>;
+  /** Soft keyboard only occludes the canvas; it must not resize the remote grid. */
+  keyboardOpen?: boolean;
 };
 
 type CopyMenuMode = "selection" | "screen";
@@ -129,6 +132,7 @@ export function TerminalHost({
   widthMode = "western",
   onVtCaptureEvent,
   captureApiRef,
+  keyboardOpen = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -262,7 +266,7 @@ export function TerminalHost({
         lineHeightScale,
       });
 
-      const fitted = fitResponsiveTypographyToStage(
+      const fitted = fitTypographyToStage(
         cssW,
         cssH,
         fontSizePx,
@@ -279,7 +283,11 @@ export function TerminalHost({
       r.setCellMetrics(fitted.cellW, fitted.cellH);
       setNeedsHScroll(fitted.needsHScroll);
 
-      const next = { cols: fitted.cols, rows: fitted.rows };
+      const next = resolveTerminalGrid(
+        fitted,
+        termSizeRef.current,
+        keyboardOpen,
+      );
       if (next.cols < 1 || next.rows < 1) {
         paint();
         return termSizeRef.current;
@@ -310,7 +318,14 @@ export function TerminalHost({
       paint();
       return next;
     },
-    [paint, fontSizePx, lineHeightScale, cellWidthScale, terminalFontStack],
+    [
+      paint,
+      fontSizePx,
+      lineHeightScale,
+      cellWidthScale,
+      terminalFontStack,
+      keyboardOpen,
+    ],
   );
 
   // Stable refs so observers never re-subscribe just because applyFit identity changed
@@ -840,9 +855,12 @@ export function TerminalHost({
           imageRendering: "auto",
           background: "#0a0b0e",
           // Exact cols×cellW / rows×cellH from renderer (may exceed stage width
-          // only when needsHScroll — parent scrolls horizontally)
-          maxHeight: "100%",
-          ...(needsHScroll ? {} : { maxWidth: "100%" }),
+          // only when needsHScroll — parent scrolls horizontally). Never apply
+          // CSS max sizing: the stage clips temporary keyboard occlusion without
+          // scaling the terminal bitmap or distorting glyphs.
+          ...(keyboardOpen
+            ? { position: "absolute", left: 0, bottom: 0 }
+            : {}),
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

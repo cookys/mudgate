@@ -25,6 +25,20 @@ export type FitTypographyResult = {
   needsHScroll: boolean;
 };
 
+/**
+ * Soft keyboards are a temporary visual occlusion, not a remote terminal
+ * geometry change. Keep the live grid intact until the full viewport returns.
+ */
+export function resolveTerminalGrid(
+  fitted: Pick<FitTypographyResult, "cols" | "rows">,
+  current: TermFit,
+  keyboardOpen: boolean,
+): TermFit {
+  return keyboardOpen
+    ? { cols: VT_CLASSIC_COLS, rows: current.rows }
+    : { cols: VT_CLASSIC_COLS, rows: fitted.rows };
+}
+
 /** Classic teletype / MUD map width (half-width cells). */
 export const VT_CLASSIC_COLS = 80;
 
@@ -38,6 +52,7 @@ export const ABS_MIN_FONT_PX = 6;
 export const V_SCROLLBAR_GUTTER_PX = 18;
 
 export const TERM_FIT = {
+  minRows: 8,
   maxCols: 200,
   maxRows: 80,
   defaultCols: VT_CLASSIC_COLS,
@@ -85,8 +100,6 @@ export function fitTypographyToStage(
   measure: (fontPx: number, lineScale: number) => CellMetrics,
   opts?: {
     classicCols?: number | null;
-    /** Fraction of userFont for min (default 0.5); still floored by ABS_MIN_FONT_PX */
-    minFontRatio?: number;
   },
 ): FitTypographyResult {
   const classic =
@@ -94,10 +107,7 @@ export function fitTypographyToStage(
       ? null
       : (opts?.classicCols ?? VT_CLASSIC_COLS);
   const L = userLineScale;
-  const minFont = Math.max(
-    ABS_MIN_FONT_PX,
-    Math.round(userFontPx * (opts?.minFontRatio ?? 0.5) * 2) / 2,
-  );
+  const minFont = ABS_MIN_FONT_PX;
 
   // Free-form: xterm style, no col lock
   if (classic == null) {
@@ -115,7 +125,7 @@ export function fitTypographyToStage(
       cellW: m.cellW,
       cellH: m.cellH,
       cols: Math.max(1, g.cols),
-      rows: Math.max(1, g.rows),
+      rows: Math.max(TERM_FIT.minRows, g.rows),
       needsHScroll: false,
     };
   }
@@ -124,8 +134,9 @@ export function fitTypographyToStage(
   const packs = (S: number) => {
     const m = measure(S, L);
     // INVARIANT: use measured cellW only — never invent a smaller pitch.
-    // 1px slack for subpixel borders / rounding so we don't claim "fits" then overflow.
-    return { m, ok: m.cellW * cols <= Math.max(0, stageW - 1) };
+    // Canvas and CSS both retain fractional widths, so an exact 80-cell fit
+    // must not create an unnecessary horizontal scrollbar.
+    return { m, ok: m.cellW * cols <= Math.max(0, stageW) + 0.01 };
   };
 
   let S = userFontPx;
@@ -135,7 +146,10 @@ export function fitTypographyToStage(
     if (!atMin.ok) {
       // Cannot fit 80 measured cells — keep pitch honest; h-scroll
       const m = atMin.m;
-      const rows = Math.max(1, Math.floor(stageH / Math.max(1, m.cellH)));
+      const rows = Math.max(
+        TERM_FIT.minRows,
+        Math.floor(stageH / Math.max(1, m.cellH)),
+      );
       return {
         fontSizePx: minFont,
         lineHeightScale: L,
@@ -166,7 +180,7 @@ export function fitTypographyToStage(
   const cellW = m.cellW;
   const cellH = m.cellH;
   const rows = Math.max(
-    1,
+    TERM_FIT.minRows,
     Math.min(TERM_FIT.maxRows, Math.floor(stageH / Math.max(1, cellH))),
   );
   const needsHScroll = cellW * cols > stageW + 0.01;
@@ -180,30 +194,4 @@ export function fitTypographyToStage(
     rows,
     needsHScroll,
   };
-}
-
-/** Prefer 80 columns when honest glyph metrics fit; otherwise expose the real grid. */
-export function fitResponsiveTypographyToStage(
-  stageW: number,
-  stageH: number,
-  userFontPx: number,
-  userLineScale: number,
-  measure: (fontPx: number, lineScale: number) => CellMetrics,
-): FitTypographyResult {
-  const classic = fitTypographyToStage(
-    stageW,
-    stageH,
-    userFontPx,
-    userLineScale,
-    measure,
-  );
-  if (!classic.needsHScroll) return classic;
-  return fitTypographyToStage(
-    stageW,
-    stageH,
-    userFontPx,
-    userLineScale,
-    measure,
-    { classicCols: null },
-  );
 }

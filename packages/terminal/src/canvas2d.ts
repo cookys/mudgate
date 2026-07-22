@@ -3,6 +3,9 @@ import { colorFor, VOID_BG } from "./colors.js";
 import { isWide } from "./width.js";
 
 const VOID = VOID_BG;
+const MIN_FONT_PX = 6;
+const MIN_CELL_W_PX = 3;
+const MIN_CELL_H_PX = 8;
 
 /**
  * Selection in **document** (absolute) row coordinates:
@@ -101,21 +104,28 @@ export class Canvas2DRenderer {
     this.lineHeightScale = opts.lineHeightScale ?? 1.2;
     this.widthScale = opts.cellWidthScale ?? 1;
     this.letterSpacingPx = opts.letterSpacingPx ?? 0;
-    this.cellH = Math.max(12, Math.round(this.fontSizePx * this.lineHeightScale));
+    this.cellH = Math.max(
+      MIN_CELL_H_PX,
+      Math.round(this.fontSizePx * this.lineHeightScale),
+    );
     this.recomputeCellWidth();
   }
 
   /**
    * Re-measure half-width cell from real font metrics at **stored fontSizePx**.
-   * Uses ceil so grid never claims more columns than glyphs can paint without overflow.
+   * Measures both the widest Latin probe and half of a CJK glyph. Fractional
+   * advances are retained because Canvas2D positions and backing stores support them.
    */
   recomputeCellWidth(): void {
-    const fontPx = Math.max(10, this.fontSizePx);
+    const fontPx = Math.max(MIN_FONT_PX, this.fontSizePx);
     const heuristic = Math.max(
-      6,
-      Math.round(fontPx * 0.6 * this.widthScale + this.letterSpacingPx),
+      MIN_CELL_W_PX,
+      fontPx * 0.6 * this.widthScale + this.letterSpacingPx,
     );
-    this.cellH = Math.max(12, Math.round(fontPx * this.lineHeightScale));
+    this.cellH = Math.max(
+      MIN_CELL_H_PX,
+      Math.round(fontPx * this.lineHeightScale),
+    );
     const ctx = this.ctx;
     if (!ctx) {
       this.cellW = heuristic;
@@ -125,21 +135,22 @@ export class Canvas2DRenderer {
     const wM = ctx.measureText("M").width || 0;
     const w0 = ctx.measureText("0").width || 0;
     const wW = ctx.measureText("W").width || 0;
-    const measured = Math.max(wM, w0, wW);
-    if (measured < 4) {
+    const wCjk = ctx.measureText("中").width || 0;
+    const measured = Math.max(wM, w0, wW, wCjk / 2);
+    if (measured < 1) {
       this.cellW = heuristic;
       return;
     }
     this.cellW = Math.max(
-      6,
-      Math.ceil(measured * this.widthScale + this.letterSpacingPx),
+      MIN_CELL_W_PX,
+      measured * this.widthScale + this.letterSpacingPx,
     );
   }
 
   /** Override measured cell size (e.g. lock 80 cols into stage width). */
   setCellMetrics(cellW: number, cellH: number): void {
-    this.cellW = Math.max(4, Math.round(cellW));
-    this.cellH = Math.max(8, Math.round(cellH));
+    this.cellW = Math.max(MIN_CELL_W_PX, cellW);
+    this.cellH = Math.max(MIN_CELL_H_PX, Math.round(cellH));
   }
 
   /** Measure cell metrics for a candidate size without permanently applying it. */
@@ -147,11 +158,11 @@ export class Canvas2DRenderer {
     fontPx: number,
     lineScale: number,
   ): { cellW: number; cellH: number } {
-    const size = Math.max(10, fontPx);
-    const cellH = Math.max(12, Math.round(size * lineScale));
+    const size = Math.max(MIN_FONT_PX, fontPx);
+    const cellH = Math.max(MIN_CELL_H_PX, Math.round(size * lineScale));
     const heuristic = Math.max(
-      6,
-      Math.round(size * 0.6 * this.widthScale + this.letterSpacingPx),
+      MIN_CELL_W_PX,
+      size * 0.6 * this.widthScale + this.letterSpacingPx,
     );
     const ctx = this.ctx;
     if (!ctx) return { cellW: heuristic, cellH };
@@ -159,11 +170,15 @@ export class Canvas2DRenderer {
     const wM = ctx.measureText("M").width || 0;
     const w0 = ctx.measureText("0").width || 0;
     const wW = ctx.measureText("W").width || 0;
-    const measured = Math.max(wM, w0, wW);
+    const wCjk = ctx.measureText("中").width || 0;
+    const measured = Math.max(wM, w0, wW, wCjk / 2);
     const cellW =
-      measured < 4
+      measured < 1
         ? heuristic
-        : Math.max(6, Math.ceil(measured * this.widthScale + this.letterSpacingPx));
+        : Math.max(
+            MIN_CELL_W_PX,
+            measured * this.widthScale + this.letterSpacingPx,
+          );
     return { cellW, cellH };
   }
 
@@ -171,11 +186,30 @@ export class Canvas2DRenderer {
   measureAlignScore(): number {
     const ctx = this.ctx;
     if (!ctx) return 0;
-    const fontPx = Math.max(10, this.fontSizePx);
+    const fontPx = Math.max(MIN_FONT_PX, this.fontSizePx);
     ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
     const wM = ctx.measureText("M").width || 1;
     const wC = ctx.measureText("中").width || 0;
     return wC / wM;
+  }
+
+  /** Match painted ink to compact cell metrics when the user narrows cells. */
+  private fillGlyph(
+    ctx: CanvasRenderingContext2D,
+    ch: string,
+    x: number,
+    y: number,
+  ): void {
+    const scaleX = Math.min(1, Math.max(0.1, this.widthScale));
+    if (scaleX === 1) {
+      ctx.fillText(ch, x, y);
+      return;
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scaleX, 1);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
   }
 
   /** Map pointer client coords → cell index. */
@@ -242,7 +276,7 @@ export class Canvas2DRenderer {
     ctx.fillStyle = VOID;
     ctx.fillRect(0, 0, cssW, cssH);
 
-    const fontPx = Math.max(10, this.fontSizePx);
+    const fontPx = Math.max(MIN_FONT_PX, this.fontSizePx);
     ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
@@ -260,10 +294,11 @@ export class Canvas2DRenderer {
         for (const ch of hist) {
           if (col >= buf.cols) break;
           if (ch !== " ") {
-            ctx.fillText(
+            this.fillGlyph(
+              ctx,
               ch,
-              Math.round(col * this.cellW),
-              Math.round(r * this.cellH + 1),
+              col * this.cellW,
+              r * this.cellH + 1,
             );
           }
           col += isWide(ch, buf.widthMode) ? 2 : 1;
@@ -283,7 +318,12 @@ export class Canvas2DRenderer {
         }
         if (cell.ch && cell.ch !== " ") {
           ctx.fillStyle = fg;
-          ctx.fillText(cell.ch, Math.round(x), Math.round(y + 1));
+          this.fillGlyph(
+            ctx,
+            cell.ch,
+            x,
+            y + 1,
+          );
         }
       }
     }

@@ -58,6 +58,21 @@ export class ScreenBuffer {
   widthMode: WidthMode = "western";
   /** Incomplete ESC/CSI carried across writeDecoded chunks. */
   private ansiResidual = "";
+  /** Full pre-shrink cells used for cursor-anchored shrink and lossless grow. */
+  private resizeSnapshot: {
+    rows: number;
+    cells: Cell[][];
+    scrollbackInsertAt: number;
+  } | null = null;
+  /** First snapshot row currently represented by live row 0. */
+  private resizeViewStart = 0;
+  /** Terminal state paired with resizeSnapshot; cursor commands invalidate it. */
+  private resizeRestoreState: {
+    cursor: { r: number; c: number };
+    savedCursor: { r: number; c: number; attrs: Attrs } | null;
+    scrollTop: number;
+    scrollBottom: number;
+  } | null = null;
   /** Optional sink for cup-abs / buf-mut (nav companion BurstDetector). */
   private captureSink: ((e: VtCaptureEvent) => void) | null = null;
   /** When true, cell-mutating ops emit buf-mut. Web arms this during CUP burst. */
@@ -94,7 +109,36 @@ export class ScreenBuffer {
     this.captureSink?.(e);
   }
 
+  private invalidateResizeRestoreState(): void {
+    this.resizeRestoreState = null;
+  }
+
+  private commitResizePrefixToScrollback(): void {
+    const snapshot = this.resizeSnapshot;
+    if (!snapshot || this.resizeViewStart < 1) return;
+    const displaced = snapshot.cells
+      .slice(0, this.resizeViewStart)
+      .map((row) => row.map((cell) => cell.ch).join("").replace(/\s+$/, ""));
+    const at = Math.max(
+      0,
+      Math.min(snapshot.scrollbackInsertAt, this.scrollback.length),
+    );
+    this.scrollback.splice(at, 0, ...displaced);
+    const excess = this.scrollback.length - this.maxScrollback;
+    if (excess > 0) this.scrollback.splice(0, excess);
+  }
+
+  private invalidateResizeSnapshot(preserveDisplacedRows = false): void {
+    if (preserveDisplacedRows) this.commitResizePrefixToScrollback();
+    this.resizeSnapshot = null;
+    this.resizeViewStart = 0;
+    this.invalidateResizeRestoreState();
+  }
+
   private noteBufMut(): void {
+    // A remote/local mutation at the smaller geometry supersedes clipped rows;
+    // never restore them later as stale ghost content.
+    this.invalidateResizeSnapshot(true);
     if (this.mapCaptureArmed) {
       this.emitCapture({ type: "buf-mut", at: this.nowFn() });
     }
@@ -143,6 +187,9 @@ export class ScreenBuffer {
     this.scrollTop = 0;
     this.scrollBottom = this.rows - 1;
     this.ansiResidual = "";
+    this.resizeSnapshot = null;
+    this.resizeViewStart = 0;
+    this.resizeRestoreState = null;
   }
 
   private blankRow(): Cell[] {
@@ -156,41 +203,151 @@ export class ScreenBuffer {
     return Array.from({ length: this.rows }, () => this.blankRow());
   }
 
+  private cloneRow(row: Cell[]): Cell[] {
+    return row.map((cell) => ({ ch: cell.ch, attrs: { ...cell.attrs } }));
+  }
+
   /**
-   * Resize the live grid. **Preserves** overlapping cells (top-left) so mobile
-   * orientation / NAWS refits do not blank the screen mid-session.
-   * Scrollback is left intact; cursor clamped into the new grid.
+   * Resize the live grid without reflowing columns. Row shrink keeps the cursor
+   * visible (normally the live prompt at the bottom) instead of blindly keeping
+   * the top-left. A full pre-shrink snapshot allows lossless grow when no cell
+   * mutation occurred; cursor-only commands invalidate state restoration but
+   * can still preserve untouched clipped text.
    */
   resize(cols: number, rows: number): void {
     if (cols === this.cols && rows === this.rows) return;
     const old = this.cells;
-    const oldCols = this.cols;
     const oldRows = this.rows;
+    const oldCursor = { ...this.cursor };
+    const oldSavedCursor = this.savedCursor
+      ? { ...this.savedCursor, attrs: { ...this.savedCursor.attrs } }
+      : null;
+    const oldScrollTop = this.scrollTop;
+    const oldScrollBottom = this.scrollBottom;
+    const oldScrollRegionWasFull =
+      oldScrollTop === 0 && oldScrollBottom === oldRows - 1;
+    const previousViewStart = this.resizeViewStart;
+
+    if (rows < oldRows && !this.resizeSnapshot) {
+      this.resizeSnapshot = {
+        rows: oldRows,
+        cells: old.map((row) => this.cloneRow(row)),
+        scrollbackInsertAt: this.scrollback.length,
+      };
+      this.resizeViewStart = 0;
+      this.resizeRestoreState = {
+        cursor: { ...this.cursor },
+        savedCursor: this.savedCursor
+          ? { ...this.savedCursor, attrs: { ...this.savedCursor.attrs } }
+          : null,
+        scrollTop: this.scrollTop,
+        scrollBottom: this.scrollBottom,
+      };
+    }
+
+    const snapshot = this.resizeSnapshot;
+    const restore = this.resizeRestoreState;
+    let viewStart = 0;
+    if (snapshot && rows < snapshot.rows) {
+      if (restore) {
+        viewStart = Math.max(
+          0,
+          Math.min(snapshot.rows - rows, restore.cursor.r - rows + 1),
+        );
+      } else if (rows < oldRows) {
+        const shiftWithinView = Math.max(
+          0,
+          Math.min(oldRows - rows, oldCursor.r - rows + 1),
+        );
+        viewStart = Math.min(
+          snapshot.rows - rows,
+          previousViewStart + shiftWithinView,
+        );
+      } else {
+        // Grow an invalidated-state view by revealing rows above first; the
+        // server's current small-grid cursor coordinates remain authoritative.
+        viewStart = Math.min(previousViewStart, snapshot.rows - rows);
+      }
+    }
+
     this.cols = cols;
     this.rows = rows;
     this.scrollTop = 0;
     this.scrollBottom = rows - 1;
     this.cells = this.blank();
-    const copyR = Math.min(oldRows, rows);
-    const copyC = Math.min(oldCols, cols);
+    const source = snapshot?.cells ?? old;
+    const sourceStart = snapshot ? viewStart : 0;
+    const copyR = Math.min(source.length - sourceStart, rows);
     for (let r = 0; r < copyR; r++) {
-      const src = old[r]!;
+      const src = source[sourceStart + r]!;
       const dst = this.cells[r]!;
+      const copyC = Math.min(src.length, cols);
       for (let c = 0; c < copyC; c++) {
         const cell = src[c]!;
         dst[c] = { ch: cell.ch, attrs: { ...cell.attrs } };
       }
     }
-    this.cursor = {
-      r: Math.min(this.cursor.r, rows - 1),
-      c: Math.min(this.cursor.c, cols - 1),
-    };
-    if (this.savedCursor) {
-      this.savedCursor = {
-        ...this.savedCursor,
-        r: Math.min(this.savedCursor.r, rows - 1),
-        c: Math.min(this.savedCursor.c, cols - 1),
+
+    if (restore) {
+      this.cursor = {
+        r: Math.max(0, Math.min(restore.cursor.r - viewStart, rows - 1)),
+        c: Math.min(restore.cursor.c, cols - 1),
       };
+      this.savedCursor = restore.savedCursor
+        ? {
+            ...restore.savedCursor,
+            r: Math.max(
+              0,
+              Math.min(restore.savedCursor.r - viewStart, rows - 1),
+            ),
+            c: Math.min(restore.savedCursor.c, cols - 1),
+            attrs: { ...restore.savedCursor.attrs },
+          }
+        : null;
+      this.scrollTop = Math.max(
+        0,
+        Math.min(restore.scrollTop - viewStart, rows - 1),
+      );
+      this.scrollBottom = Math.max(
+        this.scrollTop,
+        Math.max(0, Math.min(restore.scrollBottom - viewStart, rows - 1)),
+      );
+    } else {
+      const stateShift = rows < oldRows ? viewStart - previousViewStart : 0;
+      this.cursor = {
+        r: Math.max(0, Math.min(oldCursor.r - stateShift, rows - 1)),
+        c: Math.min(oldCursor.c, cols - 1),
+      };
+      this.savedCursor = oldSavedCursor
+        ? {
+            ...oldSavedCursor,
+            r: Math.max(
+              0,
+              Math.min(oldSavedCursor.r - stateShift, rows - 1),
+            ),
+            c: Math.min(oldSavedCursor.c, cols - 1),
+          }
+        : null;
+      if (oldScrollRegionWasFull) {
+        this.scrollTop = 0;
+        this.scrollBottom = rows - 1;
+      } else {
+        this.scrollTop = Math.max(
+          0,
+          Math.min(oldScrollTop - stateShift, rows - 1),
+        );
+        this.scrollBottom = Math.max(
+          this.scrollTop,
+          Math.max(0, Math.min(oldScrollBottom - stateShift, rows - 1)),
+        );
+      }
+    }
+
+    this.resizeViewStart = viewStart;
+    if (snapshot && rows >= snapshot.rows) {
+      this.resizeSnapshot = null;
+      this.resizeViewStart = 0;
+      this.resizeRestoreState = null;
     }
     // keep ansiResidual — mid-CSI across resize is rare
   }
@@ -203,9 +360,12 @@ export class ScreenBuffer {
     for (const t of tokens) {
       if (t.kind === "text") this.writePlain(t.text, t.attrs);
       else if (t.kind === "control" && t.code === 10) this.lineFeed();
-      else if (t.kind === "control" && t.code === 13) this.cursor.c = 0;
-      else if (t.kind === "control" && t.code === 8) {
+      else if (t.kind === "control" && t.code === 13) {
+        this.cursor.c = 0;
+        this.invalidateResizeRestoreState();
+      } else if (t.kind === "control" && t.code === 8) {
         if (this.cursor.c > 0) this.cursor.c -= 1;
+        this.invalidateResizeRestoreState();
       } else if (t.kind === "control" && t.code === 7) {
         /* BEL — ignore visually */
       } else if (t.kind === "csi") {
@@ -227,21 +387,34 @@ export class ScreenBuffer {
         const col = Math.min(this.cols, Math.max(1, p(1, 1))) - 1;
         this.cursor.r = row;
         this.cursor.c = col;
+        this.invalidateResizeRestoreState();
         this.emitCapture({ type: "cup-abs", row, at: this.nowFn() });
         break;
       }
-      case "A": // CUU
+      case "A": {
+        // CUU
         this.cursor.r = Math.max(0, this.cursor.r - p(0, 1));
+        this.invalidateResizeRestoreState();
         break;
-      case "B": // CUD
+      }
+      case "B": {
+        // CUD
         this.cursor.r = Math.min(this.rows - 1, this.cursor.r + p(0, 1));
+        this.invalidateResizeRestoreState();
         break;
-      case "C": // CUF
+      }
+      case "C": {
+        // CUF
         this.cursor.c = Math.min(this.cols - 1, this.cursor.c + p(0, 1));
+        this.invalidateResizeRestoreState();
         break;
-      case "D": // CUB
+      }
+      case "D": {
+        // CUB
         this.cursor.c = Math.max(0, this.cursor.c - p(0, 1));
+        this.invalidateResizeRestoreState();
         break;
+      }
       case "J": {
         // ED
         const mode = params[0] ?? 0;
@@ -277,6 +450,7 @@ export class ScreenBuffer {
         this.scrollTop = Math.min(top, bot);
         this.scrollBottom = Math.max(top, bot);
         this.cursor = { r: this.scrollTop, c: 0 };
+        this.invalidateResizeRestoreState();
         break;
       }
       case "s": // save cursor (DECSC-ish)
@@ -285,12 +459,14 @@ export class ScreenBuffer {
           c: this.cursor.c,
           attrs: { ...this.attrs },
         };
+        this.invalidateResizeRestoreState();
         break;
       case "u": // restore
         if (this.savedCursor) {
           this.cursor.r = this.savedCursor.r;
           this.cursor.c = this.savedCursor.c;
           this.attrs = { ...this.savedCursor.attrs };
+          this.invalidateResizeRestoreState();
         }
         break;
       case "m":
@@ -337,13 +513,18 @@ export class ScreenBuffer {
       }
       if (ch === "\r") {
         this.cursor.c = 0;
+        this.invalidateResizeRestoreState();
         continue;
       }
       if (this.cursor.c >= this.cols) {
         this.lineFeed();
       }
-      // Fullwidth: two cells when isWide under current widthMode
       const wide = isWide(ch, this.widthMode);
+      // A two-cell glyph cannot begin in the final column. Autowrap first so
+      // it is never stored or painted as a clipped half-glyph.
+      if (wide && this.cursor.c === this.cols - 1) {
+        this.lineFeed();
+      }
       this.cells[this.cursor.r]![this.cursor.c] = { ch, attrs: { ...attrs } };
       this.cursor.c += 1;
       mutated = true;
@@ -373,6 +554,7 @@ export class ScreenBuffer {
     if (r < 0 || r >= this.rows || c < 0 || c + 1 >= this.cols) return;
     this.cells[r]![c] = { ch, attrs: { ...left } };
     this.cells[r]![c + 1] = { ch: "", attrs: { ...right } };
+    this.noteBufMut();
   }
 
   private rowPlain(r: number): string {
@@ -380,6 +562,10 @@ export class ScreenBuffer {
   }
 
   private pushScrollbackLine(line: string): void {
+    // A row leaving the reduced live grid is chronologically newer than the
+    // snapshot rows displaced by the shrink. Commit that prefix before the
+    // capped append can evict history or make scrollbackInsertAt stale.
+    this.invalidateResizeSnapshot(true);
     this.scrollback.push(line);
     if (this.scrollback.length > this.maxScrollback) this.scrollback.shift();
   }
@@ -391,6 +577,9 @@ export class ScreenBuffer {
   }
 
   private lineFeed(): void {
+    // Moving the cursor invalidates only the saved terminal state. If no row
+    // scroll occurs, clipped rows remain byte-for-byte valid and can return.
+    this.invalidateResizeRestoreState();
     // Session log: every completed line (LF), even if still on-screen.
     this.pushSessionLine(this.rowPlain(this.cursor.r));
 
