@@ -1,6 +1,12 @@
 #!/usr/bin/env node
+import { loadDotEnv } from "./loadEnv.js";
 import { createProxyServer } from "./server.js";
 import { assertProdConfig, defaultConfig } from "./policy.js";
+
+const envFiles = loadDotEnv();
+if (envFiles.length) {
+  console.log(`assmud-proxy: loaded env from ${envFiles.join(", ")}`);
+}
 
 const mode = (process.env.ASSMUD_PROXY_MODE ?? "localhost-dev") as
   | "remote-prod"

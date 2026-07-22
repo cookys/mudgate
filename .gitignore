@@ -9,6 +9,7 @@
 .env.*
 !.env.example
 !.env.*.example
+!.env.site.example
 *.pem
 *.key
 *.p12
