@@ -21,6 +21,8 @@ import {
   clearVault,
   migrateLegacyIntoVault,
   hasLegacyPlaintextSecrets,
+  tryRestoreVaultSession,
+  vaultTestDropMemorySession,
   LEGACY_SECRETS_KEY,
   VaultError,
 } from "../src/vault.js";
@@ -48,6 +50,35 @@ describe("vault crypto", () => {
       autoLogin: true,
     });
   });
+
+  it("tryRestoreVaultSession recovers unlock after simulated refresh", async () => {
+    await createVault("master-pass-2");
+    await setVaultSecret("p1", {
+      account: "a",
+      password: "b",
+      autoLogin: true,
+    });
+    expect(isVaultUnlocked()).toBe(true);
+    // Simulate F5: memory gone, tab sessionStorage keeps key
+    vaultTestDropMemorySession();
+    expect(isVaultUnlocked()).toBe(false);
+    await expect(tryRestoreVaultSession()).resolves.toBe(true);
+    expect(isVaultUnlocked()).toBe(true);
+    expect(getVaultSecret("p1")).toEqual({
+      account: "a",
+      password: "b",
+      autoLogin: true,
+    });
+  });
+
+  it("explicit lockVault clears tab session (no restore)", async () => {
+    await createVault("master-pass-3");
+    lockVault();
+    vaultTestDropMemorySession();
+    await expect(tryRestoreVaultSession()).resolves.toBe(false);
+    expect(isVaultUnlocked()).toBe(false);
+  });
+
 
   it("wrong password fails closed", async () => {
     await createVault("correct-horse");

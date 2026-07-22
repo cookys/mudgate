@@ -23,6 +23,8 @@ export {
   createVault,
   unlockVault,
   subscribeVault,
+  tryRestoreVaultSession,
+  VAULT_SESSION_KEY,
   clearVault,
   getVaultSecret,
   setVaultSecret,

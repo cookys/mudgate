@@ -10,6 +10,8 @@
 export const VAULT_KEY = "assmud.vault.v1";
 export const VAULT_META_KEY = "assmud.vault.meta.v1";
 export const LEGACY_SECRETS_KEY = "assmud.profileSecrets";
+/** Tab-scoped unlock (sessionStorage): survives refresh, cleared when tab closes. */
+export const VAULT_SESSION_KEY = "assmud.vault.tabSession.v1";
 
 export const VAULT_DEFAULT_ITER = 600_000;
 export const VAULT_MAX_ITER = 2_000_000;
@@ -247,7 +249,121 @@ export function vaultTestResetStorage(): void {
     localStorage.removeItem(VAULT_META_KEY);
     localStorage.removeItem(LEGACY_SECRETS_KEY);
   }
+  clearTabSession();
   session = null;
+}
+
+/** Test helper: drop in-memory unlock only (keep tab session = simulate refresh). */
+export function vaultTestDropMemorySession(): void {
+  session = null;
+}
+
+type TabSessionBlob = {
+  key_b64: string;
+  gen: number;
+  rev: number;
+  salt_b64: string;
+  iter: number;
+};
+
+function clearTabSession(): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(VAULT_SESSION_KEY);
+    }
+  } catch {
+    /* private mode */
+  }
+  memoryTabSession = null;
+}
+
+/** Node/test fallback when no sessionStorage */
+let memoryTabSession: string | null = null;
+
+function readTabSession(): TabSessionBlob | null {
+  try {
+    const raw =
+      typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem(VAULT_SESSION_KEY)
+        : memoryTabSession;
+    if (!raw) return null;
+    const j = JSON.parse(raw) as TabSessionBlob;
+    if (!j?.key_b64 || !j.salt_b64) return null;
+    return j;
+  } catch {
+    return null;
+  }
+}
+
+function writeTabSession(s: Session): void {
+  const blob: TabSessionBlob = {
+    key_b64: b64encode(s.keyBytes),
+    gen: s.gen,
+    rev: s.rev,
+    salt_b64: b64encode(s.salt),
+    iter: s.iter,
+  };
+  const raw = JSON.stringify(blob);
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(VAULT_SESSION_KEY, raw);
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  memoryTabSession = raw;
+}
+
+/**
+ * Restore unlock from tab sessionStorage after refresh.
+ * Does **not** survive closing the tab (sessionStorage policy).
+ * Returns true if vault is unlocked after the call.
+ */
+export async function tryRestoreVaultSession(): Promise<boolean> {
+  if (session) return true;
+  const tab = readTabSession();
+  const raw = storageGet(VAULT_KEY);
+  if (!tab || !raw) {
+    if (tab && !raw) clearTabSession();
+    return false;
+  }
+  try {
+    const env = JSON.parse(raw) as Envelope;
+    if (env.v !== 1 || !env.iv_b64 || !env.ct_b64) {
+      clearTabSession();
+      return false;
+    }
+    const keyBytes = b64decode(tab.key_b64);
+    const iv = b64decode(env.iv_b64);
+    const ct = b64decode(env.ct_b64);
+    const plain = await aesGcmDecrypt(keyBytes, iv, ct);
+    let payload: VaultPayload;
+    try {
+      payload = JSON.parse(new TextDecoder().decode(plain)) as VaultPayload;
+    } catch {
+      clearTabSession();
+      return false;
+    }
+    if (!payload.profiles || typeof payload.profiles !== "object") {
+      payload = { profiles: {} };
+    }
+    session = {
+      keyBytes,
+      payload: structuredClonePayload(payload),
+      gen: env.gen,
+      rev: env.rev,
+      raw,
+      salt: b64decode(tab.salt_b64),
+      iter: tab.iter,
+    };
+    writeTabSession(session);
+    notifyVaultListeners();
+    return true;
+  } catch {
+    clearTabSession();
+    return false;
+  }
 }
 
 function readMeta(): Meta {
@@ -426,6 +542,7 @@ function notifyVaultListeners(): void {
 
 export function lockVault(): void {
   session = null;
+  clearTabSession();
   notifyVaultListeners();
 }
 
@@ -485,6 +602,7 @@ export async function createVault(masterPassword: string): Promise<void> {
       salt,
       iter,
     };
+    writeTabSession(session);
     notifyVaultListeners();
   });
 }
@@ -506,6 +624,7 @@ export async function unlockVault(masterPassword: string): Promise<void> {
     salt,
     iter: env.iter,
   };
+  writeTabSession(session);
   notifyVaultListeners();
 }
 
@@ -547,6 +666,7 @@ async function persistSession(s: Session): Promise<void> {
     }
     s.rev = nextRev;
     s.raw = raw;
+    writeTabSession(s);
   });
 }
 
@@ -584,7 +704,9 @@ export async function clearVault(): Promise<void> {
     writeMeta({ gen: metaGen });
     storageDel(VAULT_KEY);
     session = null;
+    clearTabSession();
   });
+  notifyVaultListeners();
 }
 
 function deepEqualEntry(
