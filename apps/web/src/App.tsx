@@ -481,8 +481,9 @@ export function App() {
     if (!tab?.connected) return null;
     if (trustMode === "local" && typeof window !== "undefined") {
       const h = window.location.hostname;
-      if (h === "127.0.0.1" || h === "localhost") {
-        return "ws://127.0.0.1:7788/ws";
+      // Same host as the page (127.0.0.1, localhost, or LAN IP) → proxy :7788
+      if (h === "127.0.0.1" || h === "localhost" || /^(\d{1,3}\.){3}\d{1,3}$/.test(h)) {
+        return `ws://${h}:7788/ws`;
       }
     }
     return resolveWsUrl(trustMode, {
