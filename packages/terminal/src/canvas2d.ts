@@ -111,7 +111,12 @@ export class Canvas2DRenderer {
     const wM = ctx.measureText("M").width || 0;
     const w0 = ctx.measureText("0").width || 0;
     const wW = ctx.measureText("W").width || 0;
-    const measured = Math.max(wM, w0, wW, 1);
+    // Fonts not ready → measureText often returns 0; never use 1px cells (→ huge cols)
+    const measured = Math.max(wM, w0, wW);
+    if (measured < 4) {
+      this.cellW = heuristic;
+      return;
+    }
     this.cellW = Math.max(
       6,
       Math.ceil(measured * this.widthScale + this.letterSpacingPx),

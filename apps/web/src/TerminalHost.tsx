@@ -231,7 +231,11 @@ export function TerminalHost({
       r.recomputeCellWidth();
       const cssW = wrap.clientWidth;
       const cssH = wrap.clientHeight;
-      if (cssW < 20 || cssH < 20) return termSizeRef.current;
+      if (cssW < 20 || cssH < 20) {
+        // Mid-orientation layout often reports 0 — keep prior size, still try paint
+        redraw();
+        return termSizeRef.current;
+      }
       let next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
       // Hard guard: never larger than stage even with fractional rounding
       while (next.cols > 1 && next.cols * r.cellW > cssW) next = { ...next, cols: next.cols - 1 };
@@ -240,9 +244,9 @@ export function TerminalHost({
       const changed = prev.cols !== next.cols || prev.rows !== next.rows;
       termSizeRef.current = next;
       if (changed) {
+        // Preserve overlapping cells — blanking made landscape look "empty"
         bufRef.current.resize(next.cols, next.rows);
         setTermSizeLabel(`${next.cols}×${next.rows}`);
-        // New grid — clear selection / scroll view
         selRef.current = null;
         setSelection(null);
         scrollOffsetRef.current = 0;
@@ -255,6 +259,7 @@ export function TerminalHost({
           });
         }
       }
+      // Always redraw: canvas.width assignment clears the bitmap on rotate
       redraw();
       return next;
     },
@@ -351,33 +356,61 @@ export function TerminalHost({
     applyFit,
   ]);
 
-  // Observe terminal stage size (window / drawer / map panel / soft keyboard)
+  // Observe terminal stage size (window / drawer / map panel / soft keyboard /
+  // portrait↔landscape). Multiple delayed passes — mid-rotation layout is often 0×0.
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     let raf = 0;
+    const timers: number[] = [];
+    const runFit = () => {
+      applyFit({ notifyMud: Boolean(socketRef.current) });
+      // Always repaint even if cols×rows unchanged (canvas buffer was cleared
+      // when style/backing store size changed on rotate).
+      redraw();
+    };
     const schedule = () => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        applyFit({ notifyMud: Boolean(socketRef.current) });
-      });
+      raf = requestAnimationFrame(runFit);
+    };
+    const scheduleBurst = () => {
+      schedule();
+      for (const ms of [50, 150, 350, 600]) {
+        timers.push(window.setTimeout(schedule, ms));
+      }
     };
     const ro =
       typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(schedule)
         : null;
     ro?.observe(wrap);
-    // iOS: visualViewport changes without always resizing the wrap box
     const vv = window.visualViewport;
     vv?.addEventListener("resize", schedule);
     window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", scheduleBurst);
+    // matchMedia is more reliable than orientationchange on some Android WebViews
+    const mql = window.matchMedia("(orientation: landscape)");
+    const onMql = () => scheduleBurst();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onMql);
+    } else {
+      // Safari < 14
+      mql.addListener(onMql);
+    }
     return () => {
       cancelAnimationFrame(raf);
+      for (const t of timers) window.clearTimeout(t);
       ro?.disconnect();
       vv?.removeEventListener("resize", schedule);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", scheduleBurst);
+      if (typeof mql.removeEventListener === "function") {
+        mql.removeEventListener("change", onMql);
+      } else {
+        mql.removeListener(onMql);
+      }
     };
-  }, [applyFit, wsUrl]);
+  }, [applyFit, redraw, wsUrl]);
 
   // Charset / width mode change: clear buffer so cells never mix modes
   useEffect(() => {

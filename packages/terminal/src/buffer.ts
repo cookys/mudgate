@@ -156,15 +156,43 @@ export class ScreenBuffer {
     return Array.from({ length: this.rows }, () => this.blankRow());
   }
 
+  /**
+   * Resize the live grid. **Preserves** overlapping cells (top-left) so mobile
+   * orientation / NAWS refits do not blank the screen mid-session.
+   * Scrollback is left intact; cursor clamped into the new grid.
+   */
   resize(cols: number, rows: number): void {
+    if (cols === this.cols && rows === this.rows) return;
+    const old = this.cells;
+    const oldCols = this.cols;
+    const oldRows = this.rows;
     this.cols = cols;
     this.rows = rows;
     this.scrollTop = 0;
     this.scrollBottom = rows - 1;
     this.cells = this.blank();
-    this.cursor = { r: 0, c: 0 };
-    this.savedCursor = null;
-    this.ansiResidual = "";
+    const copyR = Math.min(oldRows, rows);
+    const copyC = Math.min(oldCols, cols);
+    for (let r = 0; r < copyR; r++) {
+      const src = old[r]!;
+      const dst = this.cells[r]!;
+      for (let c = 0; c < copyC; c++) {
+        const cell = src[c]!;
+        dst[c] = { ch: cell.ch, attrs: { ...cell.attrs } };
+      }
+    }
+    this.cursor = {
+      r: Math.min(this.cursor.r, rows - 1),
+      c: Math.min(this.cursor.c, cols - 1),
+    };
+    if (this.savedCursor) {
+      this.savedCursor = {
+        ...this.savedCursor,
+        r: Math.min(this.savedCursor.r, rows - 1),
+        c: Math.min(this.savedCursor.c, cols - 1),
+      };
+    }
+    // keep ansiResidual — mid-CSI across resize is rare
   }
 
   writeDecoded(text: string): void {

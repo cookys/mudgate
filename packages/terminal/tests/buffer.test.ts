@@ -76,6 +76,26 @@ describe("ScreenBuffer", () => {
     expect(neu.cells.length).toBe(16);
   });
 
+  it("resize preserves overlapping cells (mobile orientation refit)", () => {
+    const b = new ScreenBuffer(8, 3);
+    b.writeDecoded("ABCDEFGH");
+    b.writeDecoded("\r\n");
+    b.writeDecoded("12345678");
+    b.resize(5, 2);
+    expect(b.cols).toBe(5);
+    expect(b.rows).toBe(2);
+    // top-left preserved
+    expect(b.cells[0]![0]!.ch).toBe("A");
+    expect(b.cells[0]![4]!.ch).toBe("E");
+    expect(b.cells[1]![0]!.ch).toBe("1");
+    expect(b.cells[1]![4]!.ch).toBe("5");
+    // grow back — previous content still in the corner
+    b.resize(8, 3);
+    expect(b.cells[0]![0]!.ch).toBe("A");
+    expect(b.cells[0]![4]!.ch).toBe("E");
+    expect(b.cells[0]![5]!.ch).toBe(" "); // new cells blank
+  });
+
   it("emits cup-abs on absolute CUP; buf-mut only when armed", () => {
     const events: { type: string; row?: number }[] = [];
     const b = new ScreenBuffer(20, 10);

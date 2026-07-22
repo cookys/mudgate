@@ -916,6 +916,10 @@ export function App() {
     } else if (r === "need-rotate" || r === "unsupported") {
       setLandToast(t("shell.landscape.rotateHint"));
     }
+    // Kick terminal refit after orientation / fullscreen settles
+    for (const ms of [0, 100, 300, 600]) {
+      window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms);
+    }
     window.setTimeout(() => setLandToast(null), 2200);
   };
 
