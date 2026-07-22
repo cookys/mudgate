@@ -17,7 +17,7 @@ import {
 import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
-import { fitTermSize, TERM_FIT } from "./lib/termFit";
+import { clampFitToStage, fitTermSize, TERM_FIT } from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
 
@@ -227,8 +227,6 @@ export function TerminalHost({
       const wrap = wrapRef.current;
       const r = rendererRef.current;
       if (!wrap) return termSizeRef.current;
-      // Re-measure mono cell against the live font (under-estimate → text past stage)
-      r.recomputeCellWidth();
       const cssW = wrap.clientWidth;
       const cssH = wrap.clientHeight;
       if (cssW < 20 || cssH < 20) {
@@ -236,10 +234,50 @@ export function TerminalHost({
         redraw();
         return termSizeRef.current;
       }
-      let next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
-      // Hard guard: never larger than stage even with fractional rounding
-      while (next.cols > 1 && next.cols * r.cellW > cssW) next = { ...next, cols: next.cols - 1 };
-      while (next.rows > 1 && next.rows * r.cellH > cssH) next = { ...next, rows: next.rows - 1 };
+
+      // Narrow / short stages (phone portrait, short landscape): auto-compact font
+      // so we approach ~52×22 instead of ~38×14 at desktop 15px settings.
+      const narrow = cssW < 560;
+      const short = cssH < 640;
+      let size = fontSizePx;
+      let line = lineHeightScale;
+      let next = { cols: 80, rows: 24 };
+      const family =
+        terminalFontStack ||
+        '"Sarasa Term TC", "Noto Sans Mono CJK TC", ui-monospace, monospace';
+
+      for (let step = 0; step < 16; step++) {
+        r.setTypography({
+          fontFamily: family,
+          fontSizePx: size,
+          cellWidthScale,
+          lineHeightScale: line,
+        });
+        next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+        next = clampFitToStage(next, cssW, cssH, r.cellW, r.cellH);
+
+        const colsOk = !narrow || next.cols >= TERM_FIT.mobileTargetCols;
+        const rowsOk = !short || next.rows >= TERM_FIT.mobileTargetRows;
+        if (colsOk && rowsOk) break;
+        if (
+          size <= TERM_FIT.mobileMinFontPx &&
+          line <= TERM_FIT.mobileMinLineScale
+        ) {
+          break;
+        }
+        // Prefer shrinking width first (banner/map_d), then line height for rows
+        if (narrow && next.cols < TERM_FIT.mobileTargetCols) {
+          size = Math.max(TERM_FIT.mobileMinFontPx, size - 0.5);
+        } else if (short && next.rows < TERM_FIT.mobileTargetRows) {
+          line = Math.max(
+            TERM_FIT.mobileMinLineScale,
+            Math.round((line - 0.03) * 100) / 100,
+          );
+        } else {
+          break;
+        }
+      }
+
       const prev = termSizeRef.current;
       const changed = prev.cols !== next.cols || prev.rows !== next.rows;
       termSizeRef.current = next;
@@ -258,12 +296,20 @@ export function TerminalHost({
             rows: next.rows,
           });
         }
+      } else {
+        setTermSizeLabel(`${next.cols}×${next.rows}`);
       }
       // Always redraw: canvas.width assignment clears the bitmap on rotate
       redraw();
       return next;
     },
-    [redraw],
+    [
+      redraw,
+      fontSizePx,
+      lineHeightScale,
+      cellWidthScale,
+      terminalFontStack,
+    ],
   );
 
   const flash = (msg: string) => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fitTermSize, TERM_FIT } from "../src/lib/termFit";
+import { clampFitToStage, fitTermSize, TERM_FIT } from "../src/lib/termFit";
 
 describe("fitTermSize", () => {
   it("floors grid to fit viewport without clipping", () => {
@@ -28,5 +28,11 @@ describe("fitTermSize", () => {
     const r = fitTermSize(360, 6 * 18 + 2, 9, 18);
     expect(r.rows).toBeLessThan(TERM_FIT.preferredMinRows);
     expect(r.rows).toBe(6);
+  });
+
+  it("clampFitToStage trims overflow cols/rows", () => {
+    const c = clampFitToStage({ cols: 100, rows: 50 }, 360, 200, 10, 18);
+    expect(c.cols * 10).toBeLessThanOrEqual(360);
+    expect(c.rows * 18).toBeLessThanOrEqual(200);
   });
 });

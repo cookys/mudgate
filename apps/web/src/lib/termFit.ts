@@ -6,6 +6,11 @@ export const TERM_FIT = {
   /** Soft preference only — never force above what the stage can hold. */
   preferredMinCols: 40,
   preferredMinRows: 12,
+  /** Phone portrait targets (auto-shrink font until met or min font). */
+  mobileTargetCols: 52,
+  mobileTargetRows: 22,
+  mobileMinFontPx: 11,
+  mobileMinLineScale: 1.05,
   /** Hard floor when stage is tiny (keyboard open). */
   emergencyMinCols: 20,
   emergencyMinRows: 4,
@@ -14,6 +19,23 @@ export const TERM_FIT = {
   defaultCols: 80,
   defaultRows: 28,
 } as const;
+
+/** Shrink fit so grid never exceeds stage pixels. */
+export function clampFitToStage(
+  fit: TermFit,
+  cssW: number,
+  cssH: number,
+  cellW: number,
+  cellH: number,
+): TermFit {
+  let cols = fit.cols;
+  let rows = fit.rows;
+  const cw = Math.max(1, cellW);
+  const ch = Math.max(1, cellH);
+  while (cols > 1 && cols * cw > cssW) cols -= 1;
+  while (rows > 1 && rows * ch > cssH) rows -= 1;
+  return { cols, rows };
+}
 
 /**
  * Compute cols/rows that fit `cssW`×`cssH` at the given cell size.
