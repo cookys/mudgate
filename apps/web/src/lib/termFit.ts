@@ -34,8 +34,9 @@ export const ABS_MIN_FONT_PX = 6;
 /**
  * Fixed vertical scrollback gutter (must match TerminalHost CSS width).
  * Fit must use stageW that already excludes this, or subtract explicitly.
+ * Slightly wider for touch drag on phones.
  */
-export const V_SCROLLBAR_GUTTER_PX = 14;
+export const V_SCROLLBAR_GUTTER_PX = 18;
 
 /** Native horizontal scrollbar ~height when overflow-x is active (approx). */
 export const H_SCROLLBAR_GUTTER_PX = 12;

@@ -3,8 +3,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   ScreenBuffer,
@@ -993,68 +993,137 @@ export function TerminalHost({
       )}
       </div>
 
-      {/* Vertical scrollback — fixed gutter; width must = V_SCROLLBAR_GUTTER_PX */}
-      <div
-        className="shrink-0 flex flex-col items-center py-1 gap-0.5 select-none"
+      {/*
+        Vertical scrollback rail — pointer/touch drag (range+writingMode is broken on mobile).
+        offset 0 = live bottom; offset max = oldest. Track top = oldest, bottom = live.
+      */}
+      <ScrollbackRail
+        max={scrollMax}
+        offset={scrollOffset}
+        onOffset={setViewOffset}
+        width={V_SCROLLBAR_GUTTER_PX}
+      />
+    </div>
+  );
+}
+
+/** Touch-friendly vertical scrollback control (not a disabled range input). */
+function ScrollbackRail({
+  max,
+  offset,
+  onOffset,
+  width,
+}: {
+  max: number;
+  offset: number;
+  onOffset: (n: number) => void;
+  width: number;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const active = max > 0;
+
+  const applyClientY = (clientY: number) => {
+    const el = trackRef.current;
+    if (!el || max <= 0) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const t = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    // top → oldest (offset=max), bottom → live (offset=0)
+    onOffset(Math.round((1 - t) * max));
+  };
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!active) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    applyClientY(e.clientY);
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!active || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    applyClientY(e.clientY);
+  };
+
+  // Thumb: height scales with history; position from top for (max-offset)
+  const thumbHpct =
+    max <= 0 ? 20 : Math.max(12, Math.min(40, 100 / (max / 8 + 1)));
+  const travel = 100 - thumbHpct;
+  const topPct = max <= 0 ? 100 - thumbHpct : ((max - offset) / max) * travel;
+
+  return (
+    <div
+      className="shrink-0 flex flex-col items-center py-1 gap-0.5 select-none"
+      style={{
+        width,
+        minWidth: width,
+        background: "var(--bg-panel)",
+        borderLeft: "1px solid var(--border)",
+      }}
+      aria-label="scrollback"
+    >
+      <button
+        type="button"
+        className="text-[10px] leading-none px-0.5 py-1 rounded min-h-[28px] min-w-[28px]"
         style={{
-          width: V_SCROLLBAR_GUTTER_PX,
-          minWidth: V_SCROLLBAR_GUTTER_PX,
-          background: "var(--bg-panel)",
-          borderLeft: "1px solid var(--border)",
+          color: active ? "var(--text-dim)" : "var(--text-faint)",
+          opacity: active ? 1 : 0.35,
         }}
-        aria-label="scrollback"
+        title="Oldest"
+        disabled={!active}
+        onClick={() => onOffset(max)}
       >
-        <button
-          type="button"
-          className="text-[9px] leading-none px-0.5 py-0.5 rounded"
-          style={{ color: "var(--text-faint)" }}
-          title="Top (oldest)"
-          disabled={scrollMax === 0}
-          onClick={() => setViewOffset(scrollMax)}
-        >
-          ▲
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(1, scrollMax)}
-          step={1}
-          // inverted: top of range = oldest (high offset), bottom = live (0)
-          value={Math.max(0, scrollMax - scrollOffset)}
-          disabled={scrollMax === 0}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            setViewOffset(scrollMax - v);
-          }}
-          className="mud-vscroll flex-1 min-h-0 appearance-none bg-transparent"
-          style={
-            {
-              writingMode: "vertical-lr",
-              direction: "rtl",
-              width: 12,
-              height: "100%",
-              accentColor: "var(--accent)",
-              cursor: scrollMax === 0 ? "default" : "pointer",
-            } as CSSProperties
+        ▲
+      </button>
+      <div
+        ref={trackRef}
+        className="relative flex-1 w-full min-h-[48px] mx-auto rounded"
+        style={{
+          width: Math.max(10, width - 6),
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--border)",
+          cursor: active ? "pointer" : "default",
+          touchAction: "none",
+          opacity: active ? 1 : 0.4,
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => {
+          try {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          } catch {
+            /* ignore */
           }
-          aria-valuemin={0}
-          aria-valuemax={scrollMax}
-          aria-valuenow={scrollOffset}
-          aria-label="Scroll history"
-        />
-        <button
-          type="button"
-          className="text-[9px] leading-none px-0.5 py-0.5 rounded"
+        }}
+        role="slider"
+        aria-orientation="vertical"
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-valuenow={offset}
+        aria-disabled={!active}
+        aria-label="Scroll history"
+      >
+        <div
+          className="absolute left-0 right-0 rounded-sm pointer-events-none"
           style={{
-            color: scrollOffset > 0 ? "var(--accent)" : "var(--text-faint)",
+            height: `${thumbHpct}%`,
+            top: `${topPct}%`,
+            background: active ? "var(--accent)" : "var(--border-strong)",
+            opacity: active ? 0.9 : 0.5,
           }}
-          title="Live (bottom)"
-          disabled={scrollOffset === 0}
-          onClick={() => setViewOffset(0)}
-        >
-          ▼
-        </button>
+        />
       </div>
+      <button
+        type="button"
+        className="text-[10px] leading-none px-0.5 py-1 rounded min-h-[28px] min-w-[28px]"
+        style={{
+          color: offset > 0 ? "var(--accent)" : "var(--text-faint)",
+          opacity: active || offset > 0 ? 1 : 0.35,
+        }}
+        title="Live"
+        disabled={offset === 0}
+        onClick={() => onOffset(0)}
+      >
+        ▼
+      </button>
     </div>
   );
 }
