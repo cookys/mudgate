@@ -22,11 +22,10 @@ describe("fitTypographyToStage — never squeeze pitch below measure", () => {
   });
 
   it("shrinks font so measured cellW*80 fits — never cellW < measure(S)", () => {
-    // 480px stage: need cellW <= 6 → S*0.6 <= 6 → S <= 10
-    const r = fitTypographyToStage(480, 500, 15, 1.2, fakeMeasure);
+    // 481px stage (1px slack): need cellW*80 <= 480 → cellW <= 6 → S <= 10
+    const r = fitTypographyToStage(481, 500, 15, 1.2, fakeMeasure);
     expect(r.cols).toBe(80);
-    expect(r.cellW * 80).toBeLessThanOrEqual(480 + 1);
-    // cellW must match measure at chosen S
+    expect(r.cellW * 80).toBeLessThanOrEqual(481);
     const m = fakeMeasure(r.fontSizePx, r.lineHeightScale);
     expect(r.cellW).toBe(m.cellW);
     expect(r.needsHScroll).toBe(false);
