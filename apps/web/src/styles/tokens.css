@@ -34,6 +34,16 @@ html[data-accent="blue"] {
   --ok: #3dffa8; /* keep ok green even on blue theme */
 }
 
+@keyframes mudgate-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Visual-viewport driven shell (mobile keyboard). Fallback: 100dvh. */
 html,
 body,
@@ -64,6 +74,26 @@ html.kb-open {
 html.kb-open .kb-hide-toolbar {
   opacity: 0.35;
   pointer-events: none;
+}
+
+/* Phone portrait shell: move sessions into content and collapse header controls.
+   resizes-visual keeps this layout-orientation query stable while the IME opens. */
+.mobile-portrait-only {
+  display: none !important;
+}
+
+@media (orientation: portrait) and (max-width: 767px) {
+  .mobile-portrait-only {
+    display: flex !important;
+  }
+
+  .mobile-portrait-hide {
+    display: none !important;
+  }
+
+  .mobile-portrait-spacer {
+    margin-right: auto;
+  }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

@@ -10,6 +10,9 @@
 - [ ] Multi-character / multi-session split view
 - [ ] Optional RW 2D live map embed (`https://www.revivalworld.org/online/rw/map.html`)
 - [ ] Mobile / PWA installability (north-star surface)
+- [ ] Browser E2E for short-height mobile viewport and scroll-reachable modal actions
+  - Trigger: when a Playwright or equivalent real-browser test harness is added
+  - Context: mobile viewport surface review; assert Connect CTA and modal footers scroll into view with the keyboard open
 - [ ] Shared trigger package registry (community packs, sandboxed)
 
 ## Platform / security
