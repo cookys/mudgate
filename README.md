@@ -1,58 +1,117 @@
 # mudgate
 
-**目標**：用 **電腦或手機瀏覽器** 打開這個網頁專案，在 **登入 + 加密（HTTPS/WSS）** 下，經 **官方/自架 TCP proxy** 連上 **各家 MUD** 遊玩。
+Browser MUD client (desktop + mobile) with a **fail-closed WSS → TCP proxy**.
 
-兩種表面都要顧到；**MUD 天生偏桌面**（鍵盤、大畫面、map_d），手機以「能連、能玩、介面可用」為目標——若之後能把 map 體驗也做好是加分，不當成假承諾。
-
-深度適配標竿：[重生的世界 / Revival World](https://www.revivalworld.org)（Big5、完整 ANSI/VT、map_d）。
+Open a web page over **HTTPS**, connect via **WSS**, play classic MUDs (Big5 / VT / map_d).  
+Depth benchmark: **[重生的世界 / Revival World](https://www.revivalworld.org)**.
 
 | | |
 |--|--|
-| 裝置 | **Desktop + mobile** 瀏覽器（同一套 app；可選 PWA） |
-| 連線 | 瀏覽器 **WSS + 登入** → proxy → MUD **TCP/Telnet** |
-| 非路徑 | 瀏覽器/WASM raw TCP；要求用戶在手機跑本機 proxy |
-| Stack | **React + Vite + TS + Tailwind**；terminal 無框架 package |
-| Hot path | Canvas2D 預設；**WebGPU / WASM** 可插拔（算力，不是網路） |
-| 狀態 | **Phase 1a in progress** (`feat/phase-1a-connect`) — monorepo scaffold + tests green |
-| 授權 | **MIT**（[LICENSE](LICENSE)）— 打算開源 |
+| Live (RW site shell) | **https://mud.revivalworld.org/** |
+| License | **MIT** — [LICENSE](LICENSE) |
+| Stack | TypeScript monorepo · React + Vite + Tailwind · Node proxy |
+| Status | Usable client + site gateway on RW host; multi-MUD player mode still evolving |
 
-## 為什麼需要 proxy？
+Browsers cannot open raw TCP to MUDs. The proxy holds the telnet session; the SPA never claims “end-to-end so the operator cannot see passwords.”
 
-瀏覽器（含頁內 WASM）**不能**對 MUD 開任意 TCP。  
-遠端/手機情境用 **已登入的遠端 proxy** 代握 TCP；本機 proxy 留給開發與進階桌面。  
-詳見 [ADR-002](docs/adr/ADR-002-remote-auth-proxy.md)、[threat model](docs/security/hosted-proxy-threat-model.md)。
+---
 
-## 安全邊界
-
-| 區段 | 說明 |
-|------|------|
-| 你 ↔ 官服/自架 | **HTTPS + WSS**；公開部署要登入 |
-| Proxy ↔ MUD | 多為明文 telnet；能 TLS 再 TLS；**不預設記錄遊戲內容/密碼** |
-| 官服政策 | 白名單、禁內網、配額、metadata 稽核、可封號 |
-
-## Project tracking
-
-| Path | Role |
-|------|------|
-| [docs/projects/INDEX.md](docs/projects/INDEX.md) | 專案索引 |
-| [docs/plans/2026-07-21-web-zmud-rw.md](docs/plans/2026-07-21-web-zmud-rw.md) | 計劃 R6 |
-| [docs/architecture.md](docs/architecture.md) | 架構 |
-| [docs/adr/](docs/adr/) | ADR-001 stack · ADR-002 remote auth proxy |
-| [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | 開源衛生 |
-| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | 安全與貢獻 |
-
-## Dev (Phase 1a)
+## Quick start (local)
 
 ```bash
 npm install
 npm test
-# terminal 1
+
+# terminal 1 — proxy (dev)
 MUDGATE_PROXY_MODE=localhost-dev npm run dev:proxy
-# terminal 2
+
+# terminal 2 — SPA
 npm run dev:web
-# open http://127.0.0.1:5173 — Connect to mud.revivalworld.org:4000
+# → http://127.0.0.1:5173
 ```
+
+Connect to `mud.revivalworld.org:4000` (or another allowlisted host in dev).  
+Trust modes **T0–T3** (local / self-host / official / other) appear in the **player** SPA only.
+
+More: [docs/TRY-FEATURES.md](docs/TRY-FEATURES.md).
+
+---
+
+## Site mode (station operator)
+
+**Site shell** = co-located SPA + proxy on the mud host (e.g. Revival World).  
+Players use **this site only** — no T1/T3 trust radios, no manual auth-token field.
+
+| Layer | Role |
+|-------|------|
+| nginx **443** | SPA + `wss://…/ws` → `127.0.0.1:7788` |
+| mudgate-proxy | `remote-prod` + `MUDGATE_SITE_MODE=1` + allowlist |
+| Auth | Shared site token as **HttpOnly** cookie (`mudgate_session`); Origin allowlist |
+| MUD | Telnet to allowlisted ports (RW: 4000 / 4001 / 5000 / 6000 — same driver, verified by banner) |
+
+### Deploy SPA from a laptop
+
+```bash
+# builds with VITE_SITE_MODE=1 and VITE_PROXY_WS=wss://mud.revivalworld.org/ws
+./deploy/site-deploy.sh
+# HOST=cookys@mud.example ./deploy/site-deploy.sh
+```
+
+### Ops docs
+
+| Doc | Content |
+|-----|---------|
+| [docs/deploy/SITE-OPERATOR.md](docs/deploy/SITE-OPERATOR.md) | Env, cookie, allowlist, rotate, verify |
+| [docs/deploy/README.md](docs/deploy/README.md) | Mode matrix (T0 / T1 / site / prod) |
+| [deploy/nginx-mud.revivalworld.org.conf](deploy/nginx-mud.revivalworld.org.conf) | FreeBSD/nginx vhost sketch |
+| [deploy/RELEASE-CHECKLIST.md](deploy/RELEASE-CHECKLIST.md) | Site smoke checklist |
+| [docs/security/hosted-proxy-threat-model.md](docs/security/hosted-proxy-threat-model.md) | Threat model |
+
+**Never commit** `.env`, TLS keys, or `mudgate-session.inc` (token cookie). Use [`.env.site.example`](.env.site.example).
+
+---
+
+## Why a proxy?
+
+| Segment | Encryption |
+|---------|------------|
+| Browser ↔ gateway | **HTTPS + WSS** |
+| Proxy ↔ MUD | Usually plain telnet (TLS if the mud offers it) |
+
+See [ADR-002](docs/adr/ADR-002-remote-auth-proxy.md).
+
+---
+
+## Monorepo map
+
+```text
+apps/web          SPA
+apps/proxy        WSS ↔ TCP gateway
+packages/*        protocol, vt, terminal, profiles/vault, mapper, …
+deploy/           site nginx + site-deploy.sh
+docs/             architecture, deploy, plans, security
+```
+
+```bash
+npm run build          # protocol … proxy + web (see root package.json)
+npm test
+npm run secret-scan    # lightweight; gitleaks optional
+```
+
+---
+
+## Project docs
+
+| Path | Role |
+|------|------|
+| [docs/architecture.md](docs/architecture.md) | Architecture |
+| [docs/adr/](docs/adr/) | ADRs |
+| [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Publish hygiene |
+| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | Security & contrib |
+| [docs/projects/INDEX.md](docs/projects/INDEX.md) | Project index |
+
+---
 
 ## License
 
-[MIT](LICENSE) © 2026 Cookys Lin
+[MIT](LICENSE) © 2026 mudgate contributors

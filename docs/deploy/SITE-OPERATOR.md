@@ -1,35 +1,38 @@
 # Site mode — 站方 gateway 操作手冊
 
-**site mode** = 站方 multi-WSS → telnet 閘道（玩家經瀏覽器連本站 mud）。  
-**不是** player mode（玩家自跑 daemon）、也不是官方公共 proxy。
+**site mode** = 站方 multi-WSS → telnet 閘道（玩家用瀏覽器連**本站** mud）。  
+**不是** player mode（玩家自跑 proxy）、也不是開放任意 mud 的公共跳板。
+
+Reference deployment: **https://mud.revivalworld.org/** (FreeBSD + nginx 443-only + Node 20 home install).
 
 ## 契約（誠實）
 
 | 項 | 說明 |
 |----|------|
-| 密碼 | 站方 gateway **能見** 登入流（= 營運者本來就能處理登入） |
-| mud 出口 IP | 常為 `127.0.0.1`（gateway 與 mud 同機） |
-| 身份 S1 | **shared site token** + **per effective-client-IP** 限流；**不**假 per-player identity |
-| Ban | mud ban peer IP **打不中** web 玩家；proxy ban effective IP 在 CDN 下可能是 edge — **勿當唯一 ban** |
+| 密碼 | 站方 gateway **能見** 登入流（與桌面客端連站相同信任模型） |
+| mud 出口 | 常為 `127.0.0.1`（gateway 與 mud 同機） |
+| 身份 S1 | **shared site token** + **per effective-client-IP** 限流；**不**假 per-player SSO |
+| 玩家 UI | **site shell**：無 T1/T3 信任模式、無手動填 token 欄（cookie 帶 token） |
+| Ban | mud ban peer IP **打不中** web 玩家；proxy ban effective IP 在 CDN 下可能是 edge |
 
-## 最小 env
+## 最小 env（repo 根 `.env`，gitignored）
 
 ```bash
-export MUDGATE_PROXY_MODE=remote-prod
-export MUDGATE_SITE_MODE=1
-export MUDGATE_AUTH_TOKEN="$(openssl rand -hex 24)"   # shared site token
-export MUDGATE_ORIGIN_ALLOWLIST="https://mud.example.com"
-# 僅本站 mud — 空 allowlist 會 startup exit(1)
-export MUDGATE_ALLOWLIST="127.0.0.1:4000"
-export MUDGATE_BIND_HOST=127.0.0.1
-export PORT=7788
-# 可選：Caddy 以 loopback TCP 連 proxy 時信任 client IP header
-export MUDGATE_TRUSTED_HOP="127.0.0.1/32"
-# 可選：結構化 audit 追加檔（預設 stderr JSON 行）
-# export MUDGATE_AUDIT_LOG=/var/log/mudgate/proxy-audit.jsonl
+# copy from .env.site.example
+MUDGATE_PROXY_MODE=remote-prod
+MUDGATE_SITE_MODE=1
+MUDGATE_AUTH_TOKEN="$(openssl rand -hex 24)"
+MUDGATE_ORIGIN_ALLOWLIST=https://mud.revivalworld.org
+# RW driver ports on this host (telnet banner = 重生的世界 on all four)
+MUDGATE_ALLOWLIST=127.0.0.1:4000,127.0.0.1:4001,127.0.0.1:5000,127.0.0.1:6000,mud.revivalworld.org:4000,mud.revivalworld.org:4001,mud.revivalworld.org:5000,mud.revivalworld.org:6000
+MUDGATE_BIND_HOST=127.0.0.1
+PORT=7788
+MUDGATE_TRUSTED_HOP=127.0.0.1/32
+# optional:
+# MUDGATE_AUDIT_LOG=/home/…/var/log/mudgate-proxy-audit.jsonl
 ```
 
-Fail-fast：
+Fail-fast:
 
 | 條件 | 結果 |
 |------|------|
@@ -37,82 +40,120 @@ Fail-fast：
 | `SITE_MODE=1` + 空 `MUDGATE_ALLOWLIST` | exit ≠ 0 |
 | `remote-prod` 無 token / origin | exit ≠ 0 |
 
-## docker-compose 例（proxy + 可選 caddy）
+Start (private Node 20 on FreeBSD cookys host):
 
-```yaml
-# 示意 — 站方自行接 mud 映像 / 本機 binary
-services:
-  mudgate-proxy:
-    image: node:22-bookworm-slim
-    working_dir: /app
-    volumes:
-      - ../..:/app
-    environment:
-      MUDGATE_PROXY_MODE: remote-prod
-      MUDGATE_SITE_MODE: "1"
-      MUDGATE_AUTH_TOKEN: ${MUDGATE_AUTH_TOKEN}
-      MUDGATE_ORIGIN_ALLOWLIST: https://mud.example.com
-      MUDGATE_ALLOWLIST: "127.0.0.1:4000"
-      MUDGATE_BIND_HOST: "0.0.0.0"   # 僅容器網；主機防火牆仍應擋公網直連
-      MUDGATE_TRUSTED_HOP: "172.16.0.0/12"  # caddy 網段示意
-      PORT: "7788"
-    command: ["npx", "tsx", "apps/proxy/src/cli.ts"]
-    # network_mode: host   # 若 mud 只聽 127.0.0.1 常需 host 或 sidecar
+```bash
+export PATH="$HOME/opt/node-20/bin:$PATH"
+cd ~/projects/mudgate
+npm ci
+npm run build -w @mudgate/protocol
+npm run build -w @mudgate/proxy
+# or: ./scripts/site-start-proxy.sh
+nohup node apps/proxy/dist/cli.js >> ~/var/log/mudgate-proxy.log 2>&1 &
+curl -sS http://127.0.0.1:7788/health
+# {"ok":true,"mode":"remote-prod","siteMode":true}
 ```
 
-Caddy（TLS 終止 + 轉 `/ws`）應：
+`@reboot` helper example: `~/bin/mudgate-proxy-start.sh` (see host setup notes).
 
-1. 設 `X-Real-IP`（或 CF 前的 `CF-Connecting-IP`）為**真實客戶端**  
-2. **不要**把未剝離的客戶端可控 header 原樣轉給 proxy  
-3. 僅 peer 在 `MUDGATE_TRUSTED_HOP` 時 proxy 才信 header；缺 header → **403**
+## SPA (site shell)
 
-## Token 輪替
+Build flags (baked into the bundle):
 
-1. 產生新 token：`openssl rand -hex 24`  
-2. 更新 env / secret 管理，**滾動重啟** proxy  
-3. 通知玩家更新 web 設定檔中的 token（shared site token）  
-4. 舊 token 立即失效（單值，無 overlap 窗口除非你做雙 token — S1 不做）
+```bash
+VITE_SITE_MODE=1 \
+VITE_PROXY_WS=wss://mud.revivalworld.org/ws \
+VITE_DEFAULT_LOCALE=zh-TW \
+  npm run build -w @mudgate/web
+```
 
-## CDN / ban 注意
+Or one-shot from a laptop with SSH:
 
-- effective IP 在 CDN 後可能是 **edge**，勿當作唯一 ban 維度  
-- S1 無 SSO 時：關 token / 降 concurrent / 站方人工處理濫用  
+```bash
+./deploy/site-deploy.sh
+```
 
-## Web 設定
+Effects of `VITE_SITE_MODE=1` / host `mud.revivalworld.org`:
 
-- `VITE_PROXY_WS=wss://mud.example.com/ws`  
-- 玩家填 **shared site token**（與 `MUDGATE_AUTH_TOKEN` 相同）  
-- UI 應使用 site mode 文案（本站 Web 閘道；禁止「站方也看不到密碼」）
+- Trust mode radios **hidden** (no T1 self-host / T3 other server)
+- Auth token input **hidden**
+- WebSocket fixed to same-origin / `VITE_PROXY_WS`
+- Profiles: RW ports on this host (not a multi-mud open relay UI)
+
+Install static files e.g. `/usr/local/www/mudgate` (nginx `root`).
+
+## Auth: HttpOnly session cookie
+
+`remote-prod` still requires `MUDGATE_AUTH_TOKEN`. For the **official site SPA**, do **not** ask players to paste it.
+
+1. Generate token once in `.env`.
+2. On the host, materialize nginx include (never commit):
+
+```bash
+# TOKEN = value of MUDGATE_AUTH_TOKEN
+echo "add_header Set-Cookie \"mudgate_session=${TOKEN}; Path=/; Secure; HttpOnly; SameSite=Strict\" always;" \
+  | sudo tee /usr/local/etc/nginx/mudgate-session.inc
+sudo chmod 640 /usr/local/etc/nginx/mudgate-session.inc
+```
+
+3. vhost `include mudgate-session.inc;` (see `deploy/nginx-mud.revivalworld.org.conf`).
+4. Proxy `checkAuth` accepts `Cookie: mudgate_session=…` on the WSS upgrade (and optional Bearer).
+
+### Token 輪替
+
+1. `openssl rand -hex 24` → update `.env`  
+2. Rewrite `mudgate-session.inc` with the new token  
+3. Restart proxy + `nginx -s reload`  
+4. Players need a **refresh** (new Set-Cookie). Old token dies immediately (single value; no dual-token window in S1).
+
+## TLS (acme.sh, 443-only)
+
+- Issue/renew ECC cert for `mud.revivalworld.org` (standalone needs free **:80** briefly; nginx can stay 443-only day-to-day).  
+- Install paths: `/usr/local/etc/ssl/mudgate/{fullchain,privkey}.pem`  
+- `acme.sh --install-cert … --reloadcmd "sudo nginx -t && sudo nginx -s reload"`  
+- Cron: `acme.sh --cron`  
+- Manual: `~/bin/renew-mud-cert.sh` (host-specific)
+
+## nginx sketch
+
+See [`deploy/nginx-mud.revivalworld.org.conf`](../../deploy/nginx-mud.revivalworld.org.conf):
+
+- `listen 443 ssl http2` only (no default :80 welcome)
+- `root` → SPA
+- `location = /ws` → `http://127.0.0.1:7788` with Upgrade + `X-Real-IP` + Cookie
+- `include mudgate-session.inc`
 
 ## PROXY protocol v1（S2 · experimental）
 
 ```bash
-# 預設 0 — 不寫前綴（byte-for-byte 無 PROXY）
-export MUDGATE_PROXY_PROTOCOL=0
-
-# 僅當 mud / tcp shim **支援** HAProxy PROXY v1 時再開：
-export MUDGATE_PROXY_PROTOCOL=1
+export MUDGATE_PROXY_PROTOCOL=0   # default — off
+# export MUDGATE_PROXY_PROTOCOL=1  # only if mud supports HAProxy PROXY v1
 ```
 
-| 項 | 契約 |
-|----|------|
-| 何時寫 | allowlisted dest **TCP connect 成功之後**、任何 telnet 位元組**之前**；每連線一次 |
-| 內容 | `PROXY TCP4 <effectiveClientAddr> <mudIp> <srcPort> <dstPort>\r\n` |
-| 非 IPv4 client | `PROXY UNKNOWN\r\n` |
-| RW / 未驗證 mud | **勿開** — 會把首行當垃圾字元；標 experimental |
+RW / unverified muds: **leave off** (first line becomes garbage to the driver).
 
 ## 驗證
 
 ```bash
-# 空 allowlist 必須失敗
-MUDGATE_PROXY_MODE=remote-prod MUDGATE_SITE_MODE=1 \
-  MUDGATE_AUTH_TOKEN=x MUDGATE_ORIGIN_ALLOWLIST=https://x.example \
-  npx tsx apps/proxy/src/cli.ts
-# → exit 1, MUDGATE_ALLOWLIST required
-
-# health
-curl -s http://127.0.0.1:7788/health
+curl -sS http://127.0.0.1:7788/health
 # {"ok":true,"mode":"remote-prod","siteMode":true}
+
+curl -sS -o /dev/null -w '%{http_code}\n' https://mud.revivalworld.org/
+# 200
+
+# WSS upgrade + hello (cookie or token) → {"type":"ready",…}
 ```
 
-更多威脅模型：`docs/security/hosted-proxy-threat-model.md` § Site mode。
+Allowlist smoke: only listed `host:port` pairs accept `hello`; others → `host not on allowlist`.
+
+## CDN / ban
+
+- Prefer `X-Real-IP` from a **trusted** hop only (`MUDGATE_TRUSTED_HOP`)  
+- Do not treat CDN edge IPs as the only ban key  
+- S1 without SSO: rotate token, lower concurrency, human ops
+
+## Related
+
+- Threat model: `docs/security/hosted-proxy-threat-model.md`  
+- Mode matrix: `docs/deploy/README.md`  
+- Open-source publish: `docs/OPEN-SOURCE.md`
