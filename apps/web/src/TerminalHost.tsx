@@ -18,13 +18,7 @@ import {
 import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
-import {
-  fitTypographyToStage,
-  H_SCROLLBAR_GUTTER_PX,
-  TERM_FIT,
-  V_SCROLLBAR_GUTTER_PX,
-} from "./lib/termFit";
-import { VV_EVENT } from "./lib/useVisualViewport";
+import { fitTypographyToStage, TERM_FIT, V_SCROLLBAR_GUTTER_PX } from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
 
@@ -238,20 +232,15 @@ export function TerminalHost({
    */
   const applyFit = useCallback(
     (opts?: { notifyMud?: boolean }) => {
-      const wrap = wrapRef.current;
-      const host = wrap?.parentElement;
+      const stage = wrapRef.current;
       const canvas = canvasRef.current;
       const r = rendererRef.current;
-      if (!wrap || !host) return termSizeRef.current;
+      if (!stage) return termSizeRef.current;
       if (!r.ensureMounted(canvas)) return termSizeRef.current;
 
-      const hostW = host.clientWidth;
-      const hostH = host.clientHeight;
-      const cssW = Math.max(1, hostW - V_SCROLLBAR_GUTTER_PX);
-      const cssH =
-        wrap.clientHeight > 20 ? wrap.clientHeight : Math.max(1, hostH);
-
-      // Unstable layout (keyboard/orientation mid-frame) — keep last paint
+      // Stage box only (CSS grid already reserved the rail column)
+      const cssW = stage.clientWidth;
+      const cssH = stage.clientHeight;
       if (cssW < 32 || cssH < 32) {
         paint();
         return termSizeRef.current;
@@ -268,30 +257,13 @@ export function TerminalHost({
         lineHeightScale,
       });
 
-      const measure = (S: number, L: number) => r.measureCellMetrics(S, L);
-
-      let fitted = fitTypographyToStage(
+      const fitted = fitTypographyToStage(
         cssW,
         cssH,
         fontSizePx,
         lineHeightScale,
-        measure,
+        (S, L) => r.measureCellMetrics(S, L),
       );
-
-      if (fitted.needsHScroll && cssH > H_SCROLLBAR_GUTTER_PX + 40) {
-        fitted = fitTypographyToStage(
-          cssW,
-          cssH - H_SCROLLBAR_GUTTER_PX,
-          fontSizePx,
-          lineHeightScale,
-          measure,
-        );
-        fitted = {
-          ...fitted,
-          needsHScroll:
-            fitted.needsHScroll || fitted.cellW * fitted.cols > cssW + 0.01,
-        };
-      }
 
       r.setTypography({
         fontFamily: family,
@@ -313,11 +285,9 @@ export function TerminalHost({
       termSizeRef.current = next;
       setTermSizeLabel(`${next.cols}×${next.rows}`);
       if (changed) {
-        // Preserve cells — never blank the MUD screen on resize
         bufRef.current.resize(next.cols, next.rows);
         selRef.current = null;
         setSelection(null);
-        // Keep scroll offset if still valid
         const max = bufRef.current.scrollbackDepth();
         if (scrollOffsetRef.current > max) {
           scrollOffsetRef.current = max;
@@ -332,7 +302,6 @@ export function TerminalHost({
           });
         }
       }
-      // Always full paint after geometry/metrics change (canvas buffer was wiped)
       paint();
       return next;
     },
@@ -407,62 +376,46 @@ export function TerminalHost({
     applyFitRef.current({ notifyMud: Boolean(socketRef.current) });
   }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
 
-  // Geometry lifecycle: one scheduler, refs only (stable subscription)
+  /**
+   * Single geometry owner (hetero): ResizeObserver on the **stage** only.
+   * Shell height (--app-vh) changes → flex reflow → RO fires → one rAF fit.
+   * Optional one trailing settle for keyboard animation (not multi-burst soup).
+   */
   useEffect(() => {
-    const wrap = wrapRef.current;
-    if (!wrap) return;
+    const stage = wrapRef.current;
+    if (!stage) return;
     let raf = 0;
     let trailing = 0;
-    const timers: number[] = [];
+    let pending = false;
     const runFit = () => {
+      pending = false;
       applyFitRef.current({ notifyMud: Boolean(socketRef.current) });
     };
-    const schedule = () => {
+    const scheduleFit = () => {
+      if (pending) {
+        // still coalesce to one rAF; refresh trailing settle
+        window.clearTimeout(trailing);
+        trailing = window.setTimeout(runFit, 150);
+        return;
+      }
+      pending = true;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(runFit);
       window.clearTimeout(trailing);
-      // Trailing settle after keyboard/orientation animation
-      trailing = window.setTimeout(runFit, 120);
-    };
-    const scheduleBurst = () => {
-      schedule();
-      for (const ms of [80, 200, 400, 650]) {
-        timers.push(window.setTimeout(runFit, ms));
-      }
+      trailing = window.setTimeout(runFit, 150);
     };
     const ro =
       typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(schedule)
+        ? new ResizeObserver(scheduleFit)
         : null;
-    ro?.observe(wrap);
-    const host = wrap.parentElement;
-    if (host && ro) ro.observe(host);
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", scheduleBurst);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("orientationchange", scheduleBurst);
-    window.addEventListener(VV_EVENT, scheduleBurst);
-    const mql = window.matchMedia("(orientation: landscape)");
-    const onMql = () => scheduleBurst();
-    if (typeof mql.addEventListener === "function") {
-      mql.addEventListener("change", onMql);
-    } else {
-      mql.addListener(onMql);
-    }
+    ro?.observe(stage);
+    // Fallback if RO missing
+    window.addEventListener("resize", scheduleFit);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(trailing);
-      for (const t of timers) window.clearTimeout(t);
       ro?.disconnect();
-      vv?.removeEventListener("resize", scheduleBurst);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("orientationchange", scheduleBurst);
-      window.removeEventListener(VV_EVENT, scheduleBurst);
-      if (typeof mql.removeEventListener === "function") {
-        mql.removeEventListener("change", onMql);
-      } else {
-        mql.removeListener(onMql);
-      }
+      window.removeEventListener("resize", scheduleFit);
     };
   }, [wsUrl]);
 
@@ -762,28 +715,28 @@ export function TerminalHost({
 
   return (
     <div
-      className="flex h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden"
-      style={{ width: "100%" }}
+      className="mud-term-host h-full w-full min-w-0 min-h-0 overflow-hidden"
+      style={{
+        display: "grid",
+        gridTemplateColumns: `minmax(0, 1fr) ${V_SCROLLBAR_GUTTER_PX}px`,
+        width: "100%",
+        height: "100%",
+      }}
       onContextMenu={onContextMenu}
     >
       {/*
-        flex: 1 1 0% + min-w-0 is required so a wide canvas (80×cellW) cannot
-        expand the page; only this box scrolls horizontally if needed.
+        Stage is grid col 1 — clientWidth already excludes the rail.
+        Canvas must not expand document: minmax(0,1fr) + overflow containment.
       */}
       <div
         ref={wrapRef}
         lang="und"
         className={
           needsHScroll
-            ? "relative min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
-            : "relative min-h-0 overflow-hidden touch-pan-y"
+            ? "relative min-w-0 min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
+            : "relative min-w-0 min-h-0 overflow-hidden touch-pan-y"
         }
-        style={{
-          flex: "1 1 0%",
-          minWidth: 0,
-          width: 0, // flex basis 0; real width from flex grow
-          maxWidth: "100%",
-        }}
+        style={{ minWidth: 0, minHeight: 0 }}
       >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div

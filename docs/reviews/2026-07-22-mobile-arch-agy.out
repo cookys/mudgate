@@ -1,0 +1,79 @@
+LAYOUT:
+- **Root Shell**: `position: fixed; inset: 0; width: 100vw; height: var(--vv-h, 100dvh); top: var(--vv-top, 0px); overflow: hidden;` controlled directly by a VisualViewport observer.
+- **Terminal Host**: `display: grid; grid-template-columns: minmax(0, 1fr) 18px; width: 100%; height: 100%; overflow: hidden;`
+  - Column 1 (`Stage`): Excludes the 18px scrollbar gutter automatically. Has `position: relative; overflow-x: auto; overflow-y: hidden; touch-action: pan-x pan-y; min-width: 0; min-height: 0;`.
+  - Column 2 (`ScrollRail`): Fixed 18px width reserved strictly for scrollback control.
+- **Canvas Container**: Direct child of Stage. `width: ${cols * cellW}px; height: ${rows * cellH}px; display: block;`. If `80 * cellW > stageW`, horizontal scroll occurs **strictly inside the Stage element** without expanding document body or overflowing page bounds ("穿出去").
+
+SIZING:
+- **Pure Function**: `fitTerminal(stageW, stageH, minFontPx, fontMeasurer) -> { fontPx, cellW, cellH, cols: 80, rows, naws, hasHScroll }`
+- **Invariants**:
+  1. `cols` is locked to **80**.
+  2. `cellW` and `cellH` are strictly derived from character advance measurement of `fontPx`: `cellW = fontMeasurer.measureChar(fontPx)`. NEVER calculate `cellW = stageW / 80`.
+  3. `fontPx` is binary-searched downwards from standard max font size until `80 * cellW(fontPx) <= stageW`.
+  4. If `idealFontPx < minFontPx`, lock `fontPx = minFontPx`. Calculate `cellW = fontMeasurer.measureChar(minFontPx)`. Set `hasHScroll = true`.
+  5. `rows = Math.max(1, Math.floor(stageH / cellH))`.
+  6. `naws = { cols: 80, rows }`.
+
+LIFECYCLE:
+- **Single Source of Truth (`ViewportCoordinator`)**: A single event hub handles all refit triggers.
+- **Observed Events**: `visualViewport.onresize`, `visualViewport.onscroll`, `ResizeObserver` on `TerminalHost`, `document.fonts.ready`, and `window.onorientationchange`.
+- **Refit Pipeline**: Any event triggers `ViewportCoordinator.scheduleRefit()`, which coalesces multiple calls into a single `requestAnimationFrame`.
+- **Keyboard Dismiss Settle**: To catch iOS keyboard animations finishing after events stop firing, `scheduleRefit()` schedules a secondary check at +150ms and +300ms using the latest `getBoundingClientRect()` of Stage. If stage dimensions change, atomic `refit()` executes.
+
+SCROLL:
+- **UX & Control**: 18px right column rendered via a dedicated `ScrollRail` React component using HTML5 `PointerEvents` (`onPointerDown`, `onPointerMove`, `onPointerUp`) with `setPointerCapture`.
+- **Touch Behavior**: `touch-action: none` on rail track and thumb. Provides 1:1 pixel smooth touch dragging on iOS Safari and Android Chrome without native scrollbar quirks or CSS `writing-mode` hacks.
+- **Stage Reservation**: Rail occupies Grid column 2, ensuring Stage width (`getBoundingClientRect().width`) measured in Sizing always excludes the rail.
+
+FILES:
+- `src/layout/ViewportCoordinator.ts` (Single viewport & event listener hub with rAF debouncer)
+- `src/layout/fitModel.ts` (Pure sizing functions & canvas glyph measurement cache)
+- `src/components/TerminalHost.tsx` (CSS Grid shell container + stage scroll wrapper)
+- `src/components/ScrollRail.tsx` (PointerCapture touch/mouse vertical scrollbar)
+- `src/components/TerminalCanvas.tsx` (Canvas2D buffer renderer using integer cellW/cellH)
+
+DELETE:
+- Delete `cellW = Math.floor(stageW / 80)` character-squishing math.
+- Delete scattered ad-hoc `mudgate:viewport` dispatches and window resize listeners.
+- Delete CSS `writing-mode: vertical-lr` `<input type="range">` scrollbar implementations.
+- Delete hardcoded phone dimension targets (e.g. `52x22`).
+- Delete unconstrained flex containers (`min-width: auto` on canvas wrapper).
+
+RULES:
+1. **Font Drives Cell Size**: `cellW` must ALWAYS equal the measured font advance for `fontPx`. Never calculate `cellW` by dividing stage width by 80.
+2. **Strict Grid Isolation**: The stage width must be constrained by CSS Grid `minmax(0, 1fr)`. Canvas canvas dimensions must never expand parent DOM elements.
+3. **Single Refit Pipeline**: All viewport, resize, orientation, and keyboard events must route through one `rAF`-coalesced `ViewportCoordinator`.
+4. **Internal H-Scroll Fallback**: When 80 columns at `minFontPx` exceed stage width, enable internal stage horizontal scrolling (`overflow-x: auto`). Never break 80-col lock or allow document body scroll.
+5. **PointerCapture Scroll Rail**: The vertical scrollbar must reside in its own reserved 18px CSS Grid column and use `setPointerCapture` for touch drag.
+
+ALGO:
+```typescript
+interface FitResult { fontPx: number; cellW: number; cellH: number; cols: number; rows: number; hasHScroll: boolean; }
+
+export function calculateFit(stageW: number, stageH: number, minFontPx: number, maxFontPx: number, measurer: (px: number) => { w: number; h: number }): FitResult {
+  const cols = 80;
+  let low = minFontPx, high = maxFontPx, bestFont = minFontPx;
+  
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const { w } = measurer(mid);
+    if (w * cols <= stageW) {
+      bestFont = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const { w: cellW, h: cellH } = measurer(bestFont);
+  const hasHScroll = (cellW * cols) > stageW;
+  const rows = Math.max(1, Math.floor(stageH / cellH));
+
+  return { fontPx: bestFont, cellW, cellH, cols, rows, hasHScroll };
+}
+```
+
+ONE_LINE: Lock 80 cols and derive cellW purely from font measurement inside a CSS Grid host (`minmax(0, 1fr)` stage + 18px PointerCapture rail), handling overflow via stage-internal h-scroll and coalescing all layout events into a single VisualViewport rAF pipeline.
+
+CONFIDENCE: high

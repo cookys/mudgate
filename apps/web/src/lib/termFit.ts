@@ -32,14 +32,10 @@ export const VT_CLASSIC_COLS = 80;
 export const ABS_MIN_FONT_PX = 6;
 
 /**
- * Fixed vertical scrollback gutter (must match TerminalHost CSS width).
- * Fit must use stageW that already excludes this, or subtract explicitly.
- * Slightly wider for touch drag on phones.
+ * Visual width of the scrollback rail grid column (CSS only).
+ * Fit must read **stage** clientWidth after layout — never hostW − this.
  */
 export const V_SCROLLBAR_GUTTER_PX = 18;
-
-/** Native horizontal scrollbar ~height when overflow-x is active (approx). */
-export const H_SCROLLBAR_GUTTER_PX = 12;
 
 export const TERM_FIT = {
   maxCols: 200,

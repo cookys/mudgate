@@ -1,0 +1,146 @@
+Now I have full context. Here's the architecture:
+
+```
+LAYOUT:
+  Root shell: position:fixed; inset:0; height:var(--app-vh,100dvh); overflow:hidden; display:flex; flex-direction:column.
+  Terminal area: flex:1 1 0%; min-height:0; display:flex; flex-direction:row; overflow:hidden.
+  Stage wrap: flex:1 1 0%; min-width:0; width:0; overflow:hidden (or overflow-x:auto ONLY when needsHScroll).
+  Scroll rail: flex:0 0 18px; width:18px — never participates in flex-grow/shrink.
+  Canvas: display:block; width/height set in px by JS (= cols*cellW / rows*cellH). No CSS scaling.
+  Body/html: overflow:hidden on BOTH axes. The stage wrap's width:0 + min-width:0 guarantees
+  the canvas can never push the document wider than viewport. Horizontal scroll, if needed,
+  is contained INSIDE the wrap (overflow-x:auto on wrap only).
+
+SIZING:
+  Pure function fitTypographyToStage(stageW, stageH, userFontPx, measure):
+    1. cols = 80 (product invariant, non-negotiable).
+    2. Binary-search largest fontPx in [6, userFontPx] where measure(fontPx).cellW * 80 <= stageW.
+       cellW = measured advance (ceil), NEVER floor(W/80).
+    3. If even 6px fails → needsHScroll=true, keep honest pitch, canvas overflows inside wrap.
+    4. cellH = measure(fontPx).cellH. rows = floor(stageH / cellH). Clamp rows >= 4.
+    5. If needsHScroll, subtract H_SCROLLBAR_GUTTER (12px) from stageH, recompute rows.
+    6. Return {fontPx, cellW, cellH, cols:80, rows, needsHScroll}.
+  Invariants enforced:
+    - cellW >= measure(fontPx).advance  → no glyph overlap
+    - cols*cellW <= stageW OR needsHScroll → no silent overflow
+    - rows*cellH <= stageH → no vertical clip
+  H-scroll is acceptable ONLY at 6px floor on very narrow phones (<~320px CSS).
+  We never drop 80 cols (product policy: map_d, banners).
+
+LIFECYCLE:
+  Single owner: useTerminalFit() hook inside TerminalHost.
+  Single entry: scheduleFit() — a rAF-coalesced function (not setTimeout bursts).
+    scheduleFit() { if (!pending) { pending=true; requestAnimationFrame(doFit); } }
+  doFit(): read wrap.clientWidth/clientHeight (post-layout truth), call fitTypographyToStage,
+    apply to renderer + buffer, send NAWS if grid changed.
+  Triggers (ALL call scheduleFit, nothing else):
+    - ResizeObserver on stage wrap (covers flex reflow, keyboard, orientation, font swap)
+    - document.fonts.ready.then(scheduleFit)
+    - userFontPref change (React effect)
+  That's it. THREE triggers, one coalesced entry.
+  DELETE: direct visualViewport listener in TerminalHost, window.resize listener,
+    orientationchange listener, matchMedia listener, all setTimeout bursts (50/120/280/450/700),
+    App's synthetic resize dispatches.
+  Keyboard guarantee: useVisualViewport (App-level) updates --app-vh → CSS height changes →
+    ResizeObserver fires on wrap → scheduleFit. One causal chain, no race.
+  Debounce: rAF is the debounce. Multiple triggers in one frame = one fit. No timers.
+
+SCROLL:
+  ScrollbackRail: 18px fixed-width div, flex:0 0 18px. Touch-drag via pointer capture
+  (pointerdown → setPointerCapture, pointermove → map deltaY to offset, pointerup → release).
+  Thumb: proportional height, min 24px, rounded, semi-transparent, visible always (opacity 0.5,
+  1.0 during drag). Track: full height of rail, acts as tap-to-jump.
+  Width reservation: rail is a flex sibling with fixed basis; stage wrap gets remaining space
+  via flex:1 1 0%. No manual subtraction in JS — the DOM does the accounting.
+  applyFit reads wrap.clientWidth (which already excludes the rail) instead of hostW - 18.
+
+FILES:
+  REWRITE:
+    apps/web/src/TerminalHost.tsx — strip all resize listeners except RO; replace applyFit
+      width source with wrap.clientWidth; remove scheduleBurst; single scheduleFit via rAF.
+    apps/web/src/lib/termFit.ts — keep core algorithm, remove V_SCROLLBAR_GUTTER_PX param
+      (caller passes true stageW from wrap), keep H_SCROLLBAR_GUTTER for row recompute.
+  KEEP (unchanged):
+    packages/terminal/src/canvas2d.ts — renderer is correct.
+    packages/terminal/src/buffer.ts — resize logic is correct.
+    packages/protocol/src/telnet.ts — NAWS encoding is correct.
+    apps/web/src/lib/useVisualViewport.ts — keep as sole --app-vh writer + kb-open class.
+    apps/web/src/lib/mudSocket.ts — unchanged.
+    apps/web/tests/termFit.test.ts — update to remove gutter param.
+  MINOR EDIT:
+    apps/web/src/styles/tokens.css — delete .mud-vscroll block (lines 80-98).
+    apps/web/src/App.tsx — delete synthetic resize dispatches in onLandscapePlay.
+
+DELETE:
+  - TerminalHost's direct visualViewport.resize listener
+  - TerminalHost's window.resize listener
+  - TerminalHost's orientationchange listener
+  - TerminalHost's matchMedia('(orientation:landscape)') listener
+  - scheduleBurst and all setTimeout(50/120/280/450/700) chains
+  - App.tsx synthetic window.dispatchEvent(new Event('resize')) at 0/100/300/600ms
+  - .mud-vscroll CSS (dead range-input styling)
+  - V_SCROLLBAR_GUTTER_PX subtraction from hostW in applyFit (replaced by wrap.clientWidth)
+  - The `mudgate:viewport` custom event listener in TerminalHost (RO covers it)
+
+RULES:
+1. NEVER invent cellW from division (W/cols). cellW comes ONLY from canvas measureText at the
+   chosen font size. Overlap is physically impossible.
+2. NEVER read width from a parent and subtract a constant for the rail. Read the stage wrap's
+   own clientWidth AFTER flex layout. The DOM is the source of truth for available space.
+3. NEVER add a second event path that triggers fit. If a new event source appears, it must
+   cause a layout change that ResizeObserver catches, or it calls scheduleFit() — nothing else.
+4. NEVER use setTimeout for fit scheduling. rAF-coalesce only. Timers create races with
+   CSS transitions and each other.
+5. NEVER let the canvas influence document width. The wrap has width:0; min-width:0; the canvas
+   is a child that overflows hidden (or auto for explicit h-scroll). Body overflow:hidden is
+   the last backstop, not the primary mechanism.
+
+ALGO:
+  // useTerminalFit hook (single owner)
+  const wrapRef = useRef<HTMLDivElement>()
+  const fitPending = useRef(false)
+
+  function scheduleFit() {
+    if (fitPending.current) return
+    fitPending.current = true
+    requestAnimationFrame(() => {
+      fitPending.current = false
+      const W = wrapRef.current.clientWidth      // truth post-flex, excludes rail
+      const H = wrapRef.current.clientHeight
+      if (W < 10 || H < 10) return              // guard degenerate
+      const fit = fitTypographyToStage(W, H, userFontPx, renderer.measureCellMetrics)
+      renderer.setTypography(fit.fontPx)
+      renderer.setCellMetrics(fit.cellW, fit.cellH)
+      const cssW = fit.cols * fit.cellW
+      const cssH = fit.rows * fit.cellH
+      renderer.syncBackingStore(cssW, cssH, dpr)
+      wrapRef.current.style.overflowX = fit.needsHScroll ? 'auto' : 'hidden'
+      if (fit.needsHScroll) {                    // h-scrollbar stole height
+        const H2 = H - H_SCROLLBAR_GUTTER
+        fit.rows = Math.max(4, Math.floor(H2 / fit.cellH))
+        renderer.syncBackingStore(cssW, fit.rows * fit.cellH, dpr)
+      }
+      buffer.resize(fit.cols, fit.rows)
+      renderer.draw(buffer)
+      if (gridChanged(fit)) socket.sendJson({type:'naws', cols:fit.cols, rows:fit.rows})
+    })
+  }
+
+  useEffect(() => {                              // ONE observer, ONE trigger
+    const ro = new ResizeObserver(() => scheduleFit())
+    ro.observe(wrapRef.current)
+    document.fonts.ready.then(scheduleFit)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => { scheduleFit() }, [userFontPx])  // font pref change
+
+ONE_LINE: One ResizeObserver on the flex-sized stage wrap feeds one rAF-coalesced fit that
+reads true clientWidth (rail excluded by DOM, not arithmetic) and measures real glyph advance
+(canvas never lies), so every viewport/keyboard/orientation change is just "wrap got smaller"
+— one causal chain, zero timers, zero competing paths.
+
+CONFIDENCE: high
+```
+
+**Key insight**: the root cause of the whack-a-mole is that fit was triggered by *N* event sources racing to read *stale* geometry and *manually subtracting* the rail width. The fix is structural: let flexbox exclude the rail (read `wrap.clientWidth`), let ResizeObserver be the *only* trigger (every other event just changes layout → RO fires), and rAF-coalesce so N triggers in one frame = one fit. The sizing function stays pure and measure-driven so overlap is physically impossible.

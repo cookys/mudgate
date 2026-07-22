@@ -916,19 +916,19 @@ export function App() {
     } else if (r === "need-rotate" || r === "unsupported") {
       setLandToast(t("shell.landscape.rotateHint"));
     }
-    // Kick terminal refit after orientation / fullscreen settles
-    for (const ms of [0, 100, 300, 600]) {
-      window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms);
-    }
+    // Shell --app-vh / orientation → stage RO → single scheduleFit (no burst soup)
     window.setTimeout(() => setLandToast(null), 2200);
   };
 
-  // ── Play shell ─────────────────────────────────────────────────────
+  // ── Play shell (hetero: fixed viewport shell, min-w/h 0 all ancestors) ──
   return (
     <div
-      className="flex flex-col min-h-0 overflow-hidden"
+      className="flex flex-col min-h-0 min-w-0 overflow-hidden"
       style={{
         background: "var(--bg-void)",
+        position: "fixed",
+        inset: 0,
+        width: "100%",
         height: "var(--app-vh, 100dvh)",
         maxHeight: "var(--app-vh, 100dvh)",
       }}
@@ -1121,12 +1121,21 @@ export function App() {
         </button>
       </header>
 
-      {/* Main stage — min padding on phone so portrait/landscape get more rows */}
-      <div className="flex-1 min-h-0 flex relative">
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div className="flex-1 min-h-0 p-1 sm:p-3">
+      {/* Main stage — flex 1 1 0% so terminal cannot blow out the shell */}
+      <div
+        className="relative flex min-w-0 min-h-0 overflow-hidden"
+        style={{ flex: "1 1 0%" }}
+      >
+        <div
+          className="flex min-w-0 min-h-0 flex-col overflow-hidden"
+          style={{ flex: "1 1 0%" }}
+        >
+          <div
+            className="min-w-0 min-h-0 p-1 sm:p-3 overflow-hidden"
+            style={{ flex: "1 1 0%" }}
+          >
             <div
-              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              className="h-full w-full min-w-0 min-h-0 rounded-[var(--radius)] border overflow-hidden"
               style={{
                 borderColor: "var(--border)",
                 background: "#0a0b0e",

@@ -77,26 +77,6 @@ html.kb-open .kb-hide-toolbar {
   }
 }
 
-/* Vertical scrollback range (WebKit + Firefox) */
-.mud-vscroll {
-  -webkit-appearance: slider-vertical;
-  appearance: none;
-}
-.mud-vscroll::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px;
-  height: 18px;
-  border-radius: 3px;
-  background: var(--accent);
-}
-.mud-vscroll::-moz-range-thumb {
-  width: 10px;
-  height: 18px;
-  border: none;
-  border-radius: 3px;
-  background: var(--accent);
-}
-
 /* soft grid void — subtle, not noisy */
 body::before {
   content: "";

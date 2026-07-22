@@ -1,0 +1,164 @@
+LAYOUT: Use one fixed viewport shell and one explicitly partitioned terminal grid.
+
+```text
+html/body/#root
+└─ AppShell — position:fixed; inset:0; height:var(--app-vh, 100dvh); overflow:hidden
+   ├─ Header
+   ├─ Main — flex:1 1 0%; min-width:0; min-height:0; overflow:hidden
+   │  └─ TerminalFrame — grid; grid-template-columns:minmax(0,1fr) 18px
+   │     ├─ StageBoundary — min-width:0; min-height:0; overflow:hidden
+   │     │  └─ HScroller — width:100%; height:100%; overflow-x:auto; overflow-y:hidden
+   │     │     └─ Canvas — display:block; flex:none; width:cols*cellW
+   │     └─ ScrollbackRail — fixed 18px grid column
+   └─ CommandBar
+```
+
+`100dvh` is the fallback baseline. `visualViewport` only updates `--app-vh`/`--app-vtop`; it does not decide terminal geometry. Every flex ancestor must have `min-width:0`, `min-height:0`, and the document/root must use `overflow:hidden`. Only `HScroller` may overflow horizontally. The canvas’s intrinsic/CSS width therefore cannot enlarge the grid, shell, or document.
+
+The rail is a real grid column, always present, including when disabled. Fit consumes `StageBoundary.clientWidth` directly—never `hostWidth - 18`.
+
+SIZING: Keep the product’s 80-column contract. `fitTerminal(stageCssW, stageCssH, userFontPref, measure)` is pure and returns a complete immutable snapshot:
+
+```ts
+{
+  fontPx, cellW, cellH,
+  cols: 80,
+  rows,
+  naws: { cols: 80, rows },
+  canvasCssW,
+  canvasCssH,
+  needsHScroll
+}
+```
+
+Search downward from the preferred font to an explicit readable floor. For every candidate, use the renderer’s measured metrics; never manufacture `cellW` from available width. Select the largest candidate satisfying `80 * cellW <= stageCssW`.
+
+If even the readable floor does not fit, keep that measured font and enable contained horizontal scrolling. This is preferable to unreadable 6px text, overlapping glyphs, CSS scaling, or lying to the MUD about columns. Dropping 80 is allowed only as an explicit future user-selected “responsive columns” mode—not as an automatic phone fallback.
+
+Use:
+
+- `cellW >= measure(font).advance`, including renderer padding/rounding.
+- `rows = max(1, floor(stageCssH / cellH))`.
+- `canvasCssW = 80 * cellW`.
+- `canvasCssH = rows * cellH`.
+- `naws = { cols: 80, rows }`.
+
+If a native horizontal scrollbar consumes height, observe the scroller’s actual content-box height. Its appearance triggers the same `ResizeObserver` pipeline and one settling refit; do not subtract an estimated scrollbar height.
+
+LIFECYCLE: Introduce one `TerminalLayoutController` owned by `TerminalHost`.
+
+There are two distinct responsibilities:
+
+- `ViewportController` owns only shell CSS geometry. It batches `visualViewport.resize`, `visualViewport.scroll`, and window resize into one animation-frame update of `--app-vh`.
+- `TerminalLayoutController` owns measurement, typography fit, buffer resize, canvas sizing, redraw, and NAWS. Its authoritative input is only the stage `ResizeObserver` content box.
+
+All invalidations call one `scheduleFit(reason)` function. One animation-frame transaction reads the stage size, computes one fit snapshot, and atomically applies typography, cell metrics, buffer geometry, canvas CSS/backing dimensions, redraw, and changed NAWS.
+
+Keyboard close is therefore guaranteed by one chain:
+
+```text
+visual viewport changes
+→ shell CSS height changes
+→ grid/flex stage changes
+→ ResizeObserver fires
+→ scheduleFit()
+→ atomic fit + redraw + changed NAWS
+```
+
+Orientation and focus events may request `ViewportController.sync()` but must not call fitting themselves. `document.fonts.ready`, font preference changes, and DPR changes call the same `scheduleFit`; DPR changes backing pixels/redraw but not CSS geometry or NAWS.
+
+Coalesce event storms with `requestAnimationFrame`, not fixed timeout bursts. If the observed dimensions change during a commit, queue one additional frame. Ignore transient zero-sized boxes. Send NAWS only after a committed snapshot and only when `{cols, rows}` changed.
+
+Keyboard detection may control optional cosmetic UI, but it must require focused editable content and must never gate viewport sizing or refitting. This prevents iOS URL-bar motion from becoming a false layout mode.
+
+SCROLL: Keep the always-reserved 18px visual rail, implemented as a real pointer-driven track/thumb—not a rotated or `writing-mode` range.
+
+Use pointer capture, `touch-action:none`, proportional thumb positioning, a 32–44px minimum thumb, track-tap paging, and a clear disabled appearance. Add `role="scrollbar"`, ARIA values, and Arrow/Page/Home/End keyboard controls.
+
+Because 18px is narrow for touch, extend its hit area inward to roughly 36–44px with an overlay while keeping the layout reservation exactly 18px. Rail gestures exclusively control vertical scrollback; horizontal gestures belong to `HScroller`.
+
+FILES:
+
+- Rewrite [TerminalHost.tsx](/home/cookys/projects/mudgate/apps/web/src/TerminalHost.tsx) around the explicit grid hierarchy and one layout controller. Keep socket, input, selection, capture, and buffer behavior.
+- Rewrite [termFit.ts](/home/cookys/projects/mudgate/apps/web/src/lib/termFit.ts) as the pure 80-column typography function with a readability floor and no gutter knowledge.
+- Simplify [useVisualViewport.ts](/home/cookys/projects/mudgate/apps/web/src/lib/useVisualViewport.ts) into the shell-geometry adapter.
+- Consolidate containment and terminal-grid CSS in [tokens.css](/home/cookys/projects/mudgate/apps/web/src/styles/tokens.css).
+- Adjust [App.tsx](/home/cookys/projects/mudgate/apps/web/src/App.tsx) so every shell/main/stage ancestor uses `flex:1 1 0%`, `min-width:0`, `min-height:0`, and `overflow:hidden`.
+- Extract `ScrollbackRail.tsx` if desired; keep it dumb and controlled.
+- Add unit tests for `termFit` plus browser tests asserting document containment, keyboard-dismiss redraw, stable rail reservation, and 80-column contained overflow.
+
+DELETE:
+
+- `host.clientWidth - V_SCROLLBAR_GUTTER_PX` arithmetic.
+- `V_SCROLLBAR_GUTTER_PX` and estimated horizontal-scrollbar height from sizing code.
+- Direct fit listeners for `visualViewport`, custom `mudgate:viewport`, orientation, media-query changes, and timeout bursts inside `TerminalHost`.
+- App-level synthetic resize bursts after orientation/fullscreen.
+- Any `cellW = floor(stageW / 80)` or post-measure pitch compression.
+- Any minimum-row clamp that can make `rows * cellH > stageH`.
+- CSS canvas scaling used to force 80 columns into the viewport.
+- Any flex/grid ancestor relying on the default `min-width:auto`.
+- Keyboard classification as a prerequisite for shell resize/refit.
+- The writing-mode range implementation and any competing scrollback control.
+
+RULES:
+
+1. Geometry comes from the observed stage content box; never reconstruct it by subtracting gutters or chrome constants.
+2. Font measurement owns cell pitch: never shrink `cellW`, transform the canvas, or otherwise fit glyphs independently of measured metrics.
+3. Maintain `cols === NAWS.cols === 80`; after the readable font floor, contain horizontal overflow inside the stage.
+4. Every geometry change passes through one scheduled, atomic fit transaction that ends in redraw and changed-only NAWS.
+5. No terminal descendant may affect document width; `documentElement.scrollWidth === documentElement.clientWidth` is a release invariant.
+
+ALGO:
+
+```text
+function computeFit(stageW, stageH, pref, measure):
+  cols = 80
+  floorPx = pref.readableFloorPx
+  candidates = descendingSizes(pref.fontPx, floorPx, 0.5)
+
+  chosen = null
+  for fontPx in candidates:
+    metrics = measure(fontPx, pref.lineHeight)
+    cellW = max(metrics.cellW, metrics.advance)
+    cellH = metrics.cellH
+    if cols * cellW <= stageW:
+      chosen = { fontPx, cellW, cellH }
+      break
+
+  if chosen is null:
+    metrics = measure(floorPx, pref.lineHeight)
+    chosen = {
+      fontPx: floorPx,
+      cellW: max(metrics.cellW, metrics.advance),
+      cellH: metrics.cellH
+    }
+
+  needsHScroll = cols * chosen.cellW > stageW
+  rows = max(1, floor(stageH / chosen.cellH))
+
+  return {
+    ...chosen,
+    cols,
+    rows,
+    canvasCssW: cols * chosen.cellW,
+    canvasCssH: rows * chosen.cellH,
+    needsHScroll,
+    naws: { cols, rows }
+  }
+
+function commitFit():
+  box = observedStageContentBox()
+  if box.width <= 0 or box.height <= 0: return
+  next = computeFit(box.width, box.height, preferences, renderer.measure)
+  renderer.applyTypographyAndMetrics(next)
+  buffer.resize(next.cols, next.rows)
+  canvas.resizeCssAndBackingStore(next, devicePixelRatio)
+  hScroller.setOverflow(next.needsHScroll)
+  renderer.redraw()
+  if next.naws != lastCommitted.naws: socket.sendNAWS(next.naws)
+  lastCommitted = next
+```
+
+ONE_LINE: Reserve chrome in layout, measure only the resulting stage, derive cells only from font metrics, and commit the 80-column canvas/redraw/NAWS through one ResizeObserver-driven transaction.
+
+CONFIDENCE: high
