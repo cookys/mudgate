@@ -1,0 +1,55 @@
+```
+PORTRAIT_LAYOUT:
+- Keyboard Closed (100% Visual Viewport / ~667–844px height):
+  - Header (44px / ~5-6%): Brand title, connection status badge, tab selector, settings gear.
+  - Map / Aux Drawer (120–160px / ~15-20%): Collapsible Big5 map_d grid overlay (toggleable via footer button).
+  - Terminal Stage (Flex 1 / ~60-65%): Fixed-cell Canvas2D VT stage. Fits ~24–32 rows × 80 cols.
+  - Thumb Quick-Pad (44px / ~6%): Horizontal chip bar [N|S|E|W|U|D|Look|Score|Map].
+  - Command Bar (48px / ~7%): Single-line text input + 48×48px primary Send button.
+- Keyboard Open (Visual Viewport compressed to ~50% / ~300–400px height):
+  - Header (28px / ~7–9%): Compact status strip; tabs and brand logo collapse.
+  - Map Drawer (0px / 0%): Auto-hides completely; state saved in header toggle indicator.
+  - Thumb Quick-Pad (0px / 0%): Auto-hides (`display: none` via `:focus-within`) to reserve vertical budget.
+  - Terminal Stage (Flex 1 / ~70–75%): Recalculates rows via NAWS (~12–16 rows × 80 cols).
+  - Command Bar (48px / ~12–15%): Anchored directly above top edge of soft keyboard.
+
+KEYBOARD:
+- Viewport & Resize API: Use `<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">` for modern Android Chrome. For iOS WebKit (where `100vh`/`100dvh` fail with keyboard up), listen to `window.visualViewport.addEventListener('resize', ...)` and update `--vv-height: ${window.visualViewport.height}px` on document root. App root uses `height: var(--vv-height, 100dvh)`.
+- Focus & UI Collapsing: Bind container state to input focus (`:focus-within`). Instantly set `display: none` on `.thumb-pad` and `.map-drawer`.
+- Body Scroll Locking: Force `html, body { overflow: hidden; position: fixed; width: 100%; height: 100%; }` to prevent iOS page-bounce. Focus input with `input.focus({ preventScroll: true })`.
+- Terminal Recalculation: Debounce `window.visualViewport` resize events (via `requestAnimationFrame`) to re-trigger terminal cell fit and dispatch updated NAWS telnet signal (`cols`, `rows`).
+
+LANDSCAPE:
+- Detection & Lock API: Dual-layer strategy. Use native `@media (orientation: landscape)` dual-pane layout alongside an explicit "Rotate Play" toolbar button. Trigger `screen.orientation.lock('landscape').catch(...)` on button tap (PWA / Android standalone), with graceful fallback to CSS side-by-side flex layout when lock is rejected (iOS Safari).
+- Layout Budget (Side-by-Side 80 / 20 Split):
+  - Left Stage (80% width / Flex 1): Full-height Canvas2D terminal stage maximizing NAWS cols (80–120+ cols × 24–30 rows).
+  - Right Action Rail (20% width / 120–160px): Vertical side panel containing a 3×3 ergonomic D-pad, map toggle thumbnail, macro chips, and vertical command panel.
+- Chrome Minimization: Auto-hide top header tabs into a subtle 24px transparent overlay gear icon in the top-right corner.
+
+CMD_BAR:
+- Input Control: Single-line `<input type="text">` with standard 44–48px touch height and `font-size: 16px` (strictly prevents iOS auto-zoom on focus). Keep single-line by default; expand upward to a multi-line auto-resizing `<textarea>` only when text contains newline separators or user toggles script mode.
+- Action Buttons: High-contrast 48×48px Send button on the right.
+- History Navigation: Swipe up/down gesture on the input control or soft history carets (`▲` / `▼`) adjacent to Send button. Maintain a 50-entry in-memory command buffer.
+
+MOVEMENT:
+- Portrait Mode: Single horizontal scrollable chip strip (`n`, `s`, `e`, `w`, `u`, `d`, `look`, `score`) with 44px touch targets. Auto-hides on input focus to prioritize terminal text visibility.
+- Landscape Mode: Fixed 3×3 right-thumb D-pad grid layout (`NW`, `N`, `NE`, `W`, `Look`, `E`, `SW`, `S`, `SE`) + stacked `Up`/`Down` side triggers.
+- Canvas Touch Gestures: Touch swipe controls on Canvas2D stage (Swipe Up=North, Swipe Down=South, Swipe Left=West, Swipe Right=East, Two-Finger Tap=Look) using `touch-action: none` and a 30px swipe threshold.
+
+MUST_FIX:
+1. `index.html`: Update viewport meta tag with `interactive-widget=resizes-content`.
+2. `TerminalHost.tsx` / `fit.ts`: Calculate Canvas HTML element width/height using exact integer multiples of cell dimensions (`cols * cellWidth`, `rows * cellHeight`) updated on `visualViewport` resize. Never rely on CSS `width: 100%` canvas stretch.
+3. `App.tsx` / `footer.tsx`: Implement `:focus-within` CSS rules and state handlers to hide `.thumb-pad` and collapse top header whenever `<input>` is active.
+4. `tokens.css` / `layout.css`: Define dynamic `--vv-height` bound to `window.visualViewport.height`, and enforce `position: fixed; overflow: hidden;` on body/html root.
+5. `OrientationControls.tsx` / `LandscapeLayout.css`: Add CSS `@media (orientation: landscape)` split view (80% Terminal Stage left, 20% D-pad & action rail right) with an explicit orientation lock trigger.
+
+ANTI:
+- CSS stretching Canvas2D elements (`width: 100%`, `transform: scale()`), which blurs and distorts Big5/CJK monospace glyphs.
+- Relying on static `100vh` or `height: 100%` on mobile web viewports with soft keyboards open.
+- Shrinking terminal character width below 80 columns on CJK MUDs (destroys Big5 `map_d` formatting and tabular output).
+- Keeping fixed headers, map drawers, and thumb pads visible during keyboard input, squishing terminal viewport to under 5 lines.
+- Relying exclusively on `screen.orientation.lock()` without providing CSS dual-pane fallbacks for iOS WebKit.
+
+ONE_LINE: Bind container height to `visualViewport` JS events, auto-hide movement chrome during keyboard focus, and preserve crisp Big5 MUD rendering via integer cell grid fitting in an 80/20 landscape split view.
+CONFIDENCE: high
+```

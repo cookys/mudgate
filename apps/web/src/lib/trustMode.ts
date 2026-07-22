@@ -132,7 +132,7 @@ export function resolveWsUrl(
     case "custom":
       return opts.customWs.trim() || null;
     case "official":
-      return opts.officialUrl?.trim() || siteWsUrl();
+      return opts.officialUrl?.trim() || null;
     default:
       return null;
   }

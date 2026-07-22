@@ -81,6 +81,10 @@ import {
   saveEchoCommands,
 } from "./lib/commandHistory";
 import { numpadDirection } from "./lib/numpadDirs";
+import {
+  requestLandscapePlay,
+  useVisualViewport,
+} from "./lib/useVisualViewport";
 
 function newTabId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -123,6 +127,11 @@ function useIsLg() {
 export function App() {
   const t = useT();
   const { locale } = useLocale();
+  const { keyboardOpen } = useVisualViewport();
+  const [cmdFocused, setCmdFocused] = useState(false);
+  const [landToast, setLandToast] = useState<string | null>(null);
+  /** Hide thumb chips while typing / soft keyboard open (mobile vertical budget). */
+  const hideThumbPad = keyboardOpen || cmdFocused;
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
   const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
   const fontStack = useMemo(
@@ -900,11 +909,25 @@ export function App() {
     );
   }
 
+  const onLandscapePlay = async () => {
+    const r = await requestLandscapePlay();
+    if (r === "locked") {
+      setLandToast(t("shell.landscape.locked"));
+    } else if (r === "need-rotate" || r === "unsupported") {
+      setLandToast(t("shell.landscape.rotateHint"));
+    }
+    window.setTimeout(() => setLandToast(null), 2200);
+  };
+
   // ── Play shell ─────────────────────────────────────────────────────
   return (
     <div
-      className="h-full flex flex-col min-h-0"
-      style={{ background: "var(--bg-void)" }}
+      className="flex flex-col min-h-0 overflow-hidden"
+      style={{
+        background: "var(--bg-void)",
+        height: "var(--app-vh, 100dvh)",
+        maxHeight: "var(--app-vh, 100dvh)",
+      }}
     >
       <FontTrialPanel
         open={fontTrialOpen}
@@ -1064,6 +1087,20 @@ export function App() {
           onClick={() => setMapOpen((v) => !v)}
         >
           {t("shell.map")}
+        </button>
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border sm:hidden"
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--bg-elevated)",
+            color: "var(--text-dim)",
+          }}
+          onClick={() => void onLandscapePlay()}
+          aria-label={t("shell.landscape")}
+          title={t("shell.landscape")}
+        >
+          ⛶
         </button>
         <button
           type="button"
@@ -1711,7 +1748,7 @@ export function App() {
 
       {/* Command bar */}
       <footer
-        className="shrink-0 border-t px-2 sm:px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="shrink-0 border-t px-2 sm:px-3 pt-1.5 sm:pt-2 pb-[max(0.35rem,env(safe-area-inset-bottom))]"
         style={{
           background: "var(--bg-panel)",
           borderColor: "var(--border)",
@@ -1740,6 +1777,8 @@ export function App() {
               inputDraftRef.current = v; // sync before next keydown (Enter)
               setInputDraft(v);
             }}
+            onFocus={() => setCmdFocused(true)}
+            onBlur={() => setCmdFocused(false)}
             onKeyDown={(e) => {
               // Enter / NumpadEnter — read LIVE DOM value (not React state)
               if (e.key === "Enter" || e.code === "NumpadEnter") {
@@ -1773,6 +1812,7 @@ export function App() {
               }
             }}
             type={echoMask ? "password" : "text"}
+            inputMode="text"
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
@@ -1780,11 +1820,13 @@ export function App() {
             enterKeyHint="send"
             disabled={!tab.connected}
             aria-label={echoMask ? "password" : "command"}
-            className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+            className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 font-mono outline-none focus:ring-2 min-h-[44px] min-w-0"
             style={{
               background: "var(--bg-elevated)",
               borderColor: echoMask ? "var(--accent)" : "var(--border)",
               color: "var(--text)",
+              // 16px avoids iOS focus zoom
+              fontSize: "16px",
               // @ts-expect-error css var
               "--tw-ring-color": "var(--accent-glow)",
             }}
@@ -1799,7 +1841,7 @@ export function App() {
           <button
             type="submit"
             disabled={!tab.connected}
-            className="rounded-[var(--radius-sm)] px-4 py-2.5 text-sm font-semibold min-w-[4.5rem] min-h-[44px] disabled:opacity-40"
+            className="rounded-[var(--radius-sm)] px-3 sm:px-4 py-2.5 text-sm font-semibold min-w-[3rem] sm:min-w-[4.5rem] min-h-[44px] shrink-0 disabled:opacity-40"
             style={{
               background: "var(--accent)",
               color: "#0a0b0e",
@@ -1809,47 +1851,63 @@ export function App() {
           </button>
         </form>
 
-        {/* Thumb pad — always visible on mobile, subtle on desktop */}
-        <div className="flex flex-wrap gap-1.5 mt-2 pb-1">
-          {(
-            [
-              ["n", "n"],
-              ["s", "s"],
-              ["e", "e"],
-              ["w", "w"],
-              ["look", "look"],
-              ["score", "score"],
-            ] as const
-          ).map(([label, val]) => (
+        {/* Thumb pad — hide while keyboard / cmd focused (hetero consensus) */}
+        {!hideThumbPad && (
+          <div className="flex flex-nowrap gap-1.5 mt-1.5 pb-0.5 overflow-x-auto">
+            {(
+              [
+                ["n", "n"],
+                ["s", "s"],
+                ["e", "e"],
+                ["w", "w"],
+                ["look", "look"],
+                ["score", "score"],
+              ] as const
+            ).map(([label, val]) => (
+              <button
+                key={label}
+                type="button"
+                disabled={!tab.connected}
+                className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 shrink-0 active:scale-95 disabled:opacity-40"
+                style={{
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-dim)",
+                }}
+                onClick={() => submitCmd(val)}
+              >
+                {label}
+              </button>
+            ))}
             <button
-              key={label}
               type="button"
-              disabled={!tab.connected}
-              className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 active:scale-95 disabled:opacity-40"
+              className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 shrink-0 sm:hidden"
               style={{
-                background: "var(--bg-elevated)",
+                background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
                 borderColor: "var(--border)",
                 color: "var(--text-dim)",
               }}
-              onClick={() => submitCmd(val)}
+              onClick={() => setMapOpen((v) => !v)}
             >
-              {label}
+              {t("shell.map")}
             </button>
-          ))}
-          <button
-            type="button"
-            className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 sm:hidden"
-            style={{
-              background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
-              borderColor: "var(--border)",
-              color: "var(--text-dim)",
-            }}
-            onClick={() => setMapOpen((v) => !v)}
-          >
-            {t("shell.map")}
-          </button>
-        </div>
+          </div>
+        )}
       </footer>
+
+      {landToast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-50 rounded-full px-3 py-1.5 text-xs font-medium pointer-events-none"
+          style={{
+            bottom: "max(6rem, calc(env(safe-area-inset-bottom) + 5.5rem))",
+            background: "var(--accent-dim)",
+            color: "var(--accent)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {landToast}
+        </div>
+      )}
     </div>
   );
 }

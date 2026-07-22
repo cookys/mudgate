@@ -332,22 +332,31 @@ export function TerminalHost({
     applyFit,
   ]);
 
-  // Observe terminal stage size (window / drawer / map panel)
+  // Observe terminal stage size (window / drawer / map panel / soft keyboard)
   useEffect(() => {
     const wrap = wrapRef.current;
-    if (!wrap || typeof ResizeObserver === "undefined") return;
+    if (!wrap) return;
     let raf = 0;
-    const ro = new ResizeObserver(() => {
+    const schedule = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        // Only notify MUD when a session is live
         applyFit({ notifyMud: Boolean(socketRef.current) });
       });
-    });
-    ro.observe(wrap);
+    };
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(schedule)
+        : null;
+    ro?.observe(wrap);
+    // iOS: visualViewport changes without always resizing the wrap box
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", schedule);
+    window.addEventListener("resize", schedule);
     return () => {
       cancelAnimationFrame(raf);
-      ro.disconnect();
+      ro?.disconnect();
+      vv?.removeEventListener("resize", schedule);
+      window.removeEventListener("resize", schedule);
     };
   }, [applyFit, wsUrl]);
 
@@ -653,9 +662,9 @@ export function TerminalHost({
       className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
       onContextMenu={onContextMenu}
     >
-      {/* toolbar */}
+      {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div
-        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,22rem)]"
+        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,22rem)] kb-hide-toolbar"
         style={{ pointerEvents: "auto" }}
       >
         {scrollOffset > 0 && (
@@ -670,11 +679,11 @@ export function TerminalHost({
             title="Jump to live (End)"
             onClick={() => setViewOffset(0)}
           >
-            ↓ 即時 · {scrollOffset}
+            ↓ {scrollOffset}
           </button>
         )}
         <span
-          className="rounded border px-2 py-1 text-[10px] font-mono tabular-nums"
+          className="rounded border px-2 py-1 text-[10px] font-mono tabular-nums hidden sm:inline"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",
@@ -686,7 +695,20 @@ export function TerminalHost({
         </span>
         <button
           type="button"
-          className="rounded border px-2 py-1 text-[11px] font-mono"
+          className="rounded border px-2 py-1 text-[11px] font-mono sm:hidden"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy screen (plain)"
+          onClick={() => void copyText("plain", "screen")}
+        >
+          複製
+        </button>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono hidden sm:inline"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",
@@ -699,7 +721,7 @@ export function TerminalHost({
         </button>
         <button
           type="button"
-          className="rounded border px-2 py-1 text-[11px] font-mono"
+          className="rounded border px-2 py-1 text-[11px] font-mono hidden sm:inline"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",
@@ -712,7 +734,7 @@ export function TerminalHost({
         </button>
         <button
           type="button"
-          className="rounded border px-2 py-1 text-[11px] font-mono"
+          className="rounded border px-2 py-1 text-[11px] font-mono hidden sm:inline"
           style={{
             background: "var(--bg-elevated)",
             borderColor: "var(--border)",

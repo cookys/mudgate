@@ -34,10 +34,13 @@ html[data-accent="blue"] {
   --ok: #3dffa8; /* keep ok green even on blue theme */
 }
 
+/* Visual-viewport driven shell (mobile keyboard). Fallback: 100dvh. */
 html,
 body,
 #root {
-  height: 100%;
+  height: var(--app-vh, 100dvh);
+  max-height: var(--app-vh, 100dvh);
+  overflow: hidden;
 }
 
 body {
@@ -46,6 +49,26 @@ body {
   color: var(--text);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  /* Prevent iOS rubber-band from scrolling chrome off-screen */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+/* Keyboard open: compact chrome (class set by useVisualViewport) */
+html.kb-open {
+  --topbar-h: 36px;
+  --cmd-h: 48px;
+}
+
+html.kb-open .kb-hide-toolbar {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  :root {
+    --topbar-h: 36px;
+    --cmd-h: 48px;
+  }
 }
 
 /* soft grid void — subtle, not noisy */

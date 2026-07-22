@@ -1,0 +1,53 @@
+SEAT: Kimi (requested K3; harness only has Kimi-K2.7-Code — documented, not silent substitute for nonexistent K3)
+```
+PORTRAIT_LAYOUT:
+- Topbar (header): 52 px / ~7–8% of visual viewport. Brand + tabs + status + settings gear. On phone+keyboard, collapse to a 28 px status strip or hide entirely (keep only StatusPill / connection dot).
+- Terminal stage: flex-1, ~55–60% when keyboard closed. Must be the remaining space between header and footer, not a fixed 100vh block. Canvas renders at exact cell-grid size (no CSS stretch).
+- Map panel: starts closed on mobile (mapOpen=false when !isLg), overlays from the right when opened; do not reserve permanent width.
+- Footer: command bar 56 px + thumb chips 46 px + env(safe-area-inset-bottom) ≈ 110–120 px / ~25–30%. Always visible, but thumb chips collapse when the command input is focused / keyboard is open, leaving only the single-line command row (~56–64 px).
+
+KEYBOARD:
+- Use window.visualViewport to set a CSS var --vvh (actual visual viewport height in px) on #root. All shell sizing should be based on --vvh, not 100vh or 100%.
+- In index.html add `interactive-widget=resizes-content` to the viewport meta for Android Chrome; iOS still needs visualViewport fallback.
+- Hide the thumb-pad row via a `.kb-open` class (or :focus-within on the command form) when the input is focused.
+- Keep footer position fixed to the visual bottom using --vvh, with bottom padding = env(safe-area-inset-bottom).
+- On input focus call input.scrollIntoView({ block: "nearest" }); the visualViewport resize handler will refit the terminal within one frame.
+- Debounce the NAWS refit in TerminalHost on visualViewport resize.
+
+LANDSCAPE:
+- Show a rotate/landscape button in the topbar when matchMedia('(orientation: portrait) and (max-width: 900px)') matches.
+- On tap, try `await screen.orientation.lock('landscape')`. If denied, show a non-blocking toast: "Rotate device to landscape".
+- Provide a CSS-only dual layout via `@media (orientation: landscape) and (max-height: 500px)`: hide the header and thumb pad, turn the command bar into a thin 48 dp strip (bottom or right edge), and let the terminal canvas fill the rest. Recompute NAWS to gain cols (aim for 90–120) rather than rows.
+- Landscape should maximize terminal cols; keep a minimal Send button and a collapse-to-menu map toggle.
+
+CMD_BAR:
+- Keep a single-line `<input>`; do not expand-on-focus (avoids layout thrash). Use `inputmode="text"` and `enterKeyHint="send"`.
+- Send button: 48×48 dp touch target, min-w 64 px.
+- History: keep current ArrowUp/ArrowDown behavior; add horizontal swipe on the command bar for previous/next history (left = older, right = newer).
+- Password mode (echoMask) switches input type to password and shows a small lock indicator.
+
+MOVEMENT:
+- Portrait: keep the existing n/s/e/w/look/score chips + map toggle. They are the primary discoverable controls.
+- Landscape: hide the chip row; rely on (1) numpad hotkeys, (2) the 3×3 D-pad in MapNavPanel, and (3) optional swipe gestures on the terminal canvas (up=n, down=s, left=w, right=e).
+- Swipe on canvas is an enhancement only; never remove the explicit buttons while the user is still learning the interface.
+
+MUST_FIX:
+1. apps/web/index.html: update the viewport meta to include `interactive-widget=resizes-content`.
+2. apps/web/src/App.tsx (footer ~line 1713): drive shell height from visualViewport and hide the thumb-pad row while the command input has focus / keyboard is open.
+3. apps/web/src/styles/tokens.css (lines 37–40): replace the `height: 100%` assumption with a `--visual-height` / `--vvh` based model; eliminate any `100vh` usage.
+4. apps/web/src/TerminalHost.tsx (toolbar ~lines 656–726): collapse the copy/screen-history toolbar into a single "⋮ Copy" overflow menu on small screens; the current four-button row steals too much terminal space.
+5. apps/web/src/lib/termFit.ts / TerminalHost: re-fit cols/rows on visualViewport resize, not just on layout ResizeObserver, and clamp to sensible mobile minimums (≥40 cols, ≥12 rows, but allow rows down to ~8 in keyboard-open portrait).
+
+ANTI:
+- Never CSS-scale or stretch the canvas to fill width/height; only set the canvas backing size to the exact cell grid.
+- Never use `100vh` or `height: 100%` for keyboard-aware layouts.
+- Never shrink the terminal below ~40 cols (Big5 readability) or below ~8–12 rows.
+- Don't fight the system keyboard with preventDefault on focus.
+- Don't keep the copy toolbar and thumb pad visible while the keyboard is open.
+- Don't lock screen orientation without a graceful CSS fallback.
+- Don't resize the terminal solely based on the layout viewport; iOS needs visualViewport.
+
+ONE_LINE: Track the visual viewport, hide the thumb pad while typing, and refit the exact cell grid on every resize so the MUD text stays readable on both portrait and landscape phones.
+
+CONFIDENCE: high
+```

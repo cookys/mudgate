@@ -7,10 +7,11 @@ describe("fitTermSize", () => {
     expect(fitTermSize(900, 540, 9, 18)).toEqual({ cols: 100, rows: 30 });
   });
 
-  it("clamps to min/max", () => {
+  it("never inflates cols/rows past what physically fits", () => {
+    // 50×50 CSS → floor 5×2 cells; must not force preferred min 40×12
     const tiny = fitTermSize(50, 50, 9, 18);
-    expect(tiny.cols).toBe(TERM_FIT.minCols);
-    expect(tiny.rows).toBe(TERM_FIT.minRows);
+    expect(tiny.cols).toBe(Math.floor(50 / 9));
+    expect(tiny.rows).toBe(Math.floor(50 / 18));
 
     const huge = fitTermSize(10_000, 10_000, 9, 18);
     expect(huge.cols).toBe(TERM_FIT.maxCols);
@@ -18,9 +19,14 @@ describe("fitTermSize", () => {
   });
 
   it("never claims more rows than fit (bottom-half clip bug)", () => {
-    // Stage only ~15 rows tall but old code hardcoded 28
     const r = fitTermSize(720, 15 * 18 + 5, 9, 18);
     expect(r.rows).toBeLessThanOrEqual(15);
-    expect(r.rows).toBeGreaterThanOrEqual(TERM_FIT.minRows);
+    expect(r.rows).toBe(15);
+  });
+
+  it("keyboard-sized stage can go below preferred min rows", () => {
+    const r = fitTermSize(360, 6 * 18 + 2, 9, 18);
+    expect(r.rows).toBeLessThan(TERM_FIT.preferredMinRows);
+    expect(r.rows).toBe(6);
   });
 });

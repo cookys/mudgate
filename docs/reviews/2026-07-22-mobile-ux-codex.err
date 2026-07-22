@@ -1,0 +1,2684 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/mudgate
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 019f88c5-79f6-7f62-9f8a-270cb6c6dbbf
+--------
+user
+# Hetero design: mudgate mobile portrait / landscape UX
+
+You are a senior mobile UX + terminal product designer reviewing **mudgate**, a browser MUD client (Canvas2D VT terminal + WSS proxy). Depth benchmark: Chinese MUD 重生的世界 (Big5, map_d, ~80-col teletype feel).
+
+## Product constraints
+- Same SPA for desktop + phone (no separate native app).
+- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+- Footer always has: command `<input>` + Send + thumb chips (n/s/e/w/look/score) + map toggle on sm.
+- Header: brand, tabs, status, settings gear.
+- Soft keyboard on iOS/Android can cover 40–50% of the viewport; `100vh` / `height:100%` often wrong when keyboard open.
+- User screenshot (portrait): soft **numeric** keyboard open; command bar and terminal stage feel crushed/overflowing; little live MUD text visible.
+
+## Observed bugs / smells
+1. Portrait + keyboard: terminal stage does not reliably shrink; content/chrome may overflow the visual viewport.
+2. No first-class **landscape** mode or "rotate / landscape play" control.
+3. Thumb pad + keyboard + cmd bar stack eats vertical space.
+4. Terminal toolbar (copy buttons) competes for space on small screens.
+
+## Questions — answer ALL, be concrete (layout regions, px budgets, CSS APIs)
+
+**A. Portrait default layout** — wireframe regions top→bottom with approximate % of *visual* viewport (not layout viewport). What collapses when keyboard opens?
+
+**B. Keyboard strategy** — `visualViewport` resize? `dvh`? hide thumb pad while focused? scroll-into-view on input focus? `interactive-widget=resizes-content`?
+
+**C. Landscape / "rotate" button** — when to show; use Screen Orientation API lock vs CSS-only dual layout; fallback if lock denied; should landscape hide header/thumb and maximize terminal cols?
+
+**D. Command UX on phone** — keep single-line input vs expand-on-focus; send button size; history swipe?
+
+**E. Movement** — keep n/s/e/w chips vs 3×3 D-pad vs swipe on canvas; portrait vs landscape difference.
+
+**F. Must-fix top 5** for mudgate next PR (file-level if you know: App.tsx footer, tokens.css, index.html viewport, TerminalHost fit).
+
+**G. Anti-patterns** to avoid for MUD specifically (e.g. scaling canvas with CSS, shrinking below readable cols, fighting system keyboard).
+
+Output format (strict):
+```
+PORTRAIT_LAYOUT: ...
+KEYBOARD: ...
+LANDSCAPE: ...
+CMD_BAR: ...
+MOVEMENT: ...
+MUST_FIX:
+1. ...
+2. ...
+...
+ANTI:
+- ...
+ONE_LINE: ...
+CONFIDENCE: high|med|low
+```
+codex
+I’ll ground the recommendation in mudgate’s current layout and terminal-fit code, then verify the mobile viewport/orientation APIs so the px budgets and file-level fixes are actionable.
+exec
+/usr/bin/zsh -lc "rg --files -g '"'!*node_modules*'"' | sed -n '1,160p' && rg -n \"visualViewport|dvh|viewport|orientation|NAWS|TerminalHost|thumb|Send|map toggle|mapToggle|footer|canvas\" . -g '"'!*node_modules*'"' -g '"'!dist/*'"'" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+tsconfig.json
+CONTRIBUTING.md
+package-lock.json
+scripts/site-start-proxy.sh
+scripts/pre-smoke-check.sh
+scripts/deploy/install-proxy.sh
+scripts/deploy/oracle-cloud-init.yaml
+scripts/secret-scan.sh
+deploy/site-deploy.sh
+deploy/Caddyfile.proxy.example
+deploy/RELEASE-CHECKLIST.md
+deploy/docker-compose.proxy.yml
+deploy/nginx-mud.revivalworld.org.conf
+package.json
+LICENSE
+vitest.config.ts
+tools/docs-viewer/serve.py
+tools/docs-viewer/index.html
+packages/rw-pack/src/index.ts
+packages/rw-pack/package.json
+tests/e2e/golden-streams.test.ts
+tests/e2e/mock-mud-server.ts
+packages/protocol/src/telnet.ts
+packages/protocol/src/mccp.ts
+packages/protocol/src/index.ts
+packages/protocol/tests/telnet.test.ts
+packages/protocol/tsconfig.json
+packages/protocol/package.json
+tests/fixtures/streams/rw-banner-4000.big5.txt
+tests/fixtures/streams/rw-banner-4000.bin
+tests/fixtures/streams/synthetic-city-map.ansi.txt
+SECURITY.md
+.env.site.example
+docs/plans/2026-07-21-backlog-candidates.md
+docs/plans/2026-07-22-vault-remember-unlock.md
+docs/plans/2026-07-21-mccp2-checklist.md
+docs/plans/2026-07-21-proxy-abuse-limits.md
+docs/plans/2026-07-21-roadmap-priority.md
+docs/plans/2026-07-21-rw-connect-protocols.md
+docs/plans/2026-07-21-ui-shell-ship.md
+docs/plans/2026-07-22-profile-secrets-vault.md
+docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md
+docs/plans/2026-07-21-research-spikes.md
+docs/plans/2026-07-21-ci-e2e-quality.md
+docs/plans/2026-07-22-automap-nav-shell.md
+docs/plans/README.md
+docs/plans/2026-07-21-selfhost-proxy-trust.md
+docs/plans/2026-07-21-echo-password-mask.md
+docs/plans/2026-07-21-open-source-readiness.md
+docs/plans/2026-07-21-mccp2-stream.md
+docs/plans/2026-07-22-mapd-nav-companion.md
+docs/plans/2026-07-21-ui-redesign.md
+docs/plans/2026-07-21-web-zmud-rw.md
+docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md
+docs/plans/2026-07-21-terminal-fonts-f2.md
+docs/plans/2026-07-21-i18n-locale.md
+docs/plans/2026-07-21-profile-library.md
+docs/BACKLOG.md
+docs/TRY-FEATURES.md
+docs/OPEN-SOURCE.md
+packages/profiles/src/vault.ts
+packages/profiles/src/secrets.ts
+packages/profiles/src/index.ts
+packages/profiles/src/widthMode.ts
+docs/adr/ADR-001-stack.md
+docs/adr/ADR-002-remote-auth-proxy.md
+docs/adr/ADR-003-player-mode-daemon.md
+packages/profiles/tests/validate.test.ts
+packages/profiles/tests/export-sanitize.test.ts
+packages/profiles/tests/widthMode.test.ts
+packages/profiles/tests/vault.test.ts
+packages/profiles/package.json
+docs/security/hosted-proxy-threat-model.md
+packages/script-engine/src/index.ts
+docs/design/ui-spec.md
+docs/design/terminal-fonts.md
+docs/design/session-protocol-v0.md
+packages/script-engine/tests/engine.test.ts
+packages/script-engine/tsconfig.json
+packages/script-engine/package.json
+packages/terminal/src/width.ts
+packages/terminal/src/colors.ts
+packages/terminal/src/canvas2d.ts
+packages/terminal/src/index.ts
+packages/terminal/src/buffer.ts
+packages/terminal/tests/buffer.test.ts
+docs/projects/2026-07-21-proxy-abuse-limits/README.md
+packages/terminal/tests/fixtures/rw-motd-cols.json
+packages/terminal/tests/map-vt.test.ts
+packages/terminal/tsconfig.json
+packages/terminal/package.json
+packages/vt/src/sanitize.ts
+docs/projects/2026-07-21-research-spikes/README.md
+packages/vt/src/sgr.ts
+packages/vt/src/index.ts
+docs/projects/2026-07-21-profile-library/README.md
+packages/codec-big5/src/index.ts
+docs/projects/INDEX.md
+packages/vt/tests/sgr-sanitize.test.ts
+packages/vt/tsconfig.json
+packages/vt/package.json
+docs/architecture.md
+packages/codec-big5/tests/decode.test.ts
+docs/projects/2026-07-21-echo-password-mask/README.md
+packages/codec-big5/tsconfig.json
+packages/codec-big5/package.json
+docs/projects/2026-07-21-mccp2-stream/README.md
+tsconfig.base.json
+README.md
+.env.example
+docs/projects/2026-07-21-ci-e2e-quality/README.md
+packages/mapper/src/journeyReplay.ts
+packages/mapper/src/index.ts
+packages/mapper/src/parse.ts
+packages/mapper/src/dirs.ts
+packages/mapper/src/graph.ts
+docs/projects/2026-07-21-cjk-cell-width/README.md
+docs/OPEN-WORK-INVENTORY.md
+docs/HANDOFF.md
+packages/mapper/tests/map.test.ts
+packages/mapper/tests/journeyReplay.test.ts
+packages/mapper/package.json
+docs/projects/2026-07-21-selfhost-proxy-trust/README.md
+apps/web/src/index.css
+docs/deploy/SELF-HOSTED-PROXY.md
+docs/deploy/HOME-CLOUDFLARE-TUNNEL.md
+docs/deploy/SARASA-TERM-TC.md
+docs/deploy/HTTPS-WSS.md
+docs/deploy/README.md
+docs/deploy/GITHUB.md
+docs/deploy/ORACLE-ALWAYS-FREE.md
+docs/deploy/SITE-OPERATOR.md
+docs/deploy/docker-compose.example.yml
+apps/proxy/src/limits.ts
+docs/knowledge/hetero-definition.md
+docs/projects/2026-07-21-open-source-readiness/README.md
+apps/proxy/src/server.ts
+apps/proxy/src/proxyProtocol.ts
+apps/proxy/src/cli.ts
+apps/proxy/src/bridge.ts
+apps/proxy/src/loadEnv.ts
+apps/proxy/src/policy.ts
+apps/proxy/src/audit.ts
+apps/proxy/src/clientAddr.ts
+apps/web/src/App.tsx
+apps/web/src/vite-env.d.ts
+apps/web/index.html
+apps/web/src/lib/mudSocket.ts
+docs/projects/2026-07-21-terminal-fonts-f2/README.md
+apps/web/src/lib/commandHistory.ts
+apps/web/src/lib/termFit.ts
+apps/web/src/lib/trustMode.ts
+apps/web/src/lib/theme.ts
+apps/web/src/lib/numpadDirs.ts
+apps/web/package.json
+apps/web/vite.config.ts
+apps/web/tsconfig.json
+apps/web/src/TerminalHost.tsx
+apps/proxy/tests/mccp-bridge.test.ts
+packages/nav-memory/src/memoryStore.ts
+./docs/plans/2026-07-21-roadmap-priority.md:39:| 6 | PWA | after mobile thumb polish |
+./docs/plans/2026-07-21-rw-connect-protocols.md:16:| **Wire** | Telnet IAC、TTYPE、NAWS、ECHO | 連線／密碼遮罩／視窗大小 |
+./docs/plans/2026-07-21-rw-connect-protocols.md:35:| DO | **NAWS** | 必須回視窗 cols×rows |
+./docs/plans/2026-07-21-rw-connect-protocols.md:50:| TTYPE / NAWS | ✅ proxy bridge 協商 |
+./docs/plans/2026-07-21-rw-connect-protocols.md:67:2. **TTYPE + NAWS** 正確  
+./docs/plans/2026-07-21-rw-connect-protocols.md:86:| P2-b | 方向鍵／速度 walk（已有 thumb pad 基礎） |
+./tools/docs-viewer/index.html:5:  <meta name="viewport" content="width=device-width, initial-scale=1" />
+./docs/plans/2026-07-21-ui-shell-ship.md:20:| PlayShell | topbar tabs、StatusPill、map 面板、⚙ drawer、command bar、thumb pad |
+./docs/plans/2026-07-22-automap-nav-shell.md:27:| **B1** | map_d mirror / pin second viewport | **Companion plan C0** |
+./packages/protocol/src/telnet.ts:15:  NAWS: 31,
+./packages/protocol/src/telnet.ts:160: * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./packages/protocol/src/telnet.ts:188:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./packages/protocol/src/telnet.ts:207:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./packages/protocol/src/telnet.ts:212:    OPT.NAWS,
+./docs/plans/2026-07-21-echo-password-mask.md:47:| `apps/web` `TerminalHost` / `App` | **僅**當 `mask===true` 時將輸入設為 `type="password"`；`false` 恢復 `type="text"`。**禁止**永久 password type / 純 CSS 當唯一遮罩。disconnect / unmount 清 mask |
+./docs/architecture.md:24:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./docs/architecture.md:67:| `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
+./docs/architecture.md:74:  mount(canvas: HTMLCanvasElement): void;
+./docs/plans/2026-07-22-mapd-nav-companion.md:129:**Hook 鎖定（唯一）**：TerminalHost / ScreenBuffer **SHALL emit**  
+./docs/plans/2026-07-22-mapd-nav-companion.md:131:**buf-mut**：TerminalHost 提供 `setMapCaptureArmed(boolean)`；僅 `true` 時 cell-mutating write emit `{ type: "buf-mut", at }`。web 在 armed 升降時呼叫（terminal 不讀 web 狀態以外的耦合）。
+./docs/plans/2026-07-22-mapd-nav-companion.md:329:  place tile on panorama canvas
+./docs/plans/2026-07-22-mapd-nav-companion.md:359:| 重播 | 顯示下一步；**使用者按「送出下一步」** 才 `mudSend`；中斷條件：戰鬥字樣、move-fail、使用者停 |
+./docs/plans/2026-07-22-mapd-nav-companion.md:384:| **C0.4** | 城圖 tab 渲染 | canvas 2d；**cell 盒 = 與終端相同 monospace 度量 @1×**；2×=整數倍；色：複用 terminal 既有 16/256 SGR→RGB helper（若無則抽一份 shared）；徽章依 source；空狀態 `map.companion.empty` |
+./docs/plans/2026-07-22-mapd-nav-companion.md:424:│  cell canvas（拖/1×2×）   │
+./docs/plans/2026-07-22-mapd-nav-companion.md:467:| `TerminalHost` | 可選 callback `onMapdLikelyFrame` / 暴露 snapshot 給 App |
+./docs/plans/2026-07-21-ui-redesign.md:18:| **VS Code / Cursor / Warp / Hyper** | Near-black canvas (`#0d0d0f`–`#12141a`)；單一 accent（藍/青/琥珀）；chrome 極薄；等寬字優先 |
+./docs/plans/2026-07-21-ui-redesign.md:30:| **Main output** | 最大、等寬、可捲、ANSI 色彩 | `TerminalHost` canvas — 必須佔主視覺 ≥60% 高度 |
+./docs/plans/2026-07-21-ui-redesign.md:49:- 終端熱路徑仍是 **canvas buffer**（非 per-cell React）  
+./docs/plans/2026-07-21-ui-redesign.md:62:3. **終端弱勢**：canvas 像附屬 demo，不是「進入遊戲的窗」  
+./docs/plans/2026-07-21-ui-redesign.md:105:│ ⌨  input ………………………………………  [↑hist] [Send]   │  52–56px bar
+./docs/plans/2026-07-21-ui-redesign.md:130:│ [←][↑][↓][→][look]   │  thumb cluster
+./docs/plans/2026-07-21-ui-redesign.md:140:- Send：input 微 clear，不整頁 re-render 終端  
+./docs/plans/2026-07-21-ui-redesign.md:142:- **禁止** 終端區用 CSS transition 扭曲 canvas  
+./docs/plans/2026-07-21-ui-redesign.md:159:| `apps/web/src/components/terminal/TerminalStage.tsx` | framing around canvas |
+./docs/plans/2026-07-21-ui-redesign.md:161:| `apps/web/src/TerminalHost.tsx` | 保持薄；可接受 className / chrome slots |
+./docs/plans/2026-07-21-ui-redesign.md:165:**不改**：`packages/*` 協議與 buffer 核心（除非 terminal 需要 theme 色板 API 給 canvas ANSI 對照）。
+./docs/plans/2026-07-21-ui-redesign.md:188:- ANSI palette soft remap in `canvas2d.ts`  
+./docs/plans/2026-07-21-ui-redesign.md:192:### Phase U3 — Mobile thumb UX (S)
+./docs/plans/2026-07-21-ui-redesign.md:195:- 虛擬鍵盤彈起時 input sticky 不遮住（`visualViewport` 可選）  
+./docs/plans/2026-07-21-ui-redesign.md:239:| RWD 回歸 | 固定 viewport 截圖 checklist |
+./docs/plans/2026-07-21-web-zmud-rw.md:32:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/plans/2026-07-21-web-zmud-rw.md:92:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/plans/2026-07-21-web-zmud-rw.md:100:- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+./docs/plans/2026-07-21-web-zmud-rw.md:113:| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+./docs/plans/2026-07-21-web-zmud-rw.md:142:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/plans/2026-07-21-web-zmud-rw.md:143:- React shell + Tailwind + login/session + `TerminalHost` (narrow + wide viewports).
+./docs/plans/2026-07-21-web-zmud-rw.md:270:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md:82:| `apps/web` TerminalHost | 連線前 resolve；profile 變更 → 新 buffer 或 clear |
+./docs/reviews/2026-07-21-hetero-r3-codex.out:41:- `terminal-fonts-f2`: define the tolerance around “≈2.0” and the fallback when canvas probing is inconclusive.
+./docs/plans/2026-07-21-terminal-fonts-f2.md:25:| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+./docs/reviews/2026-07-21-queue-impl-minimax-r2.out:5:| **MCCP e2e golden** (`bridgeWsToMud` + Big5 + multi-chunk + byte budget) | **ALL_CLEAR yes** | Multi-chunk deflate, residual boundary, `MAX_INFLATED_*`, `MAX_WIRE_SESSION` all correct. Minor: `binarySends` filter assumes no payload starts with `{` (0x7b) -- worth a comment. |
+./docs/plans/2026-07-21-i18n-locale.md:31:| ConnectGate、PlayShell、drawer、ConfirmModal、command bar、thumb labels、a11y | MUD 串流、腳本 pack 內容 |
+./docs/plans/2026-07-21-i18n-locale.md:92:**Import fence**: `MudSocket` / `TerminalHost` / `packages/*` **不得** `import` `i18n/*`。
+./docs/plans/2026-07-21-i18n-locale.md:136:含但不限於：ConnectGate 全表單、Accent 標籤、Locale 標籤、Connect CTA、export/import、topbar map/settings、Send、placeholder、session idle、tab close modal（連線中/閒置）、drawer 全操作、status.* 全 codes、max retries 提示。
+./docs/plans/2026-07-21-i18n-locale.md:178:- **MudSocket / TerminalHost / App tab.status → `StatusEvent`**  
+./docs/plans/2026-07-21-i18n-locale.md:280:`mudSocket.ts`、`TerminalHost.tsx`、`App.tsx` 的 `tab.status` 型別、`StatusPill.tsx`。  
+./docs/TRY-FEATURES.md:46:| 6 | 在 canvas 上點一格 → 輸入註記 → 存 | 出現 pin；列表可編輯／刪 |
+./docs/research/zmud-feature-matrix.md:35:| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/research/zmud-feature-matrix.md:110:| T01 | ANSI SGR 16 色 | ✅ | **必須** | done | P0 | soft palette canvas |
+./docs/research/zmud-feature-matrix.md:127:| T17 | 按鍵宏 toolbar | ✅ | 高 | partial | P2 | thumb pad n/s/e/w |
+./docs/research/zmud-feature-matrix.md:189:| P02 | 手機 RWD | ❌ | 高 | partial | P1 | thumb pad；PWA backlog |
+./docs/adr/ADR-001-stack.md:20:| Terminal host in React | Thin `<TerminalHost />`: canvas/container ref, size, focus, input routing |
+./docs/research/zmud-input-ux.md:83:| 獨立 command bar + 輸出 canvas | ✅ | 同架構 |
+./docs/research/zmud-input-ux.md:96:| NAWS = 真實可視格數 | ✅ | 有了 |
+./docs/research/zmud-input-ux.md:105:| Numpad → submitCmd | `TerminalHost` `onUserCommand` |
+./docs/research/zmud-input-ux.md:106:| 點 canvas focus | `TerminalHost` `onRequestFocusCmd`（click without drag） |
+./docs/research/zmud-input-ux.md:107:| Local › 行 | `TerminalHost` `localEcho` → dim cyan `› line` |
+./docs/research/zmud-input-ux.md:166:| 熱鍵 + focus 過濾 | `TerminalHost.tsx` keydown |
+./docs/research/zmud-input-ux.md:168:| Command bar + ↑↓ | `App.tsx` footer `input` |
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:600: M apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:624:/usr/bin/zsh -lc 'git diff -- packages/terminal/src/width.ts packages/terminal/src/buffer.ts packages/terminal/src/index.ts packages/terminal/tests/buffer.test.ts packages/terminal/tests/fixtures/rw-motd-cols.json packages/profiles/src/widthMode.ts packages/profiles/src/index.ts packages/profiles/tests apps/web/src/App.tsx apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:664:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:666:--- a/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:667:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:685:@@ -63,12 +66,15 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:691:   const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:702:@@ -146,9 +152,20 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:842: export * from "./canvas2d.js";
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1339:apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1340:apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1341:apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1342:apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1343:apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1344:apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1345:apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1346:apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+./docs/research/rw-ansi-and-map-controls.md:77:footer:
+./docs/research/rw-ansi-and-map-controls.md:161:  → Renderer (canvas/DOM/WebGL)
+./apps/web/src/lib/mudSocket.ts:143:   * Send a MUD command line. If the socket is not open yet, queue until
+./apps/web/src/lib/mudSocket.ts:184:  /** Send a JSON control frame (e.g. mid-session NAWS resize). */
+./packages/terminal/src/colors.ts:53:/** @deprecated use colorForAttrs — kept for canvas2d internal clarity */
+./docs/design/ui-spec.md:31:- Connected: terminal ≥ 60% viewport height
+./docs/design/ui-spec.md:33:- Command bar sticky; mobile thumb pad + `safe-area-inset-bottom`
+./docs/reviews/fix-double-expand.md:2:===== TerminalHost =====
+./docs/reviews/fix-double-expand.md:26:export function TerminalHost({
+./docs/reviews/fix-double-expand.md:35:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/fix-double-expand.md:45:    const canvas = canvasRef.current;
+./docs/reviews/fix-double-expand.md:46:    if (!canvas) return;
+./docs/reviews/fix-double-expand.md:47:    rendererRef.current.mount(canvas);
+./docs/reviews/fix-double-expand.md:162:        <canvas
+./docs/reviews/fix-double-expand.md:163:          ref={canvasRef}
+./docs/design/terminal-fonts.md:29:│ │ A: Sarasa    │  │ B: 細明體    │  ← 即時 canvas    │
+./docs/design/terminal-fonts.md:77:| 單獨當 **唯一** canvas family | ❌ 試掘紅燈：CJK 會吃系統亂 fallback，map 必歪 |
+./docs/design/terminal-fonts.md:104:- **alignScore** 必須對 **整條 stack 解析後實際繪出的字** 測（canvas 用第一個有 glyph 的 face——實作時用 offscreen 分 face 測 primary vs fallback 兩段分數並顯示）。  
+./docs/design/terminal-fonts.md:153:### 2.2 系統字（執行時 `document.fonts.check` / canvas 探測；有才顯示「已安裝」）
+./docs/design/terminal-fonts.md:178:- 蘋方、思源黑體 **比例** 家族當 canvas 主字  
+./docs/design/terminal-fonts.md:200:   - **Terminal canvas**: 僅 dual-width mono 堆疊  
+./docs/design/terminal-fonts.md:220:2. 用離屏 canvas `measureText('M')` 與 `measureText('中')`：  
+./docs/design/terminal-fonts.md:280:| 程式碼 | ❌ 尚無試掘／catalog（canvas 僅 fallback 字串） |
+./apps/web/src/lib/termFit.ts:1:/** Fit terminal cell grid into a CSS-pixel viewport. */
+./docs/reviews/2026-07-21-cjk-width-codex.out:94:| `apps/web` TerminalHost | hello/profile.charset → mode；連線切換時套用 |
+./docs/projects/2026-07-21-echo-password-mask/README.md:17:- `apps/web/src/TerminalHost.tsx` / `App.tsx` — input type toggle  
+./docs/reviews/2026-07-22-mapd-brainstorm-qwen38.out:20:- Mirror panel：將最新一幀 map_d 以唯讀 canvas 鏡像到側欄，讓窄視窗 / 多視窗用戶也能看全
+./apps/web/src/components/FontTrialPanel.tsx:43:    const run = (canvas: HTMLCanvasElement | null, cfg: TermFontConfig) => {
+./apps/web/src/components/FontTrialPanel.tsx:44:      if (!canvas) return 0;
+./apps/web/src/components/FontTrialPanel.tsx:46:      r.mount(canvas);
+./apps/web/src/components/FontTrialPanel.tsx:59:      const ctx = canvas.getContext("2d");
+./apps/web/src/components/FontTrialPanel.tsx:62:        ctx.fillRect(0, 0, canvas.width, canvas.height);
+./apps/web/src/components/FontTrialPanel.tsx:78:    // next frame so canvas is laid out
+./apps/web/src/components/FontTrialPanel.tsx:151:              <canvas
+./docs/projects/2026-07-21-web-zmud-bootstrap/phase-1a-notes.md:17:| `@mudgate/web` React+Vite+Tailwind TerminalHost | yes |
+./apps/web/src/i18n/messages/en.ts:37:  "shell.send": "Send",
+./apps/web/src/components/MapGraphPoc.tsx:31:    const canvas = ref.current;
+./apps/web/src/components/MapGraphPoc.tsx:32:    if (!canvas) return;
+./apps/web/src/components/MapGraphPoc.tsx:33:    const parent = canvas.parentElement;
+./apps/web/src/components/MapGraphPoc.tsx:37:    canvas.width = Math.floor(w * dpr);
+./apps/web/src/components/MapGraphPoc.tsx:38:    canvas.height = Math.floor(h * dpr);
+./apps/web/src/components/MapGraphPoc.tsx:39:    canvas.style.width = `${w}px`;
+./apps/web/src/components/MapGraphPoc.tsx:40:    canvas.style.height = `${h}px`;
+./apps/web/src/components/MapGraphPoc.tsx:43:    const ctx = canvas.getContext("2d");
+./apps/web/src/components/MapGraphPoc.tsx:51:    <canvas
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:194:**Hook 鎖定**：`ScreenBuffer` / TerminalHost 在處理 **絕對 CUP** 時 emit 輕量事件  
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:378:  place tile on panorama canvas
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:408:| 重播 | 顯示下一步；**使用者按「送出下一步」** 才 `mudSend`；中斷條件：戰鬥字樣、move-fail、使用者停 |
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:433:| **C0.4** | 城圖 tab 渲染 | 優先 **canvas 2d 畫 cell**（對齊 terminal 色／雙寬語意即可，不要求 pixel-diff）；徽章依 source；空狀態 i18n |
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:473:│  cell canvas（拖/1×2×）   │
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-gpt56sol.err:512:| `TerminalHost` | 可選 callback `onMapdLikelyFrame` / 暴露 snapshot 給 App |
+./apps/web/src/components/MapCompanion.tsx:22:import type { TerminalCaptureApi } from "../TerminalHost";
+./apps/web/src/components/MapCompanion.tsx:107:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./apps/web/src/components/MapCompanion.tsx:266:  // Draw canvas
+./apps/web/src/components/MapCompanion.tsx:268:    const canvas = canvasRef.current;
+./apps/web/src/components/MapCompanion.tsx:270:    if (!canvas || !wrap || !frame) return;
+./apps/web/src/components/MapCompanion.tsx:281:    canvas.width = Math.max(1, Math.floor(cssW * dpr));
+./apps/web/src/components/MapCompanion.tsx:282:    canvas.height = Math.max(1, Math.floor(cssH * dpr));
+./apps/web/src/components/MapCompanion.tsx:283:    canvas.style.width = `${cssW}px`;
+./apps/web/src/components/MapCompanion.tsx:284:    canvas.style.height = `${cssH}px`;
+./apps/web/src/components/MapCompanion.tsx:285:    const ctx = canvas.getContext("2d");
+./apps/web/src/components/MapCompanion.tsx:622:        <canvas
+./apps/web/src/components/MapCompanion.tsx:623:          ref={canvasRef}
+./packages/terminal/src/buffer.ts:389:   * Plain text for one viewport row when scrolled up `offset` lines (0 = live).
+./docs/reviews/2026-07-21-cjk-width-impl-minimax.out:23:| Web profile→widthMode (App→TerminalHost) | ✅ | `App.tsx:124-131` via `useMemo(resolveWidthMode(...))`; `TerminalHost.tsx:69,73,157` |
+./docs/reviews/2026-07-21-cjk-width-impl-minimax.out:26:| UTF8 → western | ✅ | `resolveWidthMode` line 61; `ScreenBuffer` / `TerminalHost` defaults `"western"` |
+./packages/terminal/src/index.ts:2:export * from "./canvas2d.js";
+./docs/reviews/round2-verify.prompt.txt:50:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/round2-verify.prompt.txt:110:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/reviews/round2-verify.prompt.txt:118:- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+./docs/reviews/round2-verify.prompt.txt:131:| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+./docs/reviews/round2-verify.prompt.txt:160:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/reviews/round2-verify.prompt.txt:161:- React shell + Tailwind + login/session + `TerminalHost` (narrow + wide viewports).
+./docs/reviews/round2-verify.prompt.txt:366:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./docs/reviews/round2-verify.prompt.txt:409:| `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
+./docs/reviews/round2-verify.prompt.txt:416:  mount(canvas: HTMLCanvasElement): void;
+./apps/web/src/App.tsx:2:import { TerminalHost, type HelloMsg, type TerminalCaptureApi } from "./TerminalHost";
+./apps/web/src/App.tsx:173:  /** Live socket send from TerminalHost (Enter path — no state race). */
+./apps/web/src/App.tsx:174:  const mudSendRef = useRef<((line: string) => boolean) | null>(null);
+./apps/web/src/App.tsx:516:  // cols/rows overridden at connect by TerminalHost fit (viewport × cell size)
+./apps/web/src/App.tsx:529:  const onSendThroughEngine = useCallback(
+./apps/web/src/App.tsx:567:      if (mudSendRef.current?.(cmd)) return;
+./apps/web/src/App.tsx:631:   * Prefer imperative mudSendRef (Enter); fall back to inject payload (auto-login).
+./apps/web/src/App.tsx:640:      const toSend = trimmed.length > 0 ? trimmed : "";
+./apps/web/src/App.tsx:643:      if (secret && !toSend) return;
+./apps/web/src/App.tsx:644:      if (!secret && toSend) {
+./apps/web/src/App.tsx:645:        cmdHistoryRef.current.push(toSend);
+./apps/web/src/App.tsx:646:        if (echoCommands) setLocalEcho(toSend);
+./apps/web/src/App.tsx:648:      // 1) Direct send if TerminalHost has published a sender
+./apps/web/src/App.tsx:649:      const direct = mudSendRef.current;
+./apps/web/src/App.tsx:651:        direct(toSend);
+./apps/web/src/App.tsx:658:          line: toSend.length > 0 ? toSend : "\n",
+./apps/web/src/App.tsx:1096:                <TerminalHost
+./apps/web/src/App.tsx:1102:                  mudSendRef={mudSendRef}
+./apps/web/src/App.tsx:1103:                  expandInput={onSendThroughEngine}
+./apps/web/src/App.tsx:1713:      <footer
+./apps/web/src/App.tsx:1852:      </footer>
+./docs/reviews/round1-qwen.out:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/round1-qwen.out:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:695:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:994:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1000:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1027:  NAWS: 31,
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1171:/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1185:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1204:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1209:    OPT.NAWS,
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1362:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1681:error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts'.
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1682:error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.d.ts.map'.
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1683:error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js'.
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1684:error TS5033: Could not write file '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js.map': EROFS: read-only file system, open '/home/cookys/projects/assmud/packages/terminal/dist/canvas2d.js.map'.
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1861:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2160:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2166:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./apps/web/src/termFonts/trial.ts:21: * Method: compare canvas width of `ch` under the requested stack vs an invented
+./apps/web/src/termFonts/trial.ts:31:  const canvas = document.createElement("canvas");
+./apps/web/src/termFonts/trial.ts:32:  const ctx = canvas.getContext("2d");
+./apps/web/src/termFonts/trial.ts:50:  // Require canvas evidence of coverage; never accept fonts.check===true alone
+./apps/web/index.html:6:      name="viewport"
+./apps/web/index.html:7:      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+./packages/terminal/src/canvas2d.ts:21:export function viewportToAbs(
+./packages/terminal/src/canvas2d.ts:29:/** Absolute document row → viewport row, or null if off-screen. */
+./packages/terminal/src/canvas2d.ts:42:  private canvas: HTMLCanvasElement | null = null;
+./packages/terminal/src/canvas2d.ts:54:  mount(canvas: HTMLCanvasElement): void {
+./packages/terminal/src/canvas2d.ts:55:    this.canvas = canvas;
+./packages/terminal/src/canvas2d.ts:56:    this.ctx = canvas.getContext("2d", { alpha: false });
+./packages/terminal/src/canvas2d.ts:61:    this.canvas = null;
+./packages/terminal/src/canvas2d.ts:102:    const canvas = this.canvas;
+./packages/terminal/src/canvas2d.ts:103:    if (!canvas) return null;
+./packages/terminal/src/canvas2d.ts:104:    const rect = canvas.getBoundingClientRect();
+./packages/terminal/src/canvas2d.ts:115:    const canvas = this.canvas;
+./packages/terminal/src/canvas2d.ts:117:    if (!canvas || !ctx) return;
+./packages/terminal/src/canvas2d.ts:121:    if (canvas.width !== bw || canvas.height !== bh) {
+./packages/terminal/src/canvas2d.ts:122:      canvas.width = bw;
+./packages/terminal/src/canvas2d.ts:123:      canvas.height = bh;
+./packages/terminal/src/canvas2d.ts:125:    canvas.style.width = `${cssW}px`;
+./packages/terminal/src/canvas2d.ts:126:    canvas.style.height = `${cssH}px`;
+./packages/terminal/src/canvas2d.ts:140:    const canvas = this.canvas;
+./packages/terminal/src/canvas2d.ts:141:    if (!ctx || !canvas) return;
+./packages/terminal/src/canvas2d.ts:210:    // Selection stored as absolute document rows; map into viewport
+./docs/reviews/phase-1a-diff.patch:180:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase-1a-diff.patch:548:+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+./docs/reviews/phase-1a-diff.patch:596:+import { TerminalHost } from "./TerminalHost";
+./docs/reviews/phase-1a-diff.patch:684:+        <TerminalHost wsUrl={wsUrl} onStatus={setStatus} />
+./docs/reviews/phase-1a-diff.patch:689:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/phase-1a-diff.patch:693:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/phase-1a-diff.patch:705:+ * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
+./docs/reviews/phase-1a-diff.patch:707:+export function TerminalHost({ wsUrl, onStatus }: Props) {
+./docs/reviews/phase-1a-diff.patch:708:+  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/phase-1a-diff.patch:715:+    const canvas = canvasRef.current;
+./docs/reviews/phase-1a-diff.patch:716:+    if (!canvas) return;
+./docs/reviews/phase-1a-diff.patch:717:+    rendererRef.current.mount(canvas);
+./docs/reviews/phase-1a-diff.patch:768:+      <canvas
+./docs/reviews/phase-1a-diff.patch:769:+        ref={canvasRef}
+./docs/reviews/phase-1a-diff.patch:913:+| `@assmud/web` React+Vite+Tailwind TerminalHost | yes |
+./docs/reviews/phase-1a-diff.patch:1145:+  NAWS: 31,
+./docs/reviews/phase-1a-diff.patch:1233:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase-1a-diff.patch:1245:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase-1a-diff.patch:1264:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase-1a-diff.patch:1269:+    OPT.NAWS,
+./docs/reviews/phase-1a-diff.patch:1455:diff --git a/packages/terminal/src/canvas2d.ts b/packages/terminal/src/canvas2d.ts
+./docs/reviews/phase-1a-diff.patch:1459:+++ b/packages/terminal/src/canvas2d.ts
+./docs/reviews/phase-1a-diff.patch:1498:+  private canvas: HTMLCanvasElement | null = null;
+./docs/reviews/phase-1a-diff.patch:1503:+  mount(canvas: HTMLCanvasElement): void {
+./docs/reviews/phase-1a-diff.patch:1504:+    this.canvas = canvas;
+./docs/reviews/phase-1a-diff.patch:1505:+    this.ctx = canvas.getContext("2d");
+./docs/reviews/phase-1a-diff.patch:1509:+    this.canvas = null;
+./docs/reviews/phase-1a-diff.patch:1515:+    const canvas = this.canvas;
+./docs/reviews/phase-1a-diff.patch:1516:+    if (!ctx || !canvas) return;
+./docs/reviews/phase-1a-diff.patch:1519:+    if (canvas.width !== w) canvas.width = w;
+./docs/reviews/phase-1a-diff.patch:1520:+    if (canvas.height !== h) canvas.height = h;
+./docs/reviews/phase-1a-diff.patch:1548:+export * from "./canvas2d.js";
+./docs/reviews/2026-07-21-w05-echo-impl-minimax.out:49:- `TerminalHost.tsx:168-170`: `onEchoMask` wired separately from `subscribeStatus` ✓
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-glm52.out:11:无。C0 全部可实施——snapshotCells、BurstDetector、IDB 存储、canvas 渲染、pin CRUD、i18n、fixtures P1–P3+N1+N2、零回归检查均有明确契约。
+./docs/reviews/2026-07-21-queue-impl-minimax-r3.out:6:- `trial.ts:51-52`: `widthOk = w > 0 && Math.abs(w - wMissing) > 0.25` — canvas delta required. `ok = widthOk && !fontsMissing` — fonts.check alone never accepts.
+./docs/reviews/2026-07-22-mapd-automap-brainstorm-brief.md:16:   - Server paints glyphs/colors; city ~25×9 viewport  
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:199:/** One frozen VT viewport — ground-truth cells, not topology */
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:273:  place tile on panorama canvas
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:303:| 重播 | 顯示下一步；**使用者按「送出下一步」** 才 `mudSend`；中斷條件：戰鬥字樣、move-fail、使用者停 |
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:325:| **C0.1** | `ScreenBuffer` 或 TerminalHost **read-only snapshot API**（deep clone cells+attrs 子集） | unit：snapshot 不受後續 write 污染 |
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:328:| **C0.4** | 城圖 tab：渲染 last/frozen frame（canvas 或 cell grid） | 與終端雙寬 mode 一致 |
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:405:| `TerminalHost` | 可選 callback `onMapdLikelyFrame` / 暴露 snapshot 給 App |
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:524:- Specify the C0 auto-detection contract: exact CUP-burst window/threshold, qualifying distinct rows, capture boundary, debounce/cooldown, viewport/ROI rules, and rejection cases. “map_d-like burst” is currently implementation-by-guess; a full SAVEC state machine is not mandatory if a deterministic, fixture-backed CUP detector is defined.
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:529:- Define snapshot fidelity precisely: cell representation must preserve blank cells, wide-character continuation state, effective/default colors, relevant attributes, cursor exclusion, viewport dimensions, and resize behavior. The current `ch + fg/bg/bold subset` is insufficient to guarantee terminal-equivalent rendering.
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.err:539:- Define accessibility behavior for canvas rendering and pin interaction, even if full mobile long-press remains C1.
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:108:| `apps/web` TerminalHost | 連線前 resolve；profile 變更 → 新 buffer 或 clear |
+./docs/reviews/2026-07-21-cjk-width-codex-r2.out:463:| `apps/web` TerminalHost | 連線前 resolve；profile 變更 → 新 buffer 或 clear |
+./docs/reviews/2026-07-22-mapd-brainstorm-minimax.out:30:- map_d viewport 固定，適合做「熱區標記」：滑鼠 hover 某格 → 彈出該格曾記錄的 note
+./apps/web/src/TerminalHost.tsx:11:  viewportToAbs,
+./apps/web/src/TerminalHost.tsx:43:   * still fires. Used for auto-login; interactive Enter uses mudSendRef.
+./apps/web/src/TerminalHost.tsx:50:   * Imperative send into the live socket (Enter / Send button).
+./apps/web/src/TerminalHost.tsx:53:  mudSendRef?: MutableRefObject<((line: string) => boolean) | null>;
+./apps/web/src/TerminalHost.tsx:105:export function TerminalHost({
+./apps/web/src/TerminalHost.tsx:114:  mudSendRef,
+./apps/web/src/TerminalHost.tsx:127:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./apps/web/src/TerminalHost.tsx:172:  /** Live grid size reported in hello + mid-session NAWS. */
+./apps/web/src/TerminalHost.tsx:224:  /** Fit buffer + canvas to wrap; notify MUD via hello (initial) or JSON naws. */
+./apps/web/src/TerminalHost.tsx:296:    const canvas = canvasRef.current;
+./apps/web/src/TerminalHost.tsx:297:    if (!canvas) return;
+./apps/web/src/TerminalHost.tsx:298:    rendererRef.current.mount(canvas);
+./apps/web/src/TerminalHost.tsx:325:    // Font metrics change cell size → re-fit grid and NAWS
+./apps/web/src/TerminalHost.tsx:371:    // Measure before hello so NAWS matches the real viewport
+./apps/web/src/TerminalHost.tsx:456:  // Publish imperative sender for App Enter / Send
+./apps/web/src/TerminalHost.tsx:458:    if (!mudSendRef) return;
+./apps/web/src/TerminalHost.tsx:459:    mudSendRef.current = deliverLine;
+./apps/web/src/TerminalHost.tsx:461:      if (mudSendRef.current === deliverLine) mudSendRef.current = null;
+./apps/web/src/TerminalHost.tsx:463:  }, [mudSendRef, deliverLine, wsUrl]);
+./apps/web/src/TerminalHost.tsx:579:    const absR = viewportToAbs(
+./apps/web/src/TerminalHost.tsx:595:    const absR = viewportToAbs(
+./apps/web/src/TerminalHost.tsx:683:          title="NAWS terminal size (cols×rows)"
+./apps/web/src/TerminalHost.tsx:728:      <canvas
+./apps/web/src/TerminalHost.tsx:729:        ref={canvasRef}
+./apps/web/src/TerminalHost.tsx:834:            // sit just above typical command bar (~cmd + thumb pad)
+./docs/reviews/2026-07-21-w05-echo-minimax.out:10:- **Layer table says `type=password` or CSS mask** — this is already implemented as `onEchoMask?: (mask: boolean) => void` in `TerminalHost.tsx` (line 17) with cleanup at line 182 (`onEchoMaskRef.current?.(false)`). The plan wording is slightly loose but the intent and effect are correct. Still worth clarifying: the web input `type` attribute (or equivalent CSS) must toggle to `password` **only** when `mask=true`, not be permanently styled otherwise.
+./docs/reviews/2026-07-21-w05-echo-minimax.out:16:The plan's semantics are a clean match against all five mandatory requirements. The transient-mask definition (WILL→mask-on, WONT→mask-off, never a permanent local-echo-off state) is precisely stated in Goal and corroborated by matrix §1.1. Trigger-based second-line capture is explicitly listed as a Non-goal. The wire contract uses a dedicated `{type:"echo",mask:bool}` JSON frame that does not touch `StatusEvent` connection codes, and the existing `mudSocket.ts` already has the `MudSocketHandlers` extension point (`onEchoMask`) stubbed in `TerminalHost.tsx`. The `replyToNegotiation` reversal — WILL→DO, DO→WILL for reversed-MUD compat — is specified in both the Wire table and the Layers table, and `OPT.ECHO=1` is already in `telnet.ts`. The existing `packages/protocol` code (`telnet.ts`) confirms the protocol semantics are already being implemented in parallel. Residual items (RW real-server probe, "server forgets WONT" fallback) are appropriately classified as ok-to-ship. The only nits are clarity improvements to the acceptance criteria and a mild ambiguity in the "CSS mask" vs `type=password` wording — neither rises to a must-fix block.
+./docs/research/rw-probe-2026-07-21.md:20:| DO | 31 | **NAWS** | window size |
+./docs/research/rw-probe-2026-07-21.md:70:  → render (DOM / canvas / xterm custom)
+./apps/web/tests/termFit.test.ts:5:  it("floors grid to fit viewport without clipping", () => {
+./docs/reviews/2026-07-21-hetero-pack.txt:89:| 6 | PWA | after mobile thumb polish |
+./docs/reviews/2026-07-21-hetero-pack.txt:447:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-pack.txt:504:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-pack.txt:608:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-pack.txt:620:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-pack.txt:639:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-pack.txt:644:    OPT.NAWS,
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-glm52.out:10:- C0.4: ANSI fg/bg number → canvas RGB palette mapping not documented. Plan says "對齊 terminal 色" but doesn't point to ScreenBuffer's color interpretation. Implementer must reverse-engineer.
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-glm52.out:21:- C0.4 canvas may render with wrong ANSI colors because palette mapping is unspecified, yet "不要求 pixel-diff" gives false confidence that visual fidelity is acceptable.
+./docs/reviews/2026-07-21-w05-echo-codex.out:76:| `apps/web` `TerminalHost` / `App` | 輸入列 `type=password` 或 CSS mask；disconnect 清 mask |
+./docs/reviews/2026-07-21-w05-echo-codex.out:213:| `apps/web` `TerminalHost` / `App` | 輸入列 `type=password` 或 CSS mask；disconnect 清 mask |
+./docs/reviews/2026-07-21-w05-echo-codex.out:252:35-| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/reviews/2026-07-21-w05-echo-codex.out:321:105:**實作位置（建議）**：proxy 解析 ECHO 事件 → `StatusEvent` 或 control frame（如 `{ code: 'echo', params: { mask: true } }`）→ `TerminalHost` 輸入列切換。勿在 script-engine 用 trigger 猜第二行。
+./docs/reviews/2026-07-21-w05-echo-codex.out:329:113-| T01 | ANSI SGR 16 色 | ✅ | **必須** | done | P0 | soft palette canvas |
+./docs/reviews/2026-07-22-mapd-brainstorm-gpt56sol.err:29:   - Server paints glyphs/colors; city ~25×9 viewport  
+./docs/reviews/2026-07-21-hetero-codex.out:27:- Font detection should not rely on `document.fonts.check()` alone because fallback can produce false positives; retain differential canvas/glyph checks and define unsupported-phone behavior.
+./docs/reviews/2026-07-21-hetero-codex.err:102:| 6 | PWA | after mobile thumb polish |
+./docs/reviews/2026-07-21-hetero-codex.err:460:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-codex.err:517:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-codex.err:621:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-codex.err:633:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-codex.err:652:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-codex.err:657:    OPT.NAWS,
+./docs/reviews/2026-07-21-hetero-codex.err:798:apps/web/src/TerminalHost.tsx:8:import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+./docs/reviews/2026-07-21-hetero-codex.err:799:apps/web/src/TerminalHost.tsx:10:export type { HelloMsg, StatusEvent };
+./docs/reviews/2026-07-21-hetero-codex.err:800:apps/web/src/TerminalHost.tsx:15:  onStatus?: (e: StatusEvent) => void;
+./docs/reviews/2026-07-21-hetero-codex.err:879:packages/protocol/src/telnet.ts:119:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-codex.err:944:│ │ A: Sarasa    │  │ B: 細明體    │  ← 即時 canvas    │
+./docs/reviews/2026-07-21-hetero-codex.err:992:| 單獨當 **唯一** canvas family | ❌ 試掘紅燈：CJK 會吃系統亂 fallback，map 必歪 |
+./docs/reviews/2026-07-21-hetero-codex.err:1019:- **alignScore** 必須對 **整條 stack 解析後實際繪出的字** 測（canvas 用第一個有 glyph 的 face——實作時用 offscreen 分 face 測 primary vs fallback 兩段分數並顯示）。  
+./docs/reviews/2026-07-21-hetero-codex.err:1068:### 2.2 系統字（執行時 `document.fonts.check` / canvas 探測；有才顯示「已安裝」）
+./docs/reviews/2026-07-21-hetero-codex.err:1093:- 蘋方、思源黑體 **比例** 家族當 canvas 主字  
+./docs/reviews/2026-07-21-hetero-codex.err:1115:   - **Terminal canvas**: 僅 dual-width mono 堆疊  
+./docs/reviews/2026-07-21-hetero-codex.err:1135:2. 用離屏 canvas `measureText('M')` 與 `measureText('中')`：  
+./docs/reviews/2026-07-21-hetero-codex.err:1451:- Font detection should not rely on `document.fonts.check()` alone because fallback can produce false positives; retain differential canvas/glyph checks and define unsupported-phone behavior.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:20:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:21:- Footer always has: command `<input>` + Send + thumb chips (n/s/e/w/look/score) + map toggle on sm.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:23:- Soft keyboard on iOS/Android can cover 40–50% of the viewport; `100vh` / `height:100%` often wrong when keyboard open.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:27:1. Portrait + keyboard: terminal stage does not reliably shrink; content/chrome may overflow the visual viewport.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:34:**A. Portrait default layout** — wireframe regions top→bottom with approximate % of *visual* viewport (not layout viewport). What collapses when keyboard opens?
+./docs/reviews/2026-07-22-mobile-ux-codex.err:36:**B. Keyboard strategy** — `visualViewport` resize? `dvh`? hide thumb pad while focused? scroll-into-view on input focus? `interactive-widget=resizes-content`?
+./docs/reviews/2026-07-22-mobile-ux-codex.err:38:**C. Landscape / "rotate" button** — when to show; use Screen Orientation API lock vs CSS-only dual layout; fallback if lock denied; should landscape hide header/thumb and maximize terminal cols?
+./docs/reviews/2026-07-22-mobile-ux-codex.err:42:**E. Movement** — keep n/s/e/w chips vs 3×3 D-pad vs swipe on canvas; portrait vs landscape difference.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:44:**F. Must-fix top 5** for mudgate next PR (file-level if you know: App.tsx footer, tokens.css, index.html viewport, TerminalHost fit).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:46:**G. Anti-patterns** to avoid for MUD specifically (e.g. scaling canvas with CSS, shrinking below readable cols, fighting system keyboard).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:65:I’ll ground the recommendation in mudgate’s current layout and terminal-fit code, then verify the mobile viewport/orientation APIs so the px budgets and file-level fixes are actionable.
+./apps/web/tests/fontTrial.test.ts:47:    // Minimal document stub: fonts.check always true (Latin-only trap), canvas
+./docs/reviews/phase1a-r3-qwen.out:6:- apps/proxy/src/server.ts:60-61 — minor: cols/rows query params are not range-validated (NaN or >65535 yields garbage NAWS bytes via naws()); protocol-correctness issue only, no privilege impact. Clamp to 1–511 / 1–511 or default on parse failure.
+./docs/reviews/phase1a-r3-qwen.out:8:- apps/web/src/App.tsx:14 — minor: token persisted in localStorage (XSS-readable). Rendering path is canvas + React auto-escaping so no current XSS vector; acceptable for Phase 1a, revisit with httpOnly cookie flow later.
+./docs/reviews/2026-07-21-queue-impl-r3-brief.txt:7:- Fold claim: ok requires canvas width delta vs __AssmudMissingFont__; fonts.check alone never accepts.
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:21:- Fold claim: ok requires canvas width delta vs __AssmudMissingFont__; fonts.check alone never accepts.
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:173: * Method: compare canvas width of `ch` under the requested stack vs an invented
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:183:  const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:184:  const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:202:  // Require canvas evidence of coverage; never accept fonts.check===true alone
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:253:    // Minimal document stub: fonts.check always true (Latin-only trap), canvas
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:850:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1153:function binarySends(ws: ReturnType<typeof fakeWs>): Buffer[] {
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1190:    const out = Buffer.concat(binarySends(ws));
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1214:    const out = Buffer.concat(binarySends(ws));
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1637:-/** Detect missing CJK glyph via canvas (not document.fonts.check alone). */
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1645:+ * Method: compare canvas width of `ch` under the requested stack vs an invented
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1653:   const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1654:   const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1677:+  // Require canvas evidence of coverage; never accept fonts.check===true alone
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1695:+    // Minimal document stub: fonts.check always true (Latin-only trap), canvas
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:1991:./docs/reviews/2026-07-21-queue-impl-minimax.out:15:`probeCjkGlyph` (trial.ts:15) correctly detects missing CJK via canvas width delta, fails closed in Node. `isAlignScoreGood` threshold of 0.3 around 2.0 is appropriate. `TRIAL_FIXTURE` contains CJK+box-drawing. `resolveFontStack` imports and uses probe. `lineHeightScale` wired end-to-end: trial slider → save → TerminalHost prop → renderer. Canvas at 96px is sufficient for 3-line fixture at 15px+spacing.
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:2059:- Fold claim: ok requires canvas width delta vs __AssmudMissingFont__; fonts.check alone never accepts.
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:2550:  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:2628:/usr/bin/zsh -lc "sed -n '1,120p' docs/plans/2026-07-21-profile-library.md && sed -n '500,575p' apps/web/src/App.tsx && rg -n \"injectCommand|onInjectConsumed\" apps/web/src/TerminalHost.tsx && sed -n '300,390p' apps/web/src/TerminalHost.tsx && sed -n '1,120p' apps/web/tests/profileEditor.test.ts && npm test" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-hetero-r3-codex.err:54:| 6 | PWA | after mobile thumb polish |
+./docs/reviews/2026-07-21-hetero-r3-codex.err:217:| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+./docs/reviews/2026-07-21-hetero-r3-codex.err:466:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-r3-codex.err:521:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-r3-codex.err:625:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-r3-codex.err:637:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-r3-codex.err:656:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-r3-codex.err:661:    OPT.NAWS,
+./docs/reviews/2026-07-21-hetero-r3-codex.err:729:- `terminal-fonts-f2`: define the tolerance around “≈2.0” and the fallback when canvas probing is inconclusive.
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:144:**Hook 鎖定（唯一）**：TerminalHost / ScreenBuffer **SHALL emit**  
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:340:  place tile on panorama canvas
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:370:| 重播 | 顯示下一步；**使用者按「送出下一步」** 才 `mudSend`；中斷條件：戰鬥字樣、move-fail、使用者停 |
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:395:| **C0.4** | 城圖 tab 渲染 | canvas 2d；**cell 盒 = 與終端相同 monospace 度量 @1×**；2×=整數倍；色：複用 terminal 既有 16/256 SGR→RGB helper（若無則抽一份 shared）；徽章依 source；空狀態 `map.companion.empty` |
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:435:│  cell canvas（拖/1×2×）   │
+./docs/reviews/2026-07-22-mapd-companion-plan-r4-gpt56sol.err:478:| `TerminalHost` | 可選 callback `onMapdLikelyFrame` / 暴露 snapshot 給 App |
+./docs/reviews/2026-07-21-queue-impl-minimax.out:15:`probeCjkGlyph` (trial.ts:15) correctly detects missing CJK via canvas width delta, fails closed in Node. `isAlignScoreGood` threshold of 0.3 around 2.0 is appropriate. `TRIAL_FIXTURE` contains CJK+box-drawing. `resolveFontStack` imports and uses probe. `lineHeightScale` wired end-to-end: trial slider → save → TerminalHost prop → renderer. Canvas at 96px is sufficient for 3-line fixture at 15px+spacing.
+./docs/reviews/full-land-pack.md:672:  NAWS: 31,
+./docs/reviews/full-land-pack.md:776:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/full-land-pack.md:788:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/full-land-pack.md:807:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/full-land-pack.md:812:    OPT.NAWS,
+./docs/reviews/full-land-pack.md:1223:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/full-land-pack.md:1265:import { TerminalHost, type HelloMsg } from "./TerminalHost";
+./docs/reviews/full-land-pack.md:1343:  const onSendThroughEngine = (line: string) => {
+./docs/reviews/full-land-pack.md:1539:        <TerminalHost
+./docs/reviews/full-land-pack.md:1545:          expandInput={onSendThroughEngine}
+./docs/reviews/full-land-pack.md:1570:      <footer className="text-[10px] text-zinc-600 pb-2">
+./docs/reviews/full-land-pack.md:1573:      </footer>
+./docs/reviews/full-land-pack.md:1578:===== apps/web/src/TerminalHost.tsx =====
+./docs/reviews/full-land-pack.md:1602:export function TerminalHost({
+./docs/reviews/full-land-pack.md:1611:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/full-land-pack.md:1621:    const canvas = canvasRef.current;
+./docs/reviews/full-land-pack.md:1622:    if (!canvas) return;
+./docs/reviews/full-land-pack.md:1623:    rendererRef.current.mount(canvas);
+./docs/reviews/full-land-pack.md:1732:        <canvas
+./docs/reviews/full-land-pack.md:1733:          ref={canvasRef}
+./docs/reviews/2026-07-22-mapd-automap-hetero-brainstorm.md:74:Fingerprint glyph+color neighborhood of current map_d viewport → reattach notes/journeys when you reopen map.  
+./docs/reviews/phase1a-qwen.prompt.txt:13:- React+Vite+Tailwind TerminalHost (no per-cell React nodes)
+./docs/reviews/phase1a-qwen.prompt.txt:212:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-qwen.prompt.txt:580:+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+./docs/reviews/phase1a-qwen.prompt.txt:628:+import { TerminalHost } from "./TerminalHost";
+./docs/reviews/phase1a-qwen.prompt.txt:716:+        <TerminalHost wsUrl={wsUrl} onStatus={setStatus} />
+./docs/reviews/phase1a-qwen.prompt.txt:721:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/phase1a-qwen.prompt.txt:725:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/phase1a-qwen.prompt.txt:737:+ * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
+./docs/reviews/phase1a-qwen.prompt.txt:739:+export function TerminalHost({ wsUrl, onStatus }: Props) {
+./docs/reviews/phase1a-qwen.prompt.txt:740:+  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/phase1a-qwen.prompt.txt:747:+    const canvas = canvasRef.current;
+./docs/reviews/phase1a-qwen.prompt.txt:748:+    if (!canvas) return;
+./docs/reviews/phase1a-qwen.prompt.txt:749:+    rendererRef.current.mount(canvas);
+./docs/reviews/phase1a-qwen.prompt.txt:800:+      <canvas
+./docs/reviews/phase1a-qwen.prompt.txt:801:+        ref={canvasRef}
+./docs/reviews/phase1a-qwen.prompt.txt:945:+| `@mudgate/web` React+Vite+Tailwind TerminalHost | yes |
+./docs/reviews/phase1a-qwen.prompt.txt:1177:+  NAWS: 31,
+./docs/reviews/phase1a-qwen.prompt.txt:1265:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-qwen.prompt.txt:1277:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-qwen.prompt.txt:1296:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-qwen.prompt.txt:1301:+    OPT.NAWS,
+./docs/reviews/phase1a-qwen.prompt.txt:1487:diff --git a/packages/terminal/src/canvas2d.ts b/packages/terminal/src/canvas2d.ts
+./docs/reviews/phase1a-qwen.prompt.txt:1491:+++ b/packages/terminal/src/canvas2d.ts
+./docs/reviews/phase1a-qwen.prompt.txt:1530:+  private canvas: HTMLCanvasElement | null = null;
+./docs/reviews/phase1a-qwen.prompt.txt:1535:+  mount(canvas: HTMLCanvasElement): void {
+./docs/reviews/phase1a-qwen.prompt.txt:1536:+    this.canvas = canvas;
+./docs/reviews/phase1a-qwen.prompt.txt:1537:+    this.ctx = canvas.getContext("2d");
+./docs/reviews/phase1a-qwen.prompt.txt:1541:+    this.canvas = null;
+./docs/reviews/phase1a-qwen.prompt.txt:1547:+    const canvas = this.canvas;
+./docs/reviews/phase1a-qwen.prompt.txt:1548:+    if (!ctx || !canvas) return;
+./docs/reviews/phase1a-qwen.prompt.txt:1551:+    if (canvas.width !== w) canvas.width = w;
+./docs/reviews/phase1a-qwen.prompt.txt:1552:+    if (canvas.height !== h) canvas.height = h;
+./docs/reviews/phase1a-qwen.prompt.txt:1580:+export * from "./canvas2d.js";
+./docs/reviews/2026-07-21-hetero-r3-glm.out:37:- **terminal-fonts-f2**: APPROVE_WITH_NITS — F2c now says "canvas glyph probe (not fonts.check alone)"; acceptance criteria still thin.
+./docs/reviews/phase1a-r3-minimax.json.raw:3:{ "runner": "anthropic-compatible", "model": "MiniMax-M3", "status": "reviewed", "verdict": "FIX-THEN-SHIP", "findings": "- apps/proxy/src/policy.ts:isPrivateOrBlockedIp — IPv6 ULA check only matches `fc/fd/fe80:` prefixes without proper colon boundaries; `fcd` or `fcaa` style matches would falsely block public IPv6 (e.g. anything starting `fc` in the first hextet is fine, but the prefix check lacks length validation so a 1-char host like `fc` passes through incorrectly; minor but logically weak).\n- apps/proxy/src/policy.ts:checkAuth — Query-string token accepted even in remote-prod mode defeats the Bearer/cookie preference stated in comment; token in URL leaks via server logs/referrer and is a known web vuln (still documented as \"local smoke\" but prod has no guard).\n- apps/proxy/src/policy.ts:assertDestinationAllowed — `loopbackAllow` allows `127.0.0.1`/`localhost` only in localhost-dev mode even when host is on allowlist; in remote-prod the allowlist may contain `127.0.0.1` entry but it's still blocked, which may or may not be intended (not a defect, just ambiguity — accept).\n- apps/proxy/src/policy.ts:assertDestinationAllowed — DNS result is validated against private ranges but there is no TOCTOU re-check pinning at TCP connect time; server.ts does pass `dest.address` (good), but if DNS changes between lookup and connect, Node's `net.connect({host})` will re-resolve — verify `bridge.ts` uses the literal IP (it does: `host: opts.host` which is `dest.address`). OK.\n- apps/proxy/src/bridge.ts — `sock.on(\"error\")` JSON message could include arbitrary text after sanitization but the close code `1011` leaks internal error to client; acceptable for proxy debug.\n- apps/proxy/src/bridge.ts — No size limit on incoming TCP data buffering before parser push; parser grows `this.buf` unbounded across pushes (`this.buf = merged`). A malicious MUD could send a very large un-terminated IAC SB to grow memory until OOM. Missing backpressure/cap.\n- apps/proxy/src/bridge.ts — `parser.push` accumulates all events into an array per chunk with `data` building via `number[]` array (slow for big5/UTF-8 streams); performance issue, not security.\n- apps/proxy/src/server.ts — `checkOrigin` rejects empty origin only in remote-prod; `localhost-dev` mode accepts any missing-origin request, which combined with `relaxAllowlist: true` allows CSRF from any non-browser context — acceptable for dev.\n- apps/proxy/src/server.ts — `assertDestinationAllowed` is called with the raw query `mudHost` (user-controlled) and the validated IP is used in `wss.handleUpgrade` callback only after `await` resolves; if client disconnects during await, socket may already be destroyed by client and `handleUpgrade` would fail silently (caught by outer try/catch — OK).\n- apps/proxy/tests/policy.test.ts — Tests use `prod` object spread from `defaultConfig(\"remote-prod\")` which has `relaxAllowlist: false` and `originAllowlist` from env (empty in tests), so test's `originAllowlist: [\"https://mud.example.com\"]` override is needed; minor test brittleness.\n- packages/protocol/src/telnet.ts — `TelnetParser.push` `this.buf = this.buf.slice(i)` keeps growing because slice copies; should compact. Memory leak under sustained malformed input.\n- packages/protocol/src/telnet.ts — No upper bound on SB payload size; a MUD sending a multi-MB subnegotiation without IAC SE will buffer forever. DoS.\n- packages/vt/src/sgr.ts:tokenizeAnsi — `params = body.split(\";\").filter(x => x.length && !x.startsWith(\"?\")).map(x => parseInt(x,10) || 0)` — empty param `;;` becomes `\"\"` filtered out, losing semantics (SGR empty params = 0). Subtle correctness bug.\n- packages/vt/src/sanitize.ts:sanitizeMudTextForHtml — Iterates with spread `[...text]` then joins; O(n) but fine. No defect.\n- packages/terminal/src/buffer.ts:lineFeed — Pushes to scrollback unconditionally even when `cursor.c === 0` and line is blank, polluting scrollback with empty strings.\n- packages/terminal/src/buffer.ts:writeDecoded — Other CSI (cursor positioning CUP, clear screen ED) silently ignored — Phase 1a partial terminal acknowledged in spec, not a defect.\n- apps/web/src/App.tsx — `token` stored in `localStorage` and sent as URL query param `?token=` which is logged by proxies and visible in Referer headers — security regression vs. Authorization header path.\n- apps/web/src/App.tsx — `host` and `port` are user-editable; client can attempt SSRF via proxy (proxy enforces allowlist, so safe).\n- apps/web/src/TerminalHost.tsx — `sendLine` sends raw `line` as text frame; bridge.ts handles text frames but rejects IAC bytes via `replace(/\\xff/g, \"\")` — OK. No length validation on input before send.\n- apps/web/src/TerminalHost.tsx — WS message handler does not validate `ev.data` is ArrayBuffer when binary — relies on `binaryType = \"arraybuffer\"`; if proxy sends Blob, would crash. Minor.\n- apps/proxy/src/bridge.ts — `sock.on(\"data\")` does not handle backpressure; if WS client is slow, `ws.send` queues in memory. Missing `ws.bufferedAmount` check or `drain` handling.\n- apps/proxy/src/policy.ts:checkAuth — Cookie value decoded with `decodeURIComponent` then compared with safeEqual; no max length, no charset check — could match malformed cookie to token. Minor.\n- apps/proxy/src/server.ts — No `maxHeaderSize`, no `keepAliveTimeout` tuning; defaults are fine for proxy.\n- apps/proxy/src/policy.ts:defaultConfig — `authToken` from env may be empty string and `!token` returns false so empty token = reject all — correct behavior but undocumented.\n- apps/proxy/src/policy.ts:assertDestinationAllowed — `Number.isInteger(port)` rejects decimal ports from query (e.g. `port=4000.0`) — fine.\n- apps/proxy/src/policy.ts:isPrivateOrBlockedIp — IPv4-mapped IPv6 recursion is fine but no recursion-depth guard; not exploitable.\n- apps/proxy/src/policy.ts:checkOrigin — In remote-prod, exact string match on origin (good); but no normalization of trailing slash or default port. Minor.\n- apps/proxy/src/bridge.ts — `replyToNegotiation` returns `null` is not checked; `sendTcp` would be called with null. Wait: code is `if (reply) sendTcp(reply)` — OK.\n- apps/proxy/src/server.ts — No CSRF token on `/health`; it returns 200 but no sensitive data — OK.\n- apps/proxy/src/bridge.ts — `sock.on(\"close\")` closes WS with `1000` even if bridge closed due to client disconnect; acceptable.\n- apps/proxy/src/policy.ts:safeEqual — Pads shorter string with null bytes (`0`); not strictly constant-time under all JS engines due to JIT, but adequate for this use.\n- packages/codec-big5/src/index.ts — `parts.push(this.pending, bytes[0]!)` — `bytes[0]` is always defined; the `!` suppresses. If `bytes.length === 0` early return handles it. OK.\n- packages/vt/src/sgr.ts — `applySgr` accepts `p >= 90 && p <= 97` (bright fg) but doesn't accept `p === 1` combined with bright in same sequence beyond what spec covers. OK.\n- apps/web/src/TerminalHost.tsx — `decoderRef.current.reset()` on unmount, but if WS is mid-message, decoder state is lost. Minor.\n- apps/proxy/src/policy.ts:assertDestinationAllowed — `address === \"169.254.169.254\"` check happens after DNS lookup but before the private-IP generic check; redundant since `isPrivateOrBlockedIp(\"169.254.169.254\")` returns true. OK.\n- apps/proxy/src/server.ts — `import.meta` / dynamic env used in client (App.tsx) — not in server. OK.\n- apps/proxy/src/bridge.ts — `escapeIac` doubles IAC bytes (255 → 255 255) which is correct for telnet.\n- packages/protocol/src/telnet.ts:TelnetParser — `cmd` returned by `replyToNegotiation` is a `Uint8Array`; `sendTcp(Buffer.from(buf))` converts. OK.\n- apps/proxy/src/policy.ts:checkAuth — `decodeURIComponent` of cookie can throw on malformed `%` — caught. OK.", "raw_log": "/tmp/dispatch-review-log-TT9Cko", "error": null }
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:41:| 6 | PWA | after mobile thumb polish |
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:204:| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:453:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:508:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:612:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:624:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:643:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:648:    OPT.NAWS,
+./docs/reviews/2026-07-22-mapd-companion-plan-r2-qwen38.out:18:- C0.4 rendering strategy (canvas vs DOM grid vs reuse ScreenBuffer paint) is unspecified. Acceptance criteria are testable either way, but one line of guidance ("reuse existing cell-render path" or "canvas 2D") would prevent a wrong architectural bet on CJK/inverse rendering.
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-minimax.out:19:- Canvas cell rendering (C0.4) references "对齐 terminal 色／双宽语义即可，不要求 pixel-diff"; if terminal uses SGR 256-color or truecolor, mapping to canvas 2d fillStyle may introduce subtle color drift; risk: visual regression complaint from users who compare terminal vs sidebar — acceptable for C0 if explicitly noted as known gap
+./docs/reviews/phase1a-postfix-pack.md:329:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-postfix-pack.md:449:  NAWS: 31,
+./docs/reviews/phase1a-postfix-pack.md:537:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-postfix-pack.md:549:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-postfix-pack.md:568:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-postfix-pack.md:573:    OPT.NAWS,
+./docs/reviews/phase1a-postfix-pack.md:887:===== FILE: apps/web/src/TerminalHost.tsx =====
+./docs/reviews/phase1a-postfix-pack.md:899: * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
+./docs/reviews/phase1a-postfix-pack.md:901:export function TerminalHost({ wsUrl, onStatus }: Props) {
+./docs/reviews/phase1a-postfix-pack.md:902:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/phase1a-postfix-pack.md:909:    const canvas = canvasRef.current;
+./docs/reviews/phase1a-postfix-pack.md:910:    if (!canvas) return;
+./docs/reviews/phase1a-postfix-pack.md:911:    rendererRef.current.mount(canvas);
+./docs/reviews/phase1a-postfix-pack.md:968:      <canvas
+./docs/reviews/phase1a-postfix-pack.md:969:        ref={canvasRef}
+./docs/reviews/phase1a-postfix-pack.md:1003:import { TerminalHost } from "./TerminalHost";
+./docs/reviews/phase1a-postfix-pack.md:1091:        <TerminalHost wsUrl={wsUrl} onStatus={setStatus} />
+./docs/reviews/full-r2-minimax.json.raw:3:{ "runner": "anthropic-compatible", "model": "MiniMax-M3", "status": "reviewed", "verdict": "FIX-THEN-SHIP", "findings": "server.ts: clamp() with non-finite Number inputs falls to fallback, but the explicit `Math.trunc` afterwards on a finite value is fine; however, msg.port being a string that passes Number() (NaN) returns fallback which is then trivially compared — no security issue, OK.\nserver.ts: Pre-auth path uses `checkAuth(url, cfg, …)` which from earlier phases must include IP pin when mode=remote-prod; reviewer cannot verify the policy.js body, but the helper is invoked — acceptable.\nserver.ts: `cfg.authToken` existence check on line `if (!authed && msg.token && cfg.authToken)` — when `cfg.mode === \"localhost-dev\"` the `authed = true` shortcut bypasses IP pin/allowlist, which is acceptable per spec for dev mode.\nserver.ts: No Origin enforcement shown in error path for checkOrigin failure (socket destroyed silently after 403 headers) — minor: 403 written correctly, OK.\nTerminalHost.tsx: `expandInput` is used inside the inject useEffect but missing from the dependency array; eslint-disable comment is present and intentional, fine.\nTerminalHost.tsx: `sendRaw` defined outside useEffect is hoisted but not in the effect deps for the inject effect; the eslint-disable covers it — acceptable.\nTerminalHost.tsx: `sendLine` calls `expandInput` again on user input — spec says expand once; this only double-expands if user pastes a line that matches an alias after injection, but injection itself no longer double-expands (single expand in inject effect, then sendRaw). Good.\nTerminalHost.tsx: Reconnect backoff uses `attempt * 1000` ms — attempt caps at 5 in onclose (`if (attempt > 5) disconnected`), so max delay is 5s. Reasonable.\nTerminalHost.tsx: Line splitter uses regex `/\\r?\\n/` on accumulated text only; partial chunks without newline stay in accumulator. Correct.\nTerminalHost.tsx: No cookie/fetch used in component — passes spec; script engine wiring is in onServerLine callback, not shown here.\nTerminalHost.tsx: ws.binaryType = \"arraybuffer\"; Big5StreamDecoder.push receives Uint8Array. Correct.\nTerminalHost.tsx: Hello payload set via helloRef.current is fresh on each connect — good.\nSpec-required VT controls (CUP/save/restore/ED/EL/DECSTBM) — TerminalHost does NOT parse VT itself; the diff delegates to @assmud/terminal ScreenBuffer. The \"double expand fixed\" claim is verifiable (single expand in inject effect, sendRaw no longer expands). However the spec requires verification of those VT escapes handling — not visible in this diff snippet (terminal package not shown). Out-of-scope per dispatcher: handled-downstream in @assmud/terminal. OK.\nSecurity: no secrets hardcoded in shown files; authToken referenced via cfg. Pass.\nCompleteness: diff scope is the double-expand fix only — comment matches. Inject + user-input paths both expand exactly once. Pass.\nMissed lint: the second useEffect dependency array is `[wsUrl, onStatus, onServerLine]` — `expandInput`, `injectCommand`, `onInjectConsumed` correctly omitted via disable comment for inject effect; wsUrl effect deps are accurate. OK.\nMinor: lineAcc reset on unmount but not on reconnect — decoderRef.current.reset() is called on cleanup, but new ws won't replay; lineAcc residual may concatenate leftover across reconnect. Edge, low risk.\nOverall: no blocking defects; ship-able as verification patch.", "raw_log": "/tmp/dispatch-review-log-hgURQq", "error": null }
+./docs/reviews/phase1a-postfix-pack-r4.md:389:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-postfix-pack-r4.md:509:  NAWS: 31,
+./docs/reviews/phase1a-postfix-pack-r4.md:613:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-postfix-pack-r4.md:625:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-postfix-pack-r4.md:644:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-postfix-pack-r4.md:649:    OPT.NAWS,
+./docs/reviews/phase1a-postfix-pack-r4.md:662:import { TerminalHost } from "./TerminalHost";
+./docs/reviews/phase1a-postfix-pack-r4.md:759:        <TerminalHost wsUrl={wsUrl} hello={hello} onStatus={setStatus} />
+./docs/reviews/phase1a-postfix-pack-r4.md:765:===== FILE: apps/web/src/TerminalHost.tsx =====
+./docs/reviews/phase1a-postfix-pack-r4.md:787: * Thin React host: owns canvas + WS lifecycle; paint loop outside React state.
+./docs/reviews/phase1a-postfix-pack-r4.md:790:export function TerminalHost({ wsUrl, hello, onStatus }: Props) {
+./docs/reviews/phase1a-postfix-pack-r4.md:791:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/phase1a-postfix-pack-r4.md:800:    const canvas = canvasRef.current;
+./docs/reviews/phase1a-postfix-pack-r4.md:801:    if (!canvas) return;
+./docs/reviews/phase1a-postfix-pack-r4.md:802:    rendererRef.current.mount(canvas);
+./docs/reviews/phase1a-postfix-pack-r4.md:870:      <canvas
+./docs/reviews/phase1a-postfix-pack-r4.md:871:        ref={canvasRef}
+./docs/reviews/phase-1a-review-brief.md:13:- React+Vite+Tailwind TerminalHost (no per-cell React nodes)
+./docs/reviews/2026-07-21-hetero-glm.out:29:- terminal-fonts-f2: F2c "system font detect (MingLiU)" needs a concrete method (canvas probe) and an acceptance test that a missing face falls through the TC chain without breaking VT grid alignment.
+./apps/proxy/src/bridge.ts:83:  /** Mutable — client may send mid-session resize / NAWS updates. */
+./apps/proxy/src/bridge.ts:253:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:179:./docs/reviews/2026-07-21-queue-impl-minimax.out:15:`probeCjkGlyph` (trial.ts:15) correctly detects missing CJK via canvas width delta, fails closed in Node. `isAlignScoreGood` threshold of 0.3 around 2.0 is appropriate. `TRIAL_FIXTURE` contains CJK+box-drawing. `resolveFontStack` imports and uses probe. `lineHeightScale` wired end-to-end: trial slider → save → TerminalHost prop → renderer. Canvas at 96px is sufficient for 3-line fixture at 15px+spacing.
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:393:./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:530:function binarySends(ws: ReturnType<typeof fakeWs>): Buffer[] {
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:567:    const out = Buffer.concat(binarySends(ws));
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:591:    const out = Buffer.concat(binarySends(ws));
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:614: * Detect missing CJK glyph via canvas (+ optional fonts.check).
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:624:  const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:625:  const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:689:    const run = (canvas: HTMLCanvasElement | null, cfg: TermFontConfig) => {
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:690:      if (!canvas) return 0;
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:692:      r.mount(canvas);
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:705:      const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:708:        ctx.fillRect(0, 0, canvas.width, canvas.height);
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:724:    // next frame so canvas is laid out
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:797:              <canvas
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1714:  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1898:/usr/bin/zsh -lc "rg -n \"\\bcmd\\b|setCmd|sendLine|onSend\" apps/web/src/App.tsx apps/web/src -g '*.tsx' && rg -n \"outbound|tryInboundBytes|LIMIT_.*BYTES|byte limit|maxPayload|ws\\.send|mud\\.on\\(\\\"data\\\"\" apps/proxy/src apps/proxy/tests && git diff -- .github/workflows/ci.yml apps/proxy/src/limits.ts apps/proxy/src/server.ts apps/web/src/App.tsx apps/web/src/components/ProfileEditor.tsx apps/web/src/termFonts/trial.ts packages/profiles/src/index.ts scripts/secret-scan.sh" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1901:apps/web/src/App.tsx:263:  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1906:apps/web/src/App.tsx:557:                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1909:apps/web/src/TerminalHost.tsx:433:            // sit just above typical command bar (~cmd + thumb pad)
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1911:apps/web/src/App.tsx:263:  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:1916:apps/web/src/App.tsx:557:                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2199:-/** Detect missing CJK glyph via canvas (not document.fonts.check alone). */
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2201:+ * Detect missing CJK glyph via canvas (+ optional fonts.check).
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2209:   const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2210:   const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2281:/usr/bin/zsh -lc "sed -n '500,580p' apps/web/src/App.tsx && rg -n \"injectCommand|onInjectConsumed\" apps/web/src/TerminalHost.tsx && sed -n '120,210p' apps/web/src/TerminalHost.tsx && sed -n '1,190p' apps/proxy/src/bridge.ts && rg -n \"2 MiB|16 MiB|64 MiB|inbound|outbound\" docs/plans/2026-07-21-* docs/reviews/2026-07-21-queue-impl-codex.out | tail -80" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2334:                <TerminalHost
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2340:                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2391:    const canvas = canvasRef.current;
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2392:    if (!canvas) return;
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2393:    rendererRef.current.mount(canvas);
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2636:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2657:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2692:/usr/bin/zsh -lc "sed -n '1,110p' docs/plans/2026-07-21-proxy-abuse-limits.md && sed -n '200,230p' apps/web/src/TerminalHost.tsx && sed -n '230,340p' apps/proxy/src/bridge.ts && sed -n '1,100p' apps/web/tests/fontTrial.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2928:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2932:docs/reviews/2026-07-21-queue-impl-codex-r2.out:393:./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2937:docs/reviews/2026-07-21-queue-impl-codex-r2.out:2657:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:3037:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:3041:docs/reviews/2026-07-21-queue-impl-codex-r2.out:393:./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:3046:docs/reviews/2026-07-21-queue-impl-codex-r2.out:2657:docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-qwen38.out:9:- §2.2.1 hook: "emit 輕量事件 …（或累加 counter）" — the "或" leaves two interfaces; pick one contract sentence (e.g. "TerminalHost SHALL emit `cup-abs` event; nav-memory subscribes") to remove implementer choice ambiguity.
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-qwen38.out:10:- C0.4 canvas: cell pixel size derivation unspecified (font metrics? fixed grid?). Add one line: "cell box = same monospace metrics as terminal canvas at 1×; 2× = integer scale." Prevents a half-day bikeshed.
+./docs/reviews/2026-07-22-mapd-companion-plan-r3-qwen38.out:18:- Low: canvas cell-box mismatch between pin hit-test coords and render coords if font metrics not pinned (nit #2). Would surface in manual smoke, not a silent data bug.
+./docs/projects/2026-07-21-cjk-cell-width/README.md:11:- Web: profile → TerminalHost  
+./docs/reviews/2026-07-22-mapd-companion-plan-r2-gpt56sol.err:353:  place tile on panorama canvas
+./docs/reviews/2026-07-22-mapd-companion-plan-r2-gpt56sol.err:383:| 重播 | 顯示下一步；**使用者按「送出下一步」** 才 `mudSend`；中斷條件：戰鬥字樣、move-fail、使用者停 |
+./docs/reviews/2026-07-22-mapd-companion-plan-r2-gpt56sol.err:486:| `TerminalHost` | 可選 callback `onMapdLikelyFrame` / 暴露 snapshot 給 App |
+./apps/proxy/tests/mccp-e2e-golden.test.ts:54:function binarySends(ws: ReturnType<typeof fakeWs>): Buffer[] {
+./apps/proxy/tests/mccp-e2e-golden.test.ts:91:    const out = Buffer.concat(binarySends(ws));
+./apps/proxy/tests/mccp-e2e-golden.test.ts:115:    const out = Buffer.concat(binarySends(ws));
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:6:1. map_d 大圖拼接 (VT Stitch Canvas) — 玩家自然移動時 client 持續從現有 VT buffer 擷取 frame，自動 overlap 對齊拼接成可縮放平移的完整城市大圖。不需推導 topology、不需 OCR，只是把 server render 對的畫面縫起來。玩家終於能看到整座城而非 25×9 viewport — Feasibility: H — Risk: frame overlap 對齊精度、Big5 VT 控制碼 edge case、viewport 捲動方向偵測
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:7:2. POI 釘選 + 路線標注層 (Pin & Route Layer) — 在拼接大圖或 freeze-frame 上釘 POI（商店、NPC、任務點）、畫路線、加備註，本地持久化。等於在 server 地圖上加 Google Maps「我的地點」。高社交 + 個人價值 — Feasibility: H — Risk: 座標對齊當 map_d viewport 變動；需穩定的 freeze/stitch 先決條件
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:9:4. Session 瀏覽軌跡疊加 (Trail Overlay) — Dead-reckon session trail 半透明疊加在 live map_d viewport 上，顯示「本次上線走過哪裡」。不是全圖 graph，只是 session-local 麵包屑。低野心但高度互補 — Feasibility: M — Risk: dead-reckon 漂移在無座標 zone 累積誤差；需 map_d viewport 對齊 trail 座標系
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:15:- OCR VT map 來萃取 room topology——過度工程，正確率不可控，且拼接 canvas 已能視覺解決問題
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:23:- 自動拼接（核心）：玩家移動時持續 capture VT frame + overlap 對齊，stitch 成可縮放大圖 canvas——這是最高 leverage 的單一功能
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:40:- P0: ① map_d freeze-frame——從現有 VT buffer capture + 凍結 + 基礎平移/縮放 ② VT stitch canvas 原型——移動時 auto-capture frame + 基礎 overlap 對齊拼接 ③ POI pin 系統 v1（localStorage）——在 freeze/stitch 上釘選 + 備註
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:41:- P1: ① Stitch canvas 完整版——可縮放大圖 + snapshot history timeline 瀏覽 ② Session trail overlay on live map_d（dead-reckon 麵包屑，信心度標示） ③ Route recorder v1（錄製/一鍵重走/分享） ④ Nearby HUD 信心度評分（exit parse 結果標示可信/猜測/未知）
+./docs/reviews/2026-07-22-mapd-brainstorm-glm52.out:44:WILDEST_BUT_USEFUL: 最野但有用的構想是「map_d 時光機 + 拼接望遠鏡」——client 不只是 freeze 當下畫面，而是在玩家自然遊戲過程中持續從 VT buffer 偷偷擷取 map_d frame，像 Google Street View 的縫合邏輯一樣自動拼接成一張可縮放、可平移的完整城市大圖。玩家不需做任何事，只是正常走動，client 就把 server 已經 render 正確的 25×9 viewport 一塊一塊縫成全景。沒有 topology 推導、沒有 OCR、沒有 text parse 依賴——純粹是視覺層的 frame stitching，ground truth 來自 server 所以精度天然繼承。結果是一張玩家「用腳走出來」的城市全圖，比任何 client 端 automap 更準確，因為它就是 server 地圖的超集。再疊上 POI、路線、session trail、甚至群眾協作資料，就變成一個 living map——而這一切都建基於 server 已經算對的 truth，client 只是讓它的 viewport 不再是牢籠。
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:4250:apps/web/src/TerminalHost.tsx:11:export type { HelloMsg, StatusEvent };
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:4251:apps/web/src/TerminalHost.tsx:58:export function TerminalHost({
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:4252:apps/web/src/TerminalHost.tsx:116:          ? buf.exportSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:4253:apps/web/src/TerminalHost.tsx:117:          : buf.exportSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+./docs/reviews/2026-07-21-selfhost-impl-codex.out:4472:   260	  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/full-glm.json.raw:3:{ "runner": "anthropic-compatible", "model": "GLM-5.2", "status": "reviewed", "verdict": "FIX-THEN-SHIP", "findings": "apps/proxy/src/bridge.ts — Data sent from the client to the MUD via the WebSocket string path has newline appended and is then double-processed by `expandInput` in `TerminalHost.tsx` (called first in `sendLine`, then again inside `useEffect` on inject). If a multi-line alias is used, the injected command is expanded, and each split line is passed to `sendLine` where it is incorrectly expanded again. Furthermore, since `sendLine` sends strings and `escapeIac` correctly handles binary, the double expansion on text commands causes double-execution of multi-line aliases.\napps/proxy/src/policy.ts — In `checkAuth`, if an attacker provides a malformed `authorization` header (e.g., \"bearer \"), it executes `authorization.toLowerCase().startsWith(\"bearer \")`. It then slices it and executes `safeEqual(t, token)`. If `t` is an empty string, it safely mismatches. However, the cookie regex (`/(?:^|;\\s*)assmud_session=([^;]+)/`) may capture malicious payloads if `assmud_session` is spoofed but will safely fail `safeEqual`.\npackages/terminal/src/buffer.ts — `sessionLog` is appended in `lineFeed()` which is only triggered by text containing newline or wrapping; if the buffer session ends without a trailing newline, the final line is omitted from `sessionLog`.", "raw_log": "/tmp/dispatch-review-log-ze9880", "error": null }
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:721: M apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:769:/usr/bin/zsh -lc 'git diff --stat && git diff -- packages/protocol/src/telnet.ts apps/proxy/src/bridge.ts apps/web/src/lib/mudSocket.ts apps/web/src/App.tsx apps/web/src/TerminalHost.tsx packages/protocol/tests/telnet.test.ts apps/proxy/tests/mccp-bridge.test.ts' in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:774: apps/web/src/TerminalHost.tsx                 |  9 ++++
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:828:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:953:                   expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:993:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:995:--- a/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:996:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1006:@@ -54,6 +56,7 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1014:@@ -79,6 +82,8 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1023:@@ -160,6 +165,9 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1033:@@ -171,6 +179,7 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1089:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1091:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1120:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1204:apps/web/src/TerminalHost.tsx:8:import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1205:apps/web/src/TerminalHost.tsx:10:export type { HelloMsg, StatusEvent };
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1206:apps/web/src/TerminalHost.tsx:15:  onStatus?: (e: StatusEvent) => void;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1207:apps/web/src/TerminalHost.tsx:17:  onEchoMask?: (mask: boolean) => void;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1208:apps/web/src/TerminalHost.tsx:59:  onEchoMask,
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1209:apps/web/src/TerminalHost.tsx:85:  const onEchoMaskRef = useRef(onEchoMask);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1210:apps/web/src/TerminalHost.tsx:86:  onEchoMaskRef.current = onEchoMask;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1211:apps/web/src/TerminalHost.tsx:168:      onEchoMask: (mask) => {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1212:apps/web/src/TerminalHost.tsx:169:        onEchoMaskRef.current?.(mask);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1213:apps/web/src/TerminalHost.tsx:182:      onEchoMaskRef.current?.(false);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1615:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1802:                <TerminalHost
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1808:                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1886:      <footer
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2012:9	0	apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2225:  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2342:/usr/bin/zsh -lc "npm test -- --run apps/proxy/tests/policy.test.ts -t \"allows RW on allowlist\" --reporter=verbose; git diff -- packages/protocol/src/telnet.ts apps/proxy/src/bridge.ts apps/web/src/lib/mudSocket.ts apps/web/src/App.tsx apps/web/src/TerminalHost.tsx | sed -n '1,800p'; git status --short --branch" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2428:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2479:                   expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2519:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2521:--- a/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2522:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2532:@@ -54,6 +56,7 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2540:@@ -79,6 +82,8 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2549:@@ -160,6 +165,9 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2559:@@ -171,6 +179,7 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2615:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2617:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2646:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2652: M apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.out:5:- Specify the C0 auto-detection contract: exact CUP-burst window/threshold, qualifying distinct rows, capture boundary, debounce/cooldown, viewport/ROI rules, and rejection cases. “map_d-like burst” is currently implementation-by-guess; a full SAVEC state machine is not mandatory if a deterministic, fixture-backed CUP detector is defined.
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.out:10:- Define snapshot fidelity precisely: cell representation must preserve blank cells, wide-character continuation state, effective/default colors, relevant attributes, cursor exclusion, viewport dimensions, and resize behavior. The current `ch + fg/bg/bold subset` is insufficient to guarantee terminal-equivalent rendering.
+./docs/reviews/2026-07-22-mapd-companion-plan-gpt56sol.out:20:- Define accessibility behavior for canvas rendering and pin interaction, even if full mobile long-press remains C1.
+./docs/reviews/2026-07-22-mapd-companion-plan-qwen38.out:22:- "基礎" zoom/pan accepted as "done" at scroll-only, then users complain; or over-built as pinch-zoom canvas, blowing C0 timeline.
+./docs/reviews/round1-qwen.prompt.txt:135:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/round1-qwen.prompt.txt:195:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/round1-qwen.prompt.txt:203:- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+./docs/reviews/round1-qwen.prompt.txt:215:| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+./docs/reviews/round1-qwen.prompt.txt:244:- React shell + Tailwind + login/session + `TerminalHost` (usable on narrow and wide viewports).
+./docs/reviews/round1-qwen.prompt.txt:367:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/round1-qwen.prompt.txt:439:| `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
+./docs/reviews/round1-qwen.prompt.txt:446:  mount(canvas: HTMLCanvasElement): void;
+./docs/reviews/round1-qwen.prompt.txt:495:| Terminal host in React | Thin `<TerminalHost />`: canvas/container ref, size, focus, input routing |
+./docs/reviews/round1-qwen.prompt.txt:639:| DO | 31 | **NAWS** | window size |
+./docs/reviews/round1-qwen.prompt.txt:689:  → render (DOM / canvas / xterm custom)
+./docs/reviews/round1-qwen.prompt.txt:788:footer:
+./docs/reviews/round1-qwen.prompt.txt:872:  → Renderer (canvas/DOM/WebGL)
+./docs/reviews/final-ship-pack.md:9:===== TerminalHost send paths =====
+./docs/reviews/final-ship-pack.md:33:export function TerminalHost({
+./docs/reviews/final-ship-pack.md:42:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/final-ship-pack.md:52:    const canvas = canvasRef.current;
+./docs/reviews/final-ship-pack.md:53:    if (!canvas) return;
+./docs/reviews/final-ship-pack.md:54:    rendererRef.current.mount(canvas);
+./docs/reviews/final-ship-pack.md:170:        <canvas
+./docs/reviews/final-ship-pack.md:171:          ref={canvasRef}
+./docs/reviews/2026-07-21-queue-impl-hetero-all-clear.md:39:1. **probeCjkGlyph**: never accept `document.fonts.check===true` alone; require canvas width ≠ `__AssmudMissingFont__` control.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:7:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:8:- Footer always has: command `<input>` + Send + thumb chips (n/s/e/w/look/score) + map toggle on sm.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:10:- Soft keyboard on iOS/Android can cover 40–50% of the viewport; `100vh` / `height:100%` often wrong when keyboard open.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:14:1. Portrait + keyboard: terminal stage does not reliably shrink; content/chrome may overflow the visual viewport.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:21:**A. Portrait default layout** — wireframe regions top→bottom with approximate % of *visual* viewport (not layout viewport). What collapses when keyboard opens?
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:23:**B. Keyboard strategy** — `visualViewport` resize? `dvh`? hide thumb pad while focused? scroll-into-view on input focus? `interactive-widget=resizes-content`?
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:25:**C. Landscape / "rotate" button** — when to show; use Screen Orientation API lock vs CSS-only dual layout; fallback if lock denied; should landscape hide header/thumb and maximize terminal cols?
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:29:**E. Movement** — keep n/s/e/w chips vs 3×3 D-pad vs swipe on canvas; portrait vs landscape difference.
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:31:**F. Must-fix top 5** for mudgate next PR (file-level if you know: App.tsx footer, tokens.css, index.html viewport, TerminalHost fit).
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:33:**G. Anti-patterns** to avoid for MUD specifically (e.g. scaling canvas with CSS, shrinking below readable cols, fighting system keyboard).
+./docs/reviews/round1-qwen.md:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/round1-qwen.md:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./apps/proxy/tests/mccp-bridge.test.ts:48:function binarySends(ws: ReturnType<typeof fakeWs>): Buffer[] {
+./apps/proxy/tests/mccp-bridge.test.ts:100:    const joined = Buffer.concat(binarySends(ws)).toString("utf8");
+./apps/proxy/tests/mccp-bridge.test.ts:116:    const joined = Buffer.concat(binarySends(ws));
+./apps/proxy/tests/mccp-bridge.test.ts:136:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain(
+./apps/proxy/tests/mccp-bridge.test.ts:151:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain("SplitSE");
+./apps/proxy/tests/mccp-bridge.test.ts:256:  it("DO NAWS replies with hello cols/rows", async () => {
+./apps/proxy/tests/mccp-bridge.test.ts:266:    sock.emit("data", Buffer.from([IAC, DO, OPT.NAWS]));
+./apps/proxy/tests/mccp-bridge.test.ts:272:  it("client JSON naws resize updates and re-sends NAWS", async () => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:940: M apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-queue-impl-codex.out:1067:packages/terminal/src/canvas2d.ts
+./docs/reviews/2026-07-21-queue-impl-codex.out:1239:apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-queue-impl-codex.out:1302:| F2c | System detect via **canvas glyph probe** (not fonts.check alone) | S | 缺字走 TC chain；對齊不崩 |
+./docs/reviews/2026-07-21-queue-impl-codex.out:1703:    14	/** Detect missing CJK glyph via canvas (not document.fonts.check alone). */
+./docs/reviews/2026-07-21-queue-impl-codex.out:1710:    21	  const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex.out:1711:    22	  const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex.out:2005:    43	    const run = (canvas: HTMLCanvasElement | null, cfg: TermFontConfig) => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:2006:    44	      if (!canvas) return 0;
+./docs/reviews/2026-07-21-queue-impl-codex.out:2008:    46	      r.mount(canvas);
+./docs/reviews/2026-07-21-queue-impl-codex.out:2021:    59	      const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex.out:2024:    62	        ctx.fillRect(0, 0, canvas.width, canvas.height);
+./docs/reviews/2026-07-21-queue-impl-codex.out:2040:    78	    // next frame so canvas is laid out
+./docs/reviews/2026-07-21-queue-impl-codex.out:2113:   151	              <canvas
+./docs/reviews/2026-07-21-queue-impl-codex.out:2637:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex.out:3346:     2	import { TerminalHost, type HelloMsg } from "./TerminalHost";
+./docs/reviews/2026-07-21-queue-impl-codex.out:3606:   262	  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:4604:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex.out:5307:/usr/bin/zsh -lc "rg -n \"getProfilePassword|profileSecrets|Auto-login|password\" apps packages | sed -n '1,240p'; rg -n \"inbound|outbound|max.*bytes|LIMIT_.*BYTE|tryHello|AbuseLimiter|trusted proxy|X-Forwarded\" apps/proxy docs/security docs/deploy; rg -n \"lineHeight|setTypography|resolveFontStackProbed|probeCjkGlyph\" apps/web/src apps/web/tests packages/terminal; git diff -- apps/web/src/termFonts/trial.ts apps/web/src/termFonts/catalog.ts apps/web/src/components/FontTrialPanel.tsx apps/web/src/TerminalHost.tsx apps/web/tests/fontTrial.test.ts; git diff -- packages/profiles/src apps/web/src/components/ProfileEditor.tsx apps/web/src/ConnectGate.tsx apps/web/src/App.tsx apps/web/tests/profileEditor.test.ts tests/e2e/golden-streams.test.ts" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-queue-impl-codex.out:5334:apps/web/src/TerminalHost.tsx:17:  /** Telnet ECHO password-mode (transient; not connection status). */
+./docs/reviews/2026-07-21-queue-impl-codex.out:5358:packages/terminal/src/canvas2d.ts:82:  setTypography(opts: {
+./docs/reviews/2026-07-21-queue-impl-codex.out:5359:packages/terminal/src/canvas2d.ts:86:    lineHeightScale?: number;
+./docs/reviews/2026-07-21-queue-impl-codex.out:5360:packages/terminal/src/canvas2d.ts:91:    const lineScale = opts.lineHeightScale ?? 1.2;
+./docs/reviews/2026-07-21-queue-impl-codex.out:5361:apps/web/src/TerminalHost.tsx:27:  lineHeightScale?: number;
+./docs/reviews/2026-07-21-queue-impl-codex.out:5362:apps/web/src/TerminalHost.tsx:72:  lineHeightScale = 1.2,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5363:apps/web/src/TerminalHost.tsx:141:      rendererRef.current.setTypography({
+./docs/reviews/2026-07-21-queue-impl-codex.out:5364:apps/web/src/TerminalHost.tsx:145:        lineHeightScale,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5365:apps/web/src/TerminalHost.tsx:150:  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+./docs/reviews/2026-07-21-queue-impl-codex.out:5366:apps/web/src/TerminalHost.tsx:154:    rendererRef.current.setTypography({
+./docs/reviews/2026-07-21-queue-impl-codex.out:5367:apps/web/src/TerminalHost.tsx:158:      lineHeightScale,
+./docs/reviews/2026-07-21-queue-impl-codex.out:5368:apps/web/src/TerminalHost.tsx:161:  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+./docs/reviews/2026-07-21-queue-impl-codex.out:5629:     2	import { TerminalHost, type HelloMsg } from "./TerminalHost";
+./docs/reviews/2026-07-21-queue-impl-codex.out:5890:   262	  const onSendThroughEngine = useCallback((line: string) => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:6044:   545	                <TerminalHost
+./docs/reviews/2026-07-21-queue-impl-codex.out:6050:   551	                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-queue-impl-codex.out:6132:    43	    const run = (canvas: HTMLCanvasElement | null, cfg: TermFontConfig) => {
+./docs/reviews/2026-07-21-queue-impl-codex.out:6133:    44	      if (!canvas) return 0;
+./docs/reviews/2026-07-21-queue-impl-codex.out:6135:    46	      r.mount(canvas);
+./docs/reviews/2026-07-21-queue-impl-codex.out:6148:    59	      const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex.out:6151:    62	        ctx.fillRect(0, 0, canvas.width, canvas.height);
+./docs/reviews/2026-07-21-queue-impl-codex.out:6167:    78	    // next frame so canvas is laid out
+./docs/reviews/2026-07-21-queue-impl-codex.out:6240:   151	              <canvas
+./docs/reviews/2026-07-21-queue-impl-codex.out:7352:/** Detect missing CJK glyph via canvas (not document.fonts.check alone). */
+./docs/reviews/2026-07-21-queue-impl-codex.out:7359:  const canvas = document.createElement("canvas");
+./docs/reviews/2026-07-21-queue-impl-codex.out:7360:  const ctx = canvas.getContext("2d");
+./docs/reviews/2026-07-21-queue-impl-codex.out:7544:NITS: ["Tests do not exercise glyph probing in a browser canvas environment."]
+./docs/reviews/2026-07-21-queue-impl-codex.out:7572:NITS: ["Tests do not exercise glyph probing in a browser canvas environment."]
+./docs/reviews/2026-07-21-plan-pack-r6.md:84:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-21-plan-pack-r6.md:144:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/2026-07-21-plan-pack-r6.md:152:- **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
+./docs/reviews/2026-07-21-plan-pack-r6.md:164:| `apps/web/` | React SPA: Tailwind chrome, profiles, thin `TerminalHost` |
+./docs/reviews/2026-07-21-plan-pack-r6.md:193:- React shell + Tailwind + login/session + `TerminalHost` (usable on narrow and wide viewports).
+./docs/reviews/2026-07-21-plan-pack-r6.md:316:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/2026-07-21-plan-pack-r6.md:388:| `apps/web` | React + Tailwind; auth; profiles; `TerminalHost` | — |
+./docs/reviews/2026-07-21-plan-pack-r6.md:395:  mount(canvas: HTMLCanvasElement): void;
+./docs/reviews/2026-07-21-plan-pack-r6.md:444:| Terminal host in React | Thin `<TerminalHost />`: canvas/container ref, size, focus, input routing |
+./docs/reviews/2026-07-21-plan-pack-r6.md:588:| DO | 31 | **NAWS** | window size |
+./docs/reviews/2026-07-21-plan-pack-r6.md:638:  → render (DOM / canvas / xterm custom)
+./docs/reviews/2026-07-21-plan-pack-r6.md:737:footer:
+./docs/reviews/2026-07-21-plan-pack-r6.md:821:  → Renderer (canvas/DOM/WebGL)
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:22:Read packages/profiles/src/widthMode.ts, packages/terminal/src/width.ts buffer.ts, apps/web TerminalHost App, tests.
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:101: M apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:624:apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:625:apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:626:apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:627:apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:628:apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:629:apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:630:apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:631:apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:650:apps/proxy/tests/mccp-bridge.test.ts:100:    const joined = Buffer.concat(binarySends(ws)).toString("utf8");
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:652:apps/proxy/tests/mccp-bridge.test.ts:136:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain(
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:653:apps/proxy/tests/mccp-bridge.test.ts:151:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain("SplitSE");
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:698:./apps/web/src/TerminalHost.tsx:27:  widthMode?: WidthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:699:./apps/web/src/TerminalHost.tsx:69:  widthMode = "western",
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:700:./apps/web/src/TerminalHost.tsx:73:  const bufRef = useRef(new ScreenBuffer(80, 28, widthMode));
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:701:./apps/web/src/TerminalHost.tsx:76:  const widthModeRef = useRef(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:702:./apps/web/src/TerminalHost.tsx:77:  widthModeRef.current = widthMode;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:703:./apps/web/src/TerminalHost.tsx:157:    bufRef.current.setWidthMode(widthMode);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:704:./apps/web/src/TerminalHost.tsx:159:  }, [widthMode, redraw]);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:705:./apps/web/src/TerminalHost.tsx:165:    bufRef.current = new ScreenBuffer(80, 28, widthModeRef.current);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:710:./apps/proxy/tests/mccp-bridge.test.ts:100:    const joined = Buffer.concat(binarySends(ws)).toString("utf8");
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:712:./apps/proxy/tests/mccp-bridge.test.ts:136:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain(
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:713:./apps/proxy/tests/mccp-bridge.test.ts:151:    expect(Buffer.concat(binarySends(ws)).toString("utf8")).toContain("SplitSE");
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:725:./docs/reviews/2026-07-21-cjk-width-impl-codex.out:22:Read packages/profiles/src/widthMode.ts, packages/terminal/src/width.ts buffer.ts, apps/web TerminalHost App, tests.
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:835:/usr/bin/zsh -lc "sed -n '1,210p' apps/web/src/TerminalHost.tsx; sed -n '1,170p' apps/web/src/App.tsx; sed -n '470,520p' apps/web/src/App.tsx; sed -n '1,180p' packages/terminal/tests/buffer.test.ts; sed -n '1,140p' packages/profiles/tests/widthMode.test.ts; sed -n '1,260p' docs/deploy/SELF-HOSTED-PROXY.md; sed -n '1,100p' packages/profiles/src/index.ts; sed -n '1,80p' packages/terminal/src/index.ts; cat package.json; rg -n '\"test\"|vitest' packages/*/package.json apps/web/package.json pnpm-workspace.yaml" in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:894:export function TerminalHost({
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:907:  const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:969:    const canvas = canvasRef.current;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:970:    if (!canvas) return;
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:971:    rendererRef.current.mount(canvas);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1048:import { TerminalHost, type HelloMsg } from "./TerminalHost";
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1237:                <TerminalHost
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1243:                  expandInput={onSendThroughEngine}
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1577:export * from "./canvas2d.js";
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1636:/usr/bin/zsh -lc 'npm run build -w @assmud/web; git diff --check; git diff -- packages/profiles/src/widthMode.ts packages/terminal/src/width.ts packages/terminal/src/buffer.ts packages/terminal/tests/buffer.test.ts apps/web/src/TerminalHost.tsx apps/web/src/App.tsx docs/deploy/SELF-HOSTED-PROXY.md' in /home/cookys/projects/assmud
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1694:diff --git a/apps/web/src/TerminalHost.tsx b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1696:--- a/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1697:+++ b/apps/web/src/TerminalHost.tsx
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1715:@@ -63,12 +66,15 @@ export function TerminalHost({
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1721:   const canvasRef = useRef<HTMLCanvasElement>(null);
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1732:@@ -146,9 +152,20 @@ export function TerminalHost({
+./docs/reviews/phase1a-minimax.json.raw:3:{ "runner": "anthropic-compatible", "model": "MiniMax-M3", "status": "reviewed", "verdict": "FIX-THEN-SHIP", "findings": "CRITICAL: apps/proxy/src/policy.ts assertDestinationAllowed returns the resolved IP via lookup() but server.ts uses dest.address only as a cosmetic ternary in bridge host while still passing mudHost to net.connect, so an attacker-controlled mudHost can be DNS-rebound to a private IP after the allowlist check — SSRF bypass. apps/proxy/src/policy.ts checkOrigin in localhost-dev mode accepts any origin starting with http://127.0.0.1 or http://localhost with no trailing slash match, so an origin like http://127.0.0.1.evil.com would pass (prefix match without boundary) — Origin bypass. MAJOR: apps/proxy/src/policy.ts isPrivateOrBlockedIp only blocks 169.254.169.254 explicitly inside the function for AWS metadata; 169.254.x link-local in general is blocked which is fine, but IPv6 private ranges (fc00::/7 unique-local, fe80::/10 link-local, ::ffff:0:0/96 IPv4-mapped) are entirely missing — IPv6 SSRF bypass via DNS AAAA. apps/proxy/src/policy.ts assertDestinationAllowed performs DNS lookup once but does not pin the address: net.connect in bridge.ts uses the original mudHost, and Node will re-resolve DNS, allowing TOCTOU DNS rebinding between policy check and connect. apps/proxy/src/server.ts:31 reads `req.headers.host` and constructs `new URL(req.url, \"http://\"+hostHdr)` without validating the Host header; in remote-prod bound to 0.0.0.0 this is acceptable but combined with the host-allowlist matching on user-supplied mudHost it should pin connect to dest.address, not mudHost. apps/proxy/src/bridge.ts ws.on(\"message\") sends raw client bytes to TCP socket with no length/rate limit; combined with `const s = String(data)` then appending \\r\\n for text frames, a client can inject IAC bytes (255) without escaping, breaking the telnet state machine on the mud side (IAC injection). apps/proxy/src/bridge.ts sock.on(\"data\") forwards parsed `ev.bytes` (application data only) — good for IAC — but on binary frames from the browser it passes isBinary=true to TextEncoder without normalizing; minor since proxy strips IAC. apps/proxy/src/policy.ts checkAuth reads cookie `assmud_session` and compares with `===` after decodeURIComponent; token echoed in URL `?token=` and `?auth=` is logged in any reverse-proxy access logs — token leakage via URL logging. apps/proxy/src/policy.ts isPrivateOrBlockedIp treats 0.0.0.0 as blocked which is good; however 100.64.0.0/10 (CGNAT) is not blocked, and 198.18.0.0/15 (benchmark) is not blocked — limited SSRF surface but should be addressed. apps/proxy/src/server.ts path check only allows `/ws` but does not reject query strings like `?host=` with embedded credentials that some MUDs use; minor. apps/proxy/src/server.ts response on origin/auth failures writes 403/401 but does not return a CORS preflight `Access-Control-Allow-Origin` — fine since origin check happens at WS upgrade, not CORS, but worth noting. apps/proxy/src/policy.ts originAllowlist exact-match comparison only; suffix attacks (e.g. `https://mud.example.com.evil.com`) correctly fail, good. MINOR: apps/proxy/src/policy.ts defaultConfig localhost-dev hardcodes 127.0.0.1:7788 with no env override; tests/dev users may conflict. apps/proxy/src/bridge.ts on ws.on(\"message\") converts text via TextEncoder then re-encodes via String() comparison; `const line = s.endsWith(\"\\n\") || s.endsWith(\"\\r\") ? s : s + \"\\r\\n\"` uses raw `s` (not the encoded form) for text frames, but `sendTcp` sends the TextEncoder-encoded version — semantically equivalent for ASCII but inconsistent; minor. apps/web/src/TerminalHost.tsx stores auth token in localStorage without any warning; web origin is the only protection. apps/web/src/main.tsx assigns Buffer to globalThis unconditionally; not a security issue per se. packages/codec-big5/src/index.ts Big5StreamDecoder uses iconv-lite 'big5hkscs'; correct for RW. packages/vt/src/sgr.ts tokenizeAnsi does not handle OSC sequences (ESC ]); could leak title strings to client but since output is drawn to canvas, no XSS risk — minor completeness. packages/terminal/src/buffer.ts scrollback stores plain strings (not cells with attrs); visible-color loss in scrollback — deferred per spec but worth noting. tsconfig.base.json noUnusedLocals may break build (e.g. apps/proxy/src/server.ts unused `WebSocketServer` types if any). vitest.config.ts environment is \"node\" globally; DOM-dependent code in apps/web would fail tests there but no web tests exist — fine. apps/proxy/src/policy.ts defaultConfig in dev mode includes `relaxAllowlist: true` allowing any public host; the dev-mode behavior still blocks private IPs which is correct. apps/proxy/src/policy.ts auth check accepts token via URL search param `?token=` — token ends up in browser history, server logs, referer headers; should prefer cookie/header only. apps/proxy/src/server.ts does not set a connection rate limit; DoS possible but acceptable for Phase 1a. apps/proxy/src/bridge.ts sock.write errors are not handled (only sock.on(\"error\")); minor. apps/proxy/src/server.ts uses `req.headers.origin` which can be empty string from same-origin; checkOrigin handles undefined but not \"\" — \"\" passes dev startsWith check, blocks prod via originAllowlist.includes(\"\") which is false — ok.", "raw_log": "/tmp/dispatch-review-log-RlZeN2", "error": null }
+
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' apps/web/src/index.css; sed -n '430,680p' apps/web/src/App.tsx; sed -n '1,260p' apps/web/src/TerminalHost.tsx; cat apps/web/src/lib/termFit.ts; cat apps/web/index.html" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+/* utility bridges for Tailwind arbitrary use */
+.font-ui {
+  font-family: var(--font-ui);
+}
+.font-mono {
+  font-family: var(--font-mono);
+}
+        e.code === "disconnected"
+      ) {
+        autoLoginRef.current = { accountSent: false, passwordSent: false };
+        console.info("[mudgate autologin] flags reset on", e.code);
+      }
+    },
+    [setTabStatus],
+  );
+
+  const handleEchoMask = useCallback((mask: boolean) => {
+    setEchoMask(mask);
+  }, []);
+
+  const clearJourneyGate = useCallback(() => {
+    const g = journeyGateRef.current;
+    if (g?.timer) clearTimeout(g.timer);
+    journeyGateRef.current = null;
+    setJourneyStepPending(false);
+  }, []);
+
+  const finishJourneyGate = useCallback(
+    (verdict: ReturnType<typeof verdictOnSettle>) => {
+      const g = journeyGateRef.current;
+      if (!g) return;
+      if (g.timer) clearTimeout(g.timer);
+      journeyGateRef.current = null;
+      setJourneyStepPending(false);
+      if (verdict.kind === "stop") {
+        setJourneyStopReason(verdict.reason);
+        setJourneyReplay(null);
+        setNavToast(
+          verdict.reason === "move_fail"
+            ? "journey:move_fail"
+            : "journey:title_stuck",
+        );
+        return;
+      }
+      const next = g.stepIndex + 1;
+      if (next >= g.total) setJourneyReplay(null);
+      else setJourneyReplay({ journeyId: g.journeyId, step: next });
+    },
+    [],
+  );
+
+  const handleServerLine = useCallback(
+    (line: string) => {
+      engine.onServerLine(line);
+      roomTracker.onServerLine(line);
+      bumpMap();
+      const id = tabIdRef.current;
+      setTabs((ts) =>
+        ts.map((x) =>
+          x.id === id ? { ...x, log: [...x.log.slice(-5000), line] } : x,
+        ),
+      );
+      // C1.2: interrupt journey replay on move-fail text
+      if (journeyGateRef.current) {
+        const fail = verdictOnServerLine(line);
+        if (fail) finishJourneyGate(fail);
+      }
+    },
+    [bumpMap, finishJourneyGate],
+  );
+
+  // Clear gate if user stops replay manually
+  useEffect(() => {
+    if (!journeyReplay) clearJourneyGate();
+  }, [journeyReplay, clearJourneyGate]);
+
+  const wsUrl = useMemo(() => {
+    if (!tab?.connected) return null;
+    if (isSiteShell()) return siteWsUrl();
+    if (trustMode === "local" && typeof window !== "undefined") {
+      const h = window.location.hostname;
+      // Same host as the page (127.0.0.1, localhost, or LAN IP) → proxy :7788
+      if (h === "127.0.0.1" || h === "localhost" || /^(\d{1,3}\.){3}\d{1,3}$/.test(h)) {
+        return `ws://${h}:7788/ws`;
+      }
+    }
+    return resolveWsUrl(trustMode, {
+      envDefault: DEFAULT_WS,
+      customWs,
+      officialUrl: readOfficialProxyUrl(),
+    });
+  }, [tab?.connected, trustMode, customWs]);
+
+  // cols/rows overridden at connect by TerminalHost fit (viewport × cell size)
+  const hello: HelloMsg = useMemo(
+    () => ({
+      type: "hello",
+      token: token || undefined,
+      host: profile.host,
+      port: profile.port,
+      cols: 80,
+      rows: 24,
+    }),
+    [token, profile],
+  );
+
+  const onSendThroughEngine = useCallback(
+    (line: string) => {
+      const expanded = engine.expandInput(line);
+      for (const l of expanded) {
+        const dir = parseMoveCommand(l);
+        if (dir) {
+          roomTracker.noteOutbound(l, dir);
+          bumpMap();
+        }
+      }
+      return expanded;
+    },
+    [bumpMap],
+  );
+
+  const noteJourneyStep = useCallback(
+    (cmd: string) => {
+      const rid = journeyRecordingIdRef.current;
+      if (!rid) return;
+      const title = roomTracker.nearby().title ?? undefined;
+      void navStore.appendJourneyStep(rid, {
+        cmd,
+        at: Date.now(),
+        frameId: lastMapByTabRef.current.get(tabIdRef.current) ?? undefined,
+        titleHint: title,
+      });
+    },
+    [navStore],
+  );
+
+  /** Pad click — send only; noteOutbound runs once inside expandInput. */
+  const walkDir = useCallback(
+    (cmd: string) => {
+      const d = cmd.trim().toLowerCase();
+      if (d === "n" || d === "s" || d === "e" || d === "w") {
+        lastMoveDirRef.current = d;
+      }
+      noteJourneyStep(cmd);
+      if (mudSendRef.current?.(cmd)) return;
+      injectIdRef.current += 1;
+      setInjectPayload({ id: injectIdRef.current, line: cmd });
+    },
+    [noteJourneyStep],
+  );
+
+  const onJourneyRequestStep = useCallback(
+    (req: JourneyStepRequest) => {
+      if (journeyGateRef.current) return;
+      setJourneyStopReason(null);
+      const preTitle = roomTracker.nearby().title;
+      const timer = setTimeout(() => {
+        const postTitle = roomTracker.nearby().title;
+        const g = journeyGateRef.current;
+        if (!g) return;
+        finishJourneyGate(verdictOnSettle(g.preTitle, postTitle));
+      }, 900);
+      journeyGateRef.current = {
+        journeyId: req.journeyId,
+        stepIndex: req.stepIndex,
+        total: req.total,
+        preTitle,
+        timer,
+      };
+      setJourneyStepPending(true);
+      walkDir(req.cmd);
+    },
+    [finishJourneyGate, walkDir],
+  );
+
+  const downloadLog = () => {
+    const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `mudgate-session-${tab.id}.log`;
+    a.click();
+  };
+
+  const exportProfiles = () => {
+    const blob = new Blob([exportProfilesJson(profiles)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "mudgate-profiles.json";
+    a.click();
+  };
+
+  const importProfilesFile = async (file: File) => {
+    const text = await file.text();
+    const list = importProfilesJson(text);
+    setProfiles(list);
+    saveProfiles(list);
+  };
+
+  const focusCmd = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      cmdInputRef.current?.focus();
+    });
+  }, []);
+
+  /**
+   * Fire a line to the MUD.
+   * Prefer imperative mudSendRef (Enter); fall back to inject payload (auto-login).
+   * Empty line is allowed (bare Enter → CR/LF), zMUD-style.
+   * @param secret — password / auto-login: no history, no › echo
+   */
+  const fireInject = useCallback(
+    (line: string, opts?: { secret?: boolean; keepDraft?: boolean }) => {
+      // Preserve intentional blank Enter: do not early-return on empty.
+      // Non-empty commands still trim trailing spaces; pure whitespace → blank.
+      const trimmed = line.trim();
+      const toSend = trimmed.length > 0 ? trimmed : "";
+      const secret = Boolean(opts?.secret || echoMaskRef.current);
+      // Secrets / auto-login must not send blank
+      if (secret && !toSend) return;
+      if (!secret && toSend) {
+        cmdHistoryRef.current.push(toSend);
+        if (echoCommands) setLocalEcho(toSend);
+      }
+      // 1) Direct send if TerminalHost has published a sender
+      const direct = mudSendRef.current;
+      if (direct) {
+        direct(toSend);
+      } else {
+        // 2) Fallback: id-based inject (socket may still be mounting)
+        injectIdRef.current += 1;
+        // Use a sentinel so inject effect still fires for blank lines
+        setInjectPayload({
+          id: injectIdRef.current,
+          line: toSend.length > 0 ? toSend : "\n",
+        });
+      }
+      if (!opts?.keepDraft) {
+        setInputDraft("");
+        inputDraftRef.current = "";
+      }
+      if (!secret) focusCmd();
+    },
+    [echoCommands, focusCmd],
+  );
+
+  const connectTab = () => {
+    autoLoginRef.current = { accountSent: false, passwordSent: false };
+    setTabs((ts) =>
+      ts.map((x) => (x.id === tabId ? { ...x, connected: true } : x)),
+    );
+    // zMUD: focus command line after connect
+    window.setTimeout(() => focusCmd(), 50);
+  };
+
+  const disconnectTab = () => {
+    autoLoginRef.current = { accountSent: false, passwordSent: false };
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
+import {
+  ScreenBuffer,
+  Canvas2DRenderer,
+  viewportToAbs,
+  type MapFrameCells,
+  type SelectionRange,
+  type VtCaptureEvent,
+  type WidthMode,
+} from "@mudgate/terminal";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
+import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
+import { numpadDirection } from "./lib/numpadDirs";
+import { fitTermSize, TERM_FIT } from "./lib/termFit";
+
+export type { HelloMsg, StatusEvent };
+
+/** Imperative API for map companion capture (C0). */
+export type TerminalCaptureApi = {
+  snapshotCells: () => MapFrameCells;
+  setMapCaptureArmed: (armed: boolean) => void;
+  getCellMetrics: () => {
+    cellW: number;
+    cellH: number;
+    fontFamily: string;
+  };
+};
+
+type Props = {
+  wsUrl: string | null;
+  hello: HelloMsg;
+  onStatus?: (e: StatusEvent) => void;
+  /** Telnet ECHO password-mode (transient; not connection status). */
+  onEchoMask?: (mask: boolean) => void;
+  /**
+   * Reliable inject: always include a unique `id` so repeating the same line
+   * still fires. Used for auto-login; interactive Enter uses mudSendRef.
+   */
+  injectCommand?: { id: number; line: string } | null;
+  onInjectConsumed?: () => void;
+  expandInput?: (line: string) => string[];
+  onServerLine?: (line: string) => void;
+  /**
+   * Imperative send into the live socket (Enter / Send button).
+   * Avoids React state→effect races that drop commands.
+   */
+  mudSendRef?: MutableRefObject<((line: string) => boolean) | null>;
+  /**
+   * zMUD-style user command path (history + echo + inject).
+   * Numpad / hotkeys should use this so echo/history stay consistent.
+   */
+  onUserCommand?: (line: string) => void;
+  /** Click terminal → focus command line (zMUD). */
+  onRequestFocusCmd?: () => void;
+  /** Local echo of a sent command (never passwords). */
+  localEcho?: string;
+  onLocalEchoConsumed?: () => void;
+  /** Full CSS font-family stack (primary + TC fallbacks) */
+  terminalFontStack?: string;
+  fontSizePx?: number;
+  cellWidthScale?: number;
+  lineHeightScale?: number;
+  /** Effective cell width mode (resolved from profile charset). */
+  widthMode?: WidthMode;
+  /** map_d companion: cup-abs / buf-mut stream */
+  onVtCaptureEvent?: (e: VtCaptureEvent) => void;
+  /** Imperative snapshot + arm for BurstDetector */
+  captureApiRef?: MutableRefObject<TerminalCaptureApi | null>;
+};
+
+type CopyMenuMode = "selection" | "screen";
+
+// @refresh reset
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export function TerminalHost({
+  wsUrl,
+  hello,
+  onStatus,
+  onEchoMask,
+  injectCommand,
+  onInjectConsumed,
+  expandInput,
+  onServerLine,
+  mudSendRef,
+  onUserCommand,
+  onRequestFocusCmd,
+  localEcho,
+  onLocalEchoConsumed,
+  terminalFontStack,
+  fontSizePx = 15,
+  cellWidthScale = 1,
+  lineHeightScale = 1.2,
+  widthMode = "western",
+  onVtCaptureEvent,
+  captureApiRef,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const bufRef = useRef(
+    new ScreenBuffer(TERM_FIT.defaultCols, TERM_FIT.defaultRows, widthMode),
+  );
+  const rendererRef = useRef(new Canvas2DRenderer());
+  const decoderRef = useRef(new Big5StreamDecoder("big5hkscs"));
+  const widthModeRef = useRef(widthMode);
+  widthModeRef.current = widthMode;
+  const onVtCaptureEventRef = useRef(onVtCaptureEvent);
+  onVtCaptureEventRef.current = onVtCaptureEvent;
+
+  // Wire capture sink once; always call latest callback.
+  useEffect(() => {
+    const buf = bufRef.current;
+    buf.setCaptureSink((e) => onVtCaptureEventRef.current?.(e));
+    return () => {
+      buf.setCaptureSink(null);
+      buf.setMapCaptureArmed(false);
+    };
+  }, []);
+
+  // Expose imperative capture API for companion / BurstDetector
+  useEffect(() => {
+    if (!captureApiRef) return;
+    captureApiRef.current = {
+      snapshotCells: () => bufRef.current.snapshotCells(),
+      setMapCaptureArmed: (armed) => bufRef.current.setMapCaptureArmed(armed),
+      getCellMetrics: () => ({
+        cellW: rendererRef.current.cellW,
+        cellH: rendererRef.current.cellH,
+        fontFamily: terminalFontStack ?? "ui-monospace, monospace",
+      }),
+    };
+    return () => {
+      captureApiRef.current = null;
+    };
+  }, [captureApiRef, terminalFontStack]);
+  const lineAcc = useRef("");
+  const socketRef = useRef<MudSocket | null>(null);
+  const selecting = useRef(false);
+  const selRef = useRef<SelectionRange | null>(null);
+  /** Lines above live bottom; 0 = follow live. */
+  const scrollOffsetRef = useRef(0);
+  const echoMaskRef = useRef(false);
+  /** Live grid size reported in hello + mid-session NAWS. */
+  const termSizeRef = useRef<{ cols: number; rows: number }>({
+    cols: TERM_FIT.defaultCols,
+    rows: TERM_FIT.defaultRows,
+  });
+
+  const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const [termSizeLabel, setTermSizeLabel] = useState(
+    `${TERM_FIT.defaultCols}×${TERM_FIT.defaultRows}`,
+  );
+
+  const helloRef = useRef(hello);
+  helloRef.current = hello;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const onEchoMaskRef = useRef(onEchoMask);
+  onEchoMaskRef.current = onEchoMask;
+  const onServerLineRef = useRef(onServerLine);
+  onServerLineRef.current = onServerLine;
+  const expandInputRef = useRef(expandInput);
+  expandInputRef.current = expandInput;
+  const onInjectConsumedRef = useRef(onInjectConsumed);
+  onInjectConsumedRef.current = onInjectConsumed;
+  const onUserCommandRef = useRef(onUserCommand);
+  onUserCommandRef.current = onUserCommand;
+  const onRequestFocusCmdRef = useRef(onRequestFocusCmd);
+  onRequestFocusCmdRef.current = onRequestFocusCmd;
+  const onLocalEchoConsumedRef = useRef(onLocalEchoConsumed);
+  onLocalEchoConsumedRef.current = onLocalEchoConsumed;
+
+  const redraw = useCallback(() => {
+    rendererRef.current.draw(
+      bufRef.current,
+      selRef.current,
+      scrollOffsetRef.current,
+    );
+  }, []);
+
+  const setViewOffset = useCallback(
+    (next: number) => {
+      const max = bufRef.current.scrollbackDepth();
+      const o = Math.max(0, Math.min(Math.floor(next), max));
+      scrollOffsetRef.current = o;
+      setScrollOffset(o);
+      redraw();
+    },
+    [redraw],
+  );
+
+  /** Fit buffer + canvas to wrap; notify MUD via hello (initial) or JSON naws. */
+  const applyFit = useCallback(
+    (opts?: { notifyMud?: boolean }) => {
+      const wrap = wrapRef.current;
+      const r = rendererRef.current;
+      if (!wrap) return termSizeRef.current;
+      const cssW = wrap.clientWidth;
+      const cssH = wrap.clientHeight;
+      if (cssW < 20 || cssH < 20) return termSizeRef.current;
+      const next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+      const prev = termSizeRef.current;
+      const changed = prev.cols !== next.cols || prev.rows !== next.rows;
+      termSizeRef.current = next;
+      if (changed) {
+        bufRef.current.resize(next.cols, next.rows);
+        setTermSizeLabel(`${next.cols}×${next.rows}`);
+        // New grid — clear selection / scroll view
+        selRef.current = null;
+        setSelection(null);
+        scrollOffsetRef.current = 0;
+        setScrollOffset(0);
+        if (opts?.notifyMud) {
+          socketRef.current?.sendJson({
+            type: "naws",
+            cols: next.cols,
+            rows: next.rows,
+          });
+        }
+      }
+      redraw();
+      return next;
+    },
+    [redraw],
+  );
+
+  const flash = (msg: string) => {
+    setToast(msg);
+/** Fit terminal cell grid into a CSS-pixel viewport. */
+
+export type TermFit = { cols: number; rows: number };
+
+export const TERM_FIT = {
+  minCols: 40,
+  maxCols: 200,
+  minRows: 12,
+  maxRows: 80,
+  defaultCols: 80,
+  defaultRows: 28,
+} as const;
+
+/**
+ * Compute cols/rows that fit `cssW`×`cssH` at the given cell size.
+ * Floor so the full grid is always visible (no clipped bottom half).
+ */
+export function fitTermSize(
+  cssW: number,
+  cssH: number,
+  cellW: number,
+  cellH: number,
+): TermFit {
+  const cw = Math.max(1, cellW);
+  const ch = Math.max(1, cellH);
+  const cols = Math.floor(Math.max(0, cssW) / cw);
+  const rows = Math.floor(Math.max(0, cssH) / ch);
+  return {
+    cols: clamp(
+      cols || TERM_FIT.defaultCols,
+      TERM_FIT.minCols,
+      TERM_FIT.maxCols,
+    ),
+    rows: clamp(
+      rows || TERM_FIT.defaultRows,
+      TERM_FIT.minRows,
+      TERM_FIT.maxRows,
+    ),
+  };
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, Math.trunc(n)));
+}
+<!doctype html>
+<html lang="zh-Hant" data-accent="mint">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a0b0e" />
+    <title>mudgate</title>
+    <!-- Fonts: preconnect + display=swap → long browser cache, no FOIT -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+web search: 
+web search: MDN VisualViewport resize mobile keyboard API ...
+exec
+/usr/bin/zsh -lc "rg -n \"return \\(|<header|<footer|TerminalHost|thumb|Copy|term-shell|app-shell|command\" apps/web/src/App.tsx apps/web/src/TerminalHost.tsx apps/web/src/styles/tokens.css; sed -n '880,1160p' apps/web/src/App.tsx; sed -n '260,560p' apps/web/src/TerminalHost.tsx; sed -n '1,300p' apps/web/src/styles/tokens.css" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+apps/web/src/App.tsx:2:import { TerminalHost, type HelloMsg, type TerminalCaptureApi } from "./TerminalHost";
+apps/web/src/App.tsx:82:} from "./lib/commandHistory";
+apps/web/src/App.tsx:118:    return () => mq.removeEventListener("change", fn);
+apps/web/src/App.tsx:147:    return () => {
+apps/web/src/App.tsx:173:  /** Live socket send from TerminalHost (Enter path — no state race). */
+apps/web/src/App.tsx:178:  /** Local echo line painted into terminal (zMUD Echo commands). */
+apps/web/src/App.tsx:308:    return () => {
+apps/web/src/App.tsx:326:    return () => clearTimeout(t);
+apps/web/src/App.tsx:516:  // cols/rows overridden at connect by TerminalHost fit (viewport × cell size)
+apps/web/src/App.tsx:638:      // Non-empty commands still trim trailing spaces; pure whitespace → blank.
+apps/web/src/App.tsx:648:      // 1) Direct send if TerminalHost has published a sender
+apps/web/src/App.tsx:675:    // zMUD: focus command line after connect
+apps/web/src/App.tsx:754:    return () => window.clearTimeout(t);
+apps/web/src/App.tsx:790:    return () => window.clearTimeout(t);
+apps/web/src/App.tsx:801:  // Type-anywhere + Enter-anywhere → command line (zMUD)
+apps/web/src/App.tsx:811:        // command/password bar is OK for Enter to submit via form; skip type-in
+apps/web/src/App.tsx:812:        return al !== "command" && al !== "password";
+apps/web/src/App.tsx:819:      return al === "command" || al === "password";
+apps/web/src/App.tsx:846:    return () => window.removeEventListener("keydown", onKey);
+apps/web/src/App.tsx:851:    return (
+apps/web/src/App.tsx:904:  return (
+apps/web/src/App.tsx:937:      <header
+apps/web/src/App.tsx:956:            return (
+apps/web/src/App.tsx:1096:                <TerminalHost
+apps/web/src/App.tsx:1713:      <footer
+apps/web/src/App.tsx:1754:              // zMUD: ↑↓ command history (not movement — movement is numpad)
+apps/web/src/App.tsx:1782:            aria-label={echoMask ? "password" : "command"}
+apps/web/src/TerminalHost.tsx:51:   * Avoids React state→effect races that drop commands.
+apps/web/src/TerminalHost.tsx:55:   * zMUD-style user command path (history + echo + inject).
+apps/web/src/TerminalHost.tsx:59:  /** Click terminal → focus command line (zMUD). */
+apps/web/src/TerminalHost.tsx:61:  /** Local echo of a sent command (never passwords). */
+apps/web/src/TerminalHost.tsx:77:type CopyMenuMode = "selection" | "screen";
+apps/web/src/TerminalHost.tsx:105:export function TerminalHost({
+apps/web/src/TerminalHost.tsx:143:    return () => {
+apps/web/src/TerminalHost.tsx:161:    return () => {
+apps/web/src/TerminalHost.tsx:179:  const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
+apps/web/src/TerminalHost.tsx:308:    return () => rendererRef.current.dispose();
+apps/web/src/TerminalHost.tsx:348:    return () => {
+apps/web/src/TerminalHost.tsx:428:    return () => {
+apps/web/src/TerminalHost.tsx:460:    return () => {
+apps/web/src/TerminalHost.tsx:476:  // zMUD Echo commands: paint a dim › line into the live buffer (not server)
+apps/web/src/TerminalHost.tsx:493:      return al === "command" || al === "password";
+apps/web/src/TerminalHost.tsx:505:      // ── Copy ────────────────────────────────────────────────────
+apps/web/src/TerminalHost.tsx:569:    return () => window.removeEventListener("keydown", onKey);
+apps/web/src/TerminalHost.tsx:611:    // click without drag → clear selection + zMUD focus command line
+apps/web/src/TerminalHost.tsx:646:    return () => el.removeEventListener("wheel", onWheel);
+apps/web/src/TerminalHost.tsx:649:  return (
+apps/web/src/TerminalHost.tsx:695:          title="Copy scrollback + screen"
+apps/web/src/TerminalHost.tsx:708:          title="Copy screen without ANSI"
+apps/web/src/TerminalHost.tsx:721:          title="Copy screen with ANSI color codes"
+apps/web/src/TerminalHost.tsx:834:            // sit just above typical command bar (~cmd + thumb pad)
+          }
+        }}
+        onCustomWs={(u) => {
+          setCustomWs(u);
+          saveCustomWs(u);
+          // URL change clears ack inside saveCustomWs
+          setCustomAck(false);
+        }}
+        onCustomAck={(ok) => {
+          setCustomAck(ok);
+          saveCustomAck(ok);
+        }}
+        onAccent={(a) => {
+          setAccent(a);
+          applyAccent(a);
+        }}
+        onConnect={connectTab}
+        onImportProfiles={(f) => void importProfilesFile(f)}
+        onExportProfiles={exportProfiles}
+      />
+    );
+  }
+
+  // ── Play shell ─────────────────────────────────────────────────────
+  return (
+    <div
+      className="h-full flex flex-col min-h-0"
+      style={{ background: "var(--bg-void)" }}
+    >
+      <FontTrialPanel
+        open={fontTrialOpen}
+        base={termFont}
+        locale={locale}
+        onClose={() => setFontTrialOpen(false)}
+        onApply={(cfg) => {
+          setTermFont(cfg);
+          saveTermFont(cfg);
+          setFontTrialOpen(false);
+        }}
+      />
+      <ConfirmModal
+        open={closeTargetId != null}
+        title={t("tab.close.title")}
+        body={
+          closeTarget?.connected
+            ? t("tab.close.body.connected", { name: closeTargetName })
+            : t("tab.close.body.idle", { name: closeTargetName })
+        }
+        confirmLabel={t("tab.close.confirm")}
+        cancelLabel={t("tab.close.cancel")}
+        dismissLabel={t("modal.dismiss")}
+        danger
+        onConfirm={confirmCloseTab}
+        onCancel={() => setCloseTargetId(null)}
+      />
+
+      {/* Topbar */}
+      <header
+        className="flex items-center gap-2 px-3 sm:px-4 shrink-0 border-b"
+        style={{
+          height: "var(--topbar-h)",
+          background: "var(--bg-panel)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <span
+          className="font-mono text-xs font-semibold tracking-widest uppercase shrink-0"
+          style={{ color: "var(--accent)" }}
+        >
+          {t("app.name")}
+        </span>
+
+        <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
+          {tabs.map((tb) => {
+            const p = profiles.find((x) => x.id === tb.profileId);
+            const active = tb.id === tabId;
+            return (
+              <div
+                key={tb.id}
+                className="inline-flex items-stretch shrink-0 rounded-[var(--radius-sm)] border overflow-hidden"
+                style={{
+                  borderColor: active ? "var(--accent)" : "var(--border)",
+                  background: active
+                    ? "var(--accent-dim)"
+                    : "var(--bg-elevated)",
+                }}
+              >
+                <button
+                  type="button"
+                  className="px-2.5 py-1 text-xs font-mono transition max-w-[8rem] truncate"
+                  style={{ color: "var(--text)" }}
+                  onClick={() => setTabId(tb.id)}
+                  title={p?.name ?? tb.id}
+                >
+                  {p?.name?.slice(0, 12) ?? tb.id}
+                  {tb.connected ? (
+                    <span
+                      className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                      style={{ background: "var(--ok)" }}
+                      aria-hidden
+                    />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className="px-1.5 text-[11px] border-l min-w-[26px] hover:opacity-100 opacity-70 transition"
+                  style={{
+                    borderColor: active ? "var(--accent)" : "var(--border)",
+                    color:
+                      active && profileMgrOpen
+                        ? "var(--accent)"
+                        : "var(--text-dim)",
+                  }}
+                  aria-label={`${t("drawer.manageProfiles")}: ${p?.name ?? tb.id}`}
+                  title={t("drawer.manageProfiles")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Session gear → this tab's profile manager (not global drawer)
+                    setTabId(tb.id);
+                    setActiveProfile(tb.profileId);
+                    setProfileMgrOpen(true);
+                  }}
+                >
+                  ⚙
+                </button>
+                <button
+                  type="button"
+                  className="px-1.5 text-xs border-l min-w-[28px] hover:opacity-100 opacity-70 transition"
+                  style={{
+                    borderColor: active ? "var(--accent)" : "var(--border)",
+                    color: "var(--text-dim)",
+                  }}
+                  aria-label={`${t("shell.closeTab")}: ${p?.name ?? tb.id}`}
+                  title={t("shell.closeTab")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    requestCloseTab(tb.id);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="rounded-[var(--radius-sm)] px-2 py-1 text-xs border shrink-0"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg-elevated)",
+              color: "var(--text-dim)",
+            }}
+            onClick={() => {
+              const id = newTabId();
+              setTabs((ts) => [
+                ...ts,
+                {
+                  id,
+                  profileId: activeProfile,
+                  connected: false,
+                  status: IDLE,
+                  log: [],
+                },
+              ]);
+              setTabId(id);
+            }}
+            title={t("shell.newTab")}
+          >
+            +
+          </button>
+        </div>
+
+        <StatusPill status={tab.status} />
+
+        <LocaleSwitch compact className="hidden lg:inline-flex" />
+
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border hidden sm:inline-flex"
+          style={{
+            borderColor: "var(--border)",
+            background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text-dim)",
+          }}
+          onClick={() => setMapOpen((v) => !v)}
+        >
+          {t("shell.map")}
+        </button>
+        <button
+          type="button"
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs border"
+          style={{
+            borderColor: drawerOpen ? "var(--accent)" : "var(--border)",
+            background: drawerOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+            color: "var(--text)",
+          }}
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label={t("shell.settings")}
+        >
+          ⚙
+        </button>
+      </header>
+
+      {/* Main stage */}
+      <div className="flex-1 min-h-0 flex relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 p-2 sm:p-3">
+            <div
+              className="h-full min-h-0 rounded-[var(--radius)] border overflow-hidden"
+              style={{
+                borderColor: "var(--border)",
+                background: "#0a0b0e",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+              }}
+            >
+              {tab.connected ? (
+                <TerminalHost
+                  key={tabId}
+                  wsUrl={wsUrl}
+                  hello={hello}
+                  injectCommand={injectPayload}
+                  onInjectConsumed={() => setInjectPayload(null)}
+                  mudSendRef={mudSendRef}
+                  expandInput={onSendThroughEngine}
+                  onServerLine={handleServerLine}
+                  onStatus={handleStatus}
+                  onEchoMask={handleEchoMask}
+                  onUserCommand={submitCmd}
+                  onRequestFocusCmd={focusCmd}
+                  localEcho={localEcho}
+                  onLocalEchoConsumed={() => setLocalEcho("")}
+                  terminalFontStack={fontStack}
+                  fontSizePx={termFont.fontSizePx}
+                  cellWidthScale={termFont.cellWidthScale}
+                  lineHeightScale={termFont.lineHeightScale}
+                  widthMode={cellWidthMode}
+                  onVtCaptureEvent={onVtCaptureEvent}
+                  captureApiRef={captureApiRef}
+                />
+              ) : (
+                <div
+                  className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  <p className="font-mono text-sm">{t("shell.session.idle")}</p>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-sm)] px-4 py-2 text-sm font-semibold"
+                    style={{
+                      background: "var(--accent)",
+                      color: "#0a0b0e",
+                    }}
+                    onClick={connectTab}
+                  >
+                    {t("shell.connect")}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Nav shell — nearby HUD / trail / map companion (C0) */}
+        {mapOpen && (
+          <MapNavPanel
+            mode={mapMode}
+            onModeChange={setMapMode}
+            nearby={nearbyHud}
+            nodes={mapNodes}
+            edges={mapEdges}
+            dialect={moveDialect}
+            labelsZh={locale !== "en"}
+            onWalk={walkDir}
+            onClose={() => setMapOpen(false)}
+            title={t("map.title")}
+            modeNearby={t("map.mode.nearby")}
+            modeTrail={t("map.mode.trail")}
+            modeMirror={t("map.mode.mirror")}
+            emptyHint={t("map.empty")}
+            confidenceKnown={t("map.conf.known")}
+            confidenceGuessed={t("map.conf.guessed")}
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 1600);
+  };
+
+  const copyText = async (
+    kind: "plain" | "ansi",
+    scope: "selection" | "screen" | "history",
+  ) => {
+    const buf = bufRef.current;
+    const sel = selRef.current;
+    let text: string;
+    if (scope === "history") {
+      text = buf.snapshotScrollbackPlain();
+    } else if (scope === "selection" && sel) {
+      // Selection uses absolute document rows (follows text when scrolled)
+      text =
+        kind === "ansi"
+          ? buf.exportAbsSelectionAnsi(sel.r0, sel.c0, sel.r1, sel.c1)
+          : buf.exportAbsSelectionPlain(sel.r0, sel.c0, sel.r1, sel.c1);
+    } else {
+      text = kind === "ansi" ? buf.snapshotAnsi() : buf.snapshotText();
+    }
+    const ok = await writeClipboard(text);
+    setMenuMode(null);
+    flash(
+      ok
+        ? scope === "history"
+          ? "已複製歷史"
+          : kind === "ansi"
+            ? "已複製（含色碼）"
+            : "已複製（純文字）"
+        : "複製失敗",
+    );
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    rendererRef.current.mount(canvas);
+    if (terminalFontStack) {
+      rendererRef.current.setTypography({
+        fontFamily: terminalFontStack,
+        fontSizePx,
+        cellWidthScale,
+        lineHeightScale,
+      });
+    }
+    applyFit({ notifyMud: false });
+    return () => rendererRef.current.dispose();
+  }, [
+    applyFit,
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+  ]);
+
+  useEffect(() => {
+    if (!terminalFontStack) return;
+    rendererRef.current.setTypography({
+      fontFamily: terminalFontStack,
+      fontSizePx,
+      cellWidthScale,
+      lineHeightScale,
+    });
+    // Font metrics change cell size → re-fit grid and NAWS
+    applyFit({ notifyMud: true });
+  }, [
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+    applyFit,
+  ]);
+
+  // Observe terminal stage size (window / drawer / map panel)
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        // Only notify MUD when a session is live
+        applyFit({ notifyMud: Boolean(socketRef.current) });
+      });
+    });
+    ro.observe(wrap);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [applyFit, wsUrl]);
+
+  // Charset / width mode change: clear buffer so cells never mix modes
+  useEffect(() => {
+    bufRef.current.setWidthMode(widthMode);
+    redraw();
+  }, [widthMode, redraw]);
+
+  // Socket lifecycle: ONLY depends on wsUrl. Do NOT depend on applyFit/redraw —
+  // those change identity and would stop() the socket (killing auto-reconnect).
+  const applyFitRef = useRef(applyFit);
+  applyFitRef.current = applyFit;
+  const redrawRef = useRef(redraw);
+  redrawRef.current = redraw;
+  const lastInjectIdRef = useRef(0);
+
+  useEffect(() => {
+    if (!wsUrl) return;
+
+    // Measure before hello so NAWS matches the real viewport
+    const size = applyFitRef.current({ notifyMud: false });
+    bufRef.current = new ScreenBuffer(
+      size.cols,
+      size.rows,
+      widthModeRef.current,
+    );
+    decoderRef.current.reset();
+    lineAcc.current = "";
+    scrollOffsetRef.current = 0;
+    setScrollOffset(0);
+    echoMaskRef.current = false;
+    lastInjectIdRef.current = 0;
+
+    const sock = new MudSocket(wsUrl, () => ({
+      ...helloRef.current,
+      cols: termSizeRef.current.cols,
+      rows: termSizeRef.current.rows,
+    }));
+    socketRef.current = sock;
+
+    sock.setHandlers({
+      onBinary: (bytes) => {
+        const text = decoderRef.current.push(bytes);
+        if (!text) return;
+        bufRef.current.writeDecoded(text);
+        // Follow live if user is at bottom; stay put while reading history
+        if (scrollOffsetRef.current === 0) {
+          redrawRef.current();
+        } else {
+          // Cap offset if history grew past max (still stay scrolled)
+          const max = bufRef.current.scrollbackDepth();
+          if (scrollOffsetRef.current > max) {
+            scrollOffsetRef.current = max;
+            setScrollOffset(max);
+          }
+          redrawRef.current();
+        }
+        lineAcc.current += text;
+        const parts = lineAcc.current.split(/\r?\n/);
+        lineAcc.current = parts.pop() ?? "";
+        for (const ln of parts) {
+          if (ln) onServerLineRef.current?.(ln);
+        }
+      },
+      onEchoMask: (mask) => {
+        echoMaskRef.current = mask;
+        onEchoMaskRef.current?.(mask);
+      },
+    });
+
+    const unsub = sock.subscribeStatus(() => {
+      onStatusRef.current?.(sock.getStatus());
+    });
+
+    sock.start();
+
+    return () => {
+      unsub();
+      sock.stop();
+      onEchoMaskRef.current?.(false);
+      if (socketRef.current === sock) socketRef.current = null;
+      decoderRef.current.reset();
+      lineAcc.current = "";
+    };
+  }, [wsUrl]);
+
+  /** Expand + send one user line; MudSocket queues if not connected yet.
+   * Empty string = bare Enter (blank line / CR-LF only). */
+  const deliverLine = useCallback((line: string): boolean => {
+    const sock = socketRef.current;
+    if (!sock) return false;
+    // Blank Enter: do not run alias expand
+    if (line === "" || line === "\n" || line === "\r\n") {
+      sock.send("");
+      return true;
+    }
+    const expand = expandInputRef.current;
+    const lines = expand ? expand(line) : [line];
+    for (const l of lines) {
+      sock.send(l);
+    }
+    return lines.length > 0;
+  }, []);
+
+  // Publish imperative sender for App Enter / Send
+  useEffect(() => {
+    if (!mudSendRef) return;
+    mudSendRef.current = deliverLine;
+    return () => {
+      if (mudSendRef.current === deliverLine) mudSendRef.current = null;
+    };
+  }, [mudSendRef, deliverLine, wsUrl]);
+
+  // Auto-login inject path (id-based; still ok for background sends)
+  useEffect(() => {
+    if (injectCommand == null) return;
+    if (lastInjectIdRef.current === injectCommand.id) return;
+    lastInjectIdRef.current = injectCommand.id;
+    // line may be "\n" sentinel for blank Enter via inject fallback
+    const raw = injectCommand.line;
+    deliverLine(raw === "\n" || raw === "\r\n" ? "" : raw);
+    onInjectConsumedRef.current?.();
+  }, [injectCommand?.id, injectCommand?.line, deliverLine]);
+
+  // zMUD Echo commands: paint a dim › line into the live buffer (not server)
+  useEffect(() => {
+    if (!localEcho) return;
+    const safe = localEcho.replace(/\r|\n/g, " ").slice(0, 400);
+    bufRef.current.writeDecoded(`\x1b[2;36m› ${safe}\x1b[0m\r\n`);
+    if (scrollOffsetRef.current === 0) redraw();
+    else setViewOffset(0);
+    onLocalEchoConsumedRef.current?.();
+  }, [localEcho, redraw, setViewOffset]);
+
+  // Keyboard: copy shortcuts, PageUp/Down scrollback, zMUD numpad dirs
+  useEffect(() => {
+    const isMudCommandField = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag !== "INPUT" && tag !== "TEXTAREA") return false;
+      const al = el.getAttribute("aria-label") ?? "";
+      return al === "command" || al === "password";
+    };
+
+    const isOtherFormField = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "SELECT" || tag === "TEXTAREA") return !isMudCommandField(el);
+      if (tag === "INPUT") return !isMudCommandField(el);
+      return Boolean(el.isContentEditable);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      // ── Copy ────────────────────────────────────────────────────
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const native = window.getSelection()?.toString();
+        if (native && native.length > 0) return;
+        if (!selRef.current && !e.shiftKey) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          void copyText("ansi", selRef.current ? "selection" : "screen");
+        } else {
+          void copyText("plain", selRef.current ? "selection" : "screen");
+        }
+        return;
+      }
+
+      // ── Scrollback navigation ───────────────────────────────────
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const page = Math.max(1, bufRef.current.rows - 2);
+        if (e.key === "PageUp") {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(scrollOffsetRef.current + page);
+          return;
+        }
+        if (e.key === "PageDown") {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(scrollOffsetRef.current - page);
+          return;
+        }
+        if (e.key === "End" && e.location !== 3) {
+          // main End → jump to live (numpad End is sw)
+          if (isOtherFormField(e.target)) return;
+          if (scrollOffsetRef.current > 0) {
+            e.preventDefault();
+            setViewOffset(0);
+          }
+          return;
+        }
+        if (e.key === "Home" && e.location !== 3 && e.shiftKey) {
+          if (isOtherFormField(e.target)) return;
+          e.preventDefault();
+          setViewOffset(bufRef.current.scrollbackDepth());
+          return;
+        }
+      }
+
+      // ── zMUD numpad directions ──────────────────────────────────
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (echoMaskRef.current) return; // password entry — don't steal digits
+      if (isOtherFormField(e.target)) return;
+      if (!socketRef.current) return;
+
+      const dir = numpadDirection(e);
+      if (!dir) return;
+      e.preventDefault();
+      // If reading history, snap to live when moving
+/* mudgate design tokens — ink terminal */
+:root {
+  --bg-void: #0a0b0e;
+  --bg-panel: #12141a;
+  --bg-elevated: #1a1d27;
+  --bg-hover: #222633;
+  --border: #2a2e3a;
+  --border-strong: #3a4154;
+  --text: #e8eaef;
+  --text-dim: #8b93a7;
+  --text-faint: #5c6478;
+  --danger: #ff5c7a;
+  --warn: #ffc14d;
+  --ok: #3dffa8;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --font-ui: "DM Sans", "Noto Sans TC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Sans Mono", ui-monospace, monospace;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --topbar-h: 52px;
+  --cmd-h: 56px;
+
+  /* default accent = mint */
+  --accent: #3dffa8;
+  --accent-dim: rgba(61, 255, 168, 0.14);
+  --accent-glow: rgba(61, 255, 168, 0.22);
+  --ok: var(--accent);
+}
+
+html[data-accent="blue"] {
+  --accent: #5b9dff;
+  --accent-dim: rgba(91, 157, 255, 0.16);
+  --accent-glow: rgba(91, 157, 255, 0.25);
+  --ok: #3dffa8; /* keep ok green even on blue theme */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-void);
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* soft grid void — subtle, not noisy */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-dim), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+exec
+/usr/bin/zsh -lc "sed -n '649,755p' apps/web/src/TerminalHost.tsx; sed -n '1690,1845p' apps/web/src/App.tsx; sed -n '100,190p' apps/web/src/App.tsx" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+  return (
+    <div
+      ref={wrapRef}
+      lang="und"
+      className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
+      onContextMenu={onContextMenu}
+    >
+      {/* toolbar */}
+      <div
+        className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,22rem)]"
+        style={{ pointerEvents: "auto" }}
+      >
+        {scrollOffset > 0 && (
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-[11px] font-mono"
+            style={{
+              background: "var(--accent-dim)",
+              borderColor: "var(--accent)",
+              color: "var(--accent)",
+            }}
+            title="Jump to live (End)"
+            onClick={() => setViewOffset(0)}
+          >
+            ↓ 即時 · {scrollOffset}
+          </button>
+        )}
+        <span
+          className="rounded border px-2 py-1 text-[10px] font-mono tabular-nums"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-faint)",
+          }}
+          title="NAWS terminal size (cols×rows)"
+        >
+          {termSizeLabel}
+        </span>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy scrollback + screen"
+          onClick={() => void copyText("plain", "history")}
+        >
+          複製歷史
+        </button>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy screen without ANSI"
+          onClick={() => void copyText("plain", "screen")}
+        >
+          複製純文字
+        </button>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[11px] font-mono"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+          title="Copy screen with ANSI color codes"
+          onClick={() => void copyText("ansi", "screen")}
+        >
+          複製含色碼
+        </button>
+      </div>
+
+      <canvas
+        ref={canvasRef}
+        className="block cursor-text"
+        style={{
+          // never use pixelated — it freckles glyph edges when CSS-scaled
+          imageRendering: "auto",
+          background: "#0a0b0e",
+          // Exact cell grid size (set by renderer); do not CSS-stretch beyond stage
+          maxWidth: "100%",
+          maxHeight: "100%",
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          selecting.current = false;
+        }}
+      />
+
+      {/* Float on the bottom edge of the terminal stage → sits on top of shell input bar */}
+      {menuMode && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-2 pt-1 pointer-events-none"
+        >
+          <div
+            className="pointer-events-auto flex flex-wrap items-center justify-center gap-1 rounded-[var(--radius)] border px-2 py-1.5 text-xs max-w-full"
+            style={{
+              background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+        )}
+      </div>
+
+      <ProfileManager
+        open={profileMgrOpen}
+        onClose={() => setProfileMgrOpen(false)}
+        profiles={profiles}
+        selectedId={tab.profileId}
+        onChange={(list) => {
+          setProfiles(list);
+          saveProfiles(list);
+        }}
+        onSelect={(id) => {
+          setActiveProfile(id);
+          setTabs((ts) =>
+            ts.map((x) =>
+              x.id === tabId ? { ...x, profileId: id } : x,
+            ),
+          );
+        }}
+      />
+
+      {/* Command bar */}
+      <footer
+        className="shrink-0 border-t px-2 sm:px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        style={{
+          background: "var(--bg-panel)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <form
+          className="flex gap-2 items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const el = cmdInputRef.current;
+            const line = el?.value ?? inputDraftRef.current;
+            submitCmd(line);
+          }}
+        >
+          <span
+            className="font-mono text-sm select-none hidden sm:inline"
+            style={{ color: "var(--accent)" }}
+          >
+            ›
+          </span>
+          <input
+            ref={cmdInputRef}
+            value={inputDraft}
+            onChange={(e) => {
+              const v = e.target.value;
+              inputDraftRef.current = v; // sync before next keydown (Enter)
+              setInputDraft(v);
+            }}
+            onKeyDown={(e) => {
+              // Enter / NumpadEnter — read LIVE DOM value (not React state)
+              if (e.key === "Enter" || e.code === "NumpadEnter") {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const line = (e.currentTarget as HTMLInputElement).value;
+                inputDraftRef.current = line;
+                submitCmd(line);
+                return;
+              }
+              // zMUD: ↑↓ command history (not movement — movement is numpad)
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                const next = cmdHistoryRef.current.up(
+                  (e.currentTarget as HTMLInputElement).value,
+                );
+                if (next != null) {
+                  inputDraftRef.current = next;
+                  setInputDraft(next);
+                }
+                return;
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                const next = cmdHistoryRef.current.down();
+                if (next != null) {
+                  inputDraftRef.current = next;
+                  setInputDraft(next);
+                }
+              }
+            }}
+            type={echoMask ? "password" : "text"}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            disabled={!tab.connected}
+            aria-label={echoMask ? "password" : "command"}
+            className="flex-1 rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 min-h-[44px]"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: echoMask ? "var(--accent)" : "var(--border)",
+              color: "var(--text)",
+              // @ts-expect-error css var
+              "--tw-ring-color": "var(--accent-glow)",
+            }}
+            placeholder={
+              !tab.connected
+                ? t("shell.cmd.placeholder.idle")
+                : echoMask
+                  ? "••••••••"
+                  : t("shell.cmd.placeholder")
+            }
+          />
+          <button
+            type="submit"
+            disabled={!tab.connected}
+            className="rounded-[var(--radius-sm)] px-4 py-2.5 text-sm font-semibold min-w-[4.5rem] min-h-[44px] disabled:opacity-40"
+            style={{
+              background: "var(--accent)",
+              color: "#0a0b0e",
+            }}
+          >
+            {t("shell.send")}
+          </button>
+        </form>
+
+        {/* Thumb pad — always visible on mobile, subtle on desktop */}
+        <div className="flex flex-wrap gap-1.5 mt-2 pb-1">
+          {(
+            [
+              ["n", "n"],
+              ["s", "s"],
+              ["e", "e"],
+              ["w", "w"],
+              ["look", "look"],
+              ["score", "score"],
+            ] as const
+          ).map(([label, val]) => (
+            <button
+              key={label}
+              type="button"
+              disabled={!tab.connected}
+              className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 active:scale-95 disabled:opacity-40"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border)",
+                color: "var(--text-dim)",
+              }}
+              onClick={() => submitCmd(val)}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="rounded-[var(--radius-sm)] border font-mono text-xs min-w-[44px] min-h-[40px] px-2.5 sm:hidden"
+            style={{
+              background: mapOpen ? "var(--accent-dim)" : "var(--bg-elevated)",
+              borderColor: "var(--border)",
+              color: "var(--text-dim)",
+};
+
+const engine = new ScriptEngine();
+try {
+  engine.importPackage(JSON.stringify(RW_STARTER_PACK));
+} catch {
+  /* ignore */
+}
+const roomTracker = new RoomTracker();
+
+function useIsLg() {
+  const [lg, setLg] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const fn = () => setLg(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+  return lg;
+}
+
+export function App() {
+  const t = useT();
+  const { locale } = useLocale();
+  const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
+  const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
+  const fontStack = useMemo(
+    () => resolveFontStackProbed(termFont, locale),
+    [termFont, locale],
+  );
+  const [token, setToken] = useState(() => loadProxyToken());
+  const [trustMode, setTrustMode] = useState<TrustMode>(() => loadTrustMode());
+  const [customWs, setCustomWs] = useState(() => loadCustomWs());
+  const [customAck, setCustomAck] = useState(() => loadCustomAck());
+  const [fontTrialOpen, setFontTrialOpen] = useState(false);
+  const [accent, setAccent] = useState<AccentId>(() => loadAccent());
+  /** Boot: await remember-unlock restore before autologin decisions. */
+  const [vaultBootReady, setVaultBootReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void tryRestoreVaultSession()
+      .catch(() => false)
+      .finally(() => {
+        if (!cancelled) setVaultBootReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const [activeProfile, setActiveProfile] = useState(
+    profiles[0]?.id ?? "rw-4000",
+  );
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const id = newTabId();
+    return [
+      {
+        id,
+        profileId: "rw-4000",
+        connected: false,
+        status: IDLE,
+        log: [],
+      },
+    ];
+  });
+  const [tabId, setTabId] = useState(() => tabs[0]?.id ?? "t0");
+  /** Reliable inject payload — `id` must change every send (same line OK). */
+  const [injectPayload, setInjectPayload] = useState<{
+    id: number;
+    line: string;
+  } | null>(null);
+  const injectIdRef = useRef(0);
+  /** Live socket send from TerminalHost (Enter path — no state race). */
+  const mudSendRef = useRef<((line: string) => boolean) | null>(null);
+  const [inputDraft, setInputDraft] = useState("");
+  const inputDraftRef = useRef("");
+  inputDraftRef.current = inputDraft;
+  /** Local echo line painted into terminal (zMUD Echo commands). */
+  const [localEcho, setLocalEcho] = useState("");
+  /** Telnet ECHO password-mode — only while server WILL ECHO. */
+  const [echoMask, setEchoMask] = useState(false);
+  const [echoCommands, setEchoCommands] = useState(() => loadEchoCommands());
+  const [profileMgrOpen, setProfileMgrOpen] = useState(false);
+  const cmdInputRef = useRef<HTMLInputElement>(null);
+  const cmdHistoryRef = useRef(new CommandHistory());
+  const echoMaskRef = useRef(false);
+  echoMaskRef.current = echoMask;
+  /** Per-connect auto-login progress (not text "Password:" trigger). */
+  const autoLoginRef = useRef({ accountSent: false, passwordSent: false });
+  const [mapTick, setMapTick] = useState(0);
+
+codex
+PORTRAIT_LAYOUT: Size the app against the visual viewport. Keyboard closed, for an 800px-tall phone: header 44–48px (6%); terminal stage 610–625px including 6–8px padding (76–78%); command row 52px; thumb row 48px; safe-area/padding 12–24px (footer total ≈16–18%). Keyboard open, for ≈430px visible height: compact header 36px (8%); terminal gets all remaining flexible space, ideally 320–335px (74–78%); command row 52–56px (13%); thumb row, map toggle, copy toolbar, and decorative stage padding collapse. Never reserve a fixed terminal percentage: use `grid-template-rows: auto minmax(0,1fr) auto`, and let the terminal consume the remainder.
+
+KEYBOARD: Add `interactive-widget=resizes-content` to the viewport meta as progressive enhancement, but do not depend on it alone. Drive `--app-vh` from `window.visualViewport.height` and account for `visualViewport.offsetTop`; listen to both `resize` and `scroll`, batch updates with `requestAnimationFrame`, and set the root shell to `height: var(--app-vh, 100dvh); overflow:hidden`. Use `100dvh` as fallback, not `100vh` or inherited `height:100%`. Detect keyboard-open approximately when `innerHeight - visualViewport.height > 120px` while the command input is focused. In that state hide the thumb row and terminal toolbar, compact the header, remove stage padding, and immediately refit the grid/NAWS. Call `input.scrollIntoView({block:"nearest"})` only after focus if its bounding rect is outside the visual viewport; do not force-scroll the page on every focus. `visualViewport` exposes the viewport actually visible after zoom/keyboard changes, while the Virtual Keyboard API remains limited availability, so it should not be the primary path. [Visual Viewport](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport), [Virtual Keyboard API](https://developer.mozilla.org/en-US/docs/Web/API/VirtualKeyboard_API)
+
+LANDSCAPE: Show a rotate/play button on coarse-pointer phones when portrait and the terminal fits fewer than about 64 columns, plus keep it available in settings. Its primary action should explain “橫向遊玩” and attempt fullscreen followed by `screen.orientation.lock("landscape")` from the user gesture. Treat rejection as normal: show a brief “請旋轉裝置” overlay and let CSS `@media (orientation: landscape) and (max-height: 520px)` provide the real layout. Orientation lock has limited availability and commonly requires fullscreen, so CSS must remain authoritative. In landscape use a 32–36px compact header or auto-hide it after 2 seconds; keep status/gear as overlay controls; hide tab labels, copy buttons, `look`/`score`, and map panel by default. Use a 44–48px command row and place four movement controls as a right-side rail or compact overlay. Give the terminal the remaining width and height, targeting roughly 70–100 cols without CSS scaling. Do not permanently force landscape or hide all navigation with no way back. [Screen orientation lock](https://developer.mozilla.org/en-US/docs/Web/API/ScreenOrientation/lock), [CSS orientation layouts](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Object_Model/Managing_screen_orientation)
+
+CMD_BAR: Keep a single-line `<input>`; MUD commands are short and multiline expansion would steal live-output rows. Do not expand it on focus. Use 16px input text on iOS to avoid focus zoom, 44–48px minimum row height, and a 48–56px-wide Send button—current `min-width:4.5rem` is unnecessarily expensive on narrow screens. Preserve `enterKeyHint="send"`, IME composition handling, password masking, and history draft restoration. Support history with explicit ↑/↓ affordance or a vertical swipe that begins on the input only: swipe down = older, up = newer, with a 28–36px threshold and no action during horizontal cursor movement or IME composition. Never bind canvas swipes to command history.
+
+MOVEMENT: Keep the six chips for portrait keyboard-closed, but make them one non-wrapping 44px-high horizontal row; wrapping is the current vertical-space failure. Put `n/s/e/w` first and allow `look/score/map` to scroll horizontally. Hide that row while the soft keyboard is open. Do not use a 3×3 D-pad below the command bar in portrait—it costs roughly 136–152px. Do not make canvas swipe the only movement method because it conflicts with scrollback, selection, map interaction, and accidental combat movement. In landscape, use a compact 3×3 D-pad or four-way side rail outside the canvas; optional canvas swipe may be opt-in, require a clear 40–50px gesture, and provide visual confirmation.
+
+MUST_FIX:
+1. In `apps/web/src/App.tsx`, introduce visual-viewport/keyboard state and make the play shell a bounded `minmax(0,1fr)` layout. Compact the header and conditionally collapse thumb/terminal chrome while the command input is focused and the keyboard is detected.
+2. In `apps/web/src/styles/tokens.css` and `index.css`, replace the `html, body, #root { height:100% }` dependency with `--app-vh`, `100dvh` fallback, `overflow:hidden`, mobile `--topbar-h/--cmd-h` tokens, safe-area handling, and portrait/short-landscape media queries.
+3. In `apps/web/index.html`, append `interactive-widget=resizes-content` to the existing `viewport-fit=cover` viewport declaration. Keep VisualViewport handling because browser behavior still differs.
+4. In `apps/web/src/TerminalHost.tsx` and `lib/termFit.ts`, refit on every actual wrapper resize and visual-viewport transition, debounce NAWS until geometry settles, and remove the dangerous effective overflow caused by clamping to `minRows:12` when fewer than 12 rows physically fit. The reported grid must never be larger than the canvas area; permit a temporary 4–6-row emergency grid with the keyboard open.
+5. In `App.tsx` footer and `TerminalHost.tsx` toolbar, make chips non-wrapping, reduce Send width, hide the thumb row during keyboard entry, replace the three always-visible copy buttons with one 44px overflow/copy action on small screens, and add the portrait-only landscape-play control with CSS fallback.
+
+ANTI:
+- Never CSS-scale the canvas to fit a desired 80×24 grid; resize the backing grid and send the real cols×rows through NAWS.
+- Never clamp cols/rows upward beyond what the measured stage can contain; `overflow:hidden` merely conceals the resulting clipped grid.
+- Never reduce the terminal font until 80 columns fit portrait. Prefer approximately 40–48 readable columns in portrait and use landscape for the classic ~80-column experience.
+- Never use `100vh`, fixed footer offsets, or body scrolling as the keyboard layout model.
+- Never chase the keyboard with repeated `scrollIntoView()` calls or attempt to dismiss/control the system keyboard.
+- Never stack header, toolbar, multiline command field, wrapped chips, and map controls above/below the terminal simultaneously.
+- Never make swipe-to-move the default over selectable/scrollable terminal output.
+- Never send continuous NAWS updates for every noisy viewport pixel; coalesce and send only changed stable cell geometry.
+
+ONE_LINE: Portrait should be a readable 40–48-col terminal with disposable chrome; landscape should be the deliberate ~80-col play mode, and both must derive their grid from the live visual viewport rather than stretching canvas pixels.
+
+CONFIDENCE: high
+tokens used
+57,093
+CODEX_EXIT:0
