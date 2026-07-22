@@ -66,9 +66,14 @@ export class Canvas2DRenderer {
     this.fontFamily = family;
   }
 
+  private widthScale = 1;
+  private letterSpacingPx = 0;
+
   /**
    * Apply typography for dual-width mono stacks.
    * fontFamily should already be a full CSS stack (primary + TC fallbacks).
+   * Cell width prefers **measured** mono advance (never under-estimate — that
+   * makes cols×cellW wider than the stage and clips MUD text on phones).
    */
   setTypography(opts: {
     fontFamily: string;
@@ -80,10 +85,37 @@ export class Canvas2DRenderer {
     this.fontFamily = opts.fontFamily;
     const size = opts.fontSizePx ?? 15;
     const lineScale = opts.lineHeightScale ?? 1.2;
-    const widthScale = opts.cellWidthScale ?? 1;
+    this.widthScale = opts.cellWidthScale ?? 1;
+    this.letterSpacingPx = opts.letterSpacingPx ?? 0;
     this.cellH = Math.max(12, Math.round(size * lineScale));
-    // half-width cell ≈ 0.6em of font size (mono heuristic), then scale
-    this.cellW = Math.max(6, Math.round(size * 0.6 * widthScale + (opts.letterSpacingPx ?? 0)));
+    this.recomputeCellWidth();
+  }
+
+  /**
+   * Re-measure half-width cell from real font metrics (call after mount / fonts.ready).
+   * Uses ceil so grid never claims more columns than glyphs can paint without overflow.
+   */
+  recomputeCellWidth(): void {
+    const fontPx = Math.max(10, this.cellH - 4);
+    const heuristic = Math.max(
+      6,
+      Math.round(fontPx * 0.6 * this.widthScale + this.letterSpacingPx),
+    );
+    const ctx = this.ctx;
+    if (!ctx) {
+      this.cellW = heuristic;
+      return;
+    }
+    ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
+    // Max of common mono probes — under-estimate is what overflowed the phone stage
+    const wM = ctx.measureText("M").width || 0;
+    const w0 = ctx.measureText("0").width || 0;
+    const wW = ctx.measureText("W").width || 0;
+    const measured = Math.max(wM, w0, wW, 1);
+    this.cellW = Math.max(
+      6,
+      Math.ceil(measured * this.widthScale + this.letterSpacingPx),
+    );
   }
 
   /** alignScore ≈ width(中)/width(M); ideal ~2.0 for dual-width. */
@@ -146,6 +178,12 @@ export class Canvas2DRenderer {
     const cssH = buf.rows * this.cellH;
     this.syncBackingStore(cssW, cssH);
 
+    // Clip glyph ink that extends past the last cell (CJK / box-drawing)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, cssW, cssH);
+    ctx.clip();
+
     ctx.fillStyle = VOID;
     ctx.fillRect(0, 0, cssW, cssH);
 
@@ -198,6 +236,7 @@ export class Canvas2DRenderer {
     if (selection) {
       this.paintSelection(ctx, buf, selection, off, sbLen);
     }
+    ctx.restore();
   }
 
   private paintSelection(

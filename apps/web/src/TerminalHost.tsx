@@ -227,10 +227,15 @@ export function TerminalHost({
       const wrap = wrapRef.current;
       const r = rendererRef.current;
       if (!wrap) return termSizeRef.current;
+      // Re-measure mono cell against the live font (under-estimate → text past stage)
+      r.recomputeCellWidth();
       const cssW = wrap.clientWidth;
       const cssH = wrap.clientHeight;
       if (cssW < 20 || cssH < 20) return termSizeRef.current;
-      const next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+      let next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+      // Hard guard: never larger than stage even with fractional rounding
+      while (next.cols > 1 && next.cols * r.cellW > cssW) next = { ...next, cols: next.cols - 1 };
+      while (next.rows > 1 && next.rows * r.cellH > cssH) next = { ...next, rows: next.rows - 1 };
       const prev = termSizeRef.current;
       const changed = prev.cols !== next.cols || prev.rows !== next.rows;
       termSizeRef.current = next;
@@ -305,7 +310,21 @@ export function TerminalHost({
       });
     }
     applyFit({ notifyMud: false });
-    return () => rendererRef.current.dispose();
+    // Web fonts often load after first paint — remeasure + refit so grid fits phone
+    let cancelled = false;
+    const fonts = document.fonts;
+    const afterFonts = () => {
+      if (cancelled) return;
+      rendererRef.current.recomputeCellWidth();
+      applyFit({ notifyMud: Boolean(socketRef.current) });
+    };
+    if (fonts?.ready) {
+      void fonts.ready.then(afterFonts);
+    }
+    return () => {
+      cancelled = true;
+      rendererRef.current.dispose();
+    };
   }, [
     applyFit,
     terminalFontStack,
@@ -660,6 +679,7 @@ export function TerminalHost({
       ref={wrapRef}
       lang="und"
       className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
+      style={{ maxWidth: "100%" }}
       onContextMenu={onContextMenu}
     >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
@@ -749,12 +769,13 @@ export function TerminalHost({
 
       <canvas
         ref={canvasRef}
-        className="block cursor-text"
+        className="block cursor-text max-w-full max-h-full"
         style={{
           // never use pixelated — it freckles glyph edges when CSS-scaled
           imageRendering: "auto",
           background: "#0a0b0e",
-          // Exact cell grid size (set by renderer); do not CSS-stretch beyond stage
+          // Exact cell grid size from renderer (cols×cellW). Fit logic must keep
+          // this ≤ stage; max-w/h is a last-resort clip, not a scale-to-80-col plan.
           maxWidth: "100%",
           maxHeight: "100%",
         }}
