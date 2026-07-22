@@ -127,8 +127,9 @@ export function fitTypographyToStage(
   const cols = classic;
   const packs = (S: number) => {
     const m = measure(S, L);
-    // INVARIANT: use measured cellW only — never invent a smaller pitch
-    return { m, ok: m.cellW * cols <= stageW + 0.01 };
+    // INVARIANT: use measured cellW only — never invent a smaller pitch.
+    // 1px slack for subpixel borders / rounding so we don't claim "fits" then overflow.
+    return { m, ok: m.cellW * cols <= Math.max(0, stageW - 1) };
   };
 
   let S = userFontPx;

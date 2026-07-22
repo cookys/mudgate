@@ -24,6 +24,7 @@ import {
   TERM_FIT,
   V_SCROLLBAR_GUTTER_PX,
 } from "./lib/termFit";
+import { VV_EVENT } from "./lib/useVisualViewport";
 
 export type { HelloMsg, StatusEvent };
 
@@ -242,16 +243,16 @@ export function TerminalHost({
       const r = rendererRef.current;
       if (!wrap || !host) return termSizeRef.current;
 
-      // Prefer host width − v-scrollbar: flex-1 wrap can still report full width
-      // before gutter is reserved on some mobile layout passes.
+      // Always subtract vertical scrollbar gutter from the *host* (TerminalHost root).
+      // wrap.clientWidth can still be "full" before flex settles → overflow on portrait.
       const hostW = host.clientWidth;
       const hostH = host.clientHeight;
-      let cssW = Math.max(1, hostW - V_SCROLLBAR_GUTTER_PX);
-      // Also never exceed the stage box itself
-      if (wrap.clientWidth > 0) {
-        cssW = Math.min(cssW, wrap.clientWidth);
-      }
-      let cssH = wrap.clientHeight > 0 ? wrap.clientHeight : hostH;
+      const cssW = Math.max(1, hostW - V_SCROLLBAR_GUTTER_PX);
+      // Use visual height of stage box when available (grows after keyboard hide)
+      let cssH =
+        wrap.clientHeight > 20
+          ? wrap.clientHeight
+          : Math.max(1, hostH);
       if (cssW < 20 || cssH < 20) {
         redraw();
         return termSizeRef.current;
@@ -419,8 +420,7 @@ export function TerminalHost({
     applyFit,
   ]);
 
-  // Observe terminal stage size (window / drawer / map panel / soft keyboard /
-  // portrait↔landscape). Multiple delayed passes — mid-rotation layout is often 0×0.
+  // Observe stage size + soft keyboard (mudgate:viewport) + orientation.
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -428,8 +428,6 @@ export function TerminalHost({
     const timers: number[] = [];
     const runFit = () => {
       applyFit({ notifyMud: Boolean(socketRef.current) });
-      // Always repaint even if cols×rows unchanged (canvas buffer was cleared
-      // when style/backing store size changed on rotate).
       redraw();
     };
     const schedule = () => {
@@ -438,7 +436,7 @@ export function TerminalHost({
     };
     const scheduleBurst = () => {
       schedule();
-      for (const ms of [50, 150, 350, 600]) {
+      for (const ms of [50, 120, 280, 450, 700]) {
         timers.push(window.setTimeout(schedule, ms));
       }
     };
@@ -447,26 +445,29 @@ export function TerminalHost({
         ? new ResizeObserver(schedule)
         : null;
     ro?.observe(wrap);
+    const host = wrap.parentElement;
+    if (host && ro) ro.observe(host);
     const vv = window.visualViewport;
-    vv?.addEventListener("resize", schedule);
+    vv?.addEventListener("resize", scheduleBurst);
     window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", scheduleBurst);
-    // matchMedia is more reliable than orientationchange on some Android WebViews
+    // Soft keyboard open/close — critical: height changes without reliable RO
+    window.addEventListener(VV_EVENT, scheduleBurst);
     const mql = window.matchMedia("(orientation: landscape)");
     const onMql = () => scheduleBurst();
     if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", onMql);
     } else {
-      // Safari < 14
       mql.addListener(onMql);
     }
     return () => {
       cancelAnimationFrame(raf);
       for (const t of timers) window.clearTimeout(t);
       ro?.disconnect();
-      vv?.removeEventListener("resize", schedule);
+      vv?.removeEventListener("resize", scheduleBurst);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", scheduleBurst);
+      window.removeEventListener(VV_EVENT, scheduleBurst);
       if (typeof mql.removeEventListener === "function") {
         mql.removeEventListener("change", onMql);
       } else {
@@ -776,18 +777,27 @@ export function TerminalHost({
   return (
     <div
       className="flex h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden"
+      style={{ width: "100%" }}
       onContextMenu={onContextMenu}
     >
-      {/* Stage: min-w-0 + overflow so 80×cellW never blows out the page */}
+      {/*
+        flex: 1 1 0% + min-w-0 is required so a wide canvas (80×cellW) cannot
+        expand the page; only this box scrolls horizontally if needed.
+      */}
       <div
         ref={wrapRef}
         lang="und"
         className={
           needsHScroll
-            ? "relative flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
-            : "relative flex-1 min-w-0 min-h-0 overflow-hidden touch-pan-y"
+            ? "relative min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
+            : "relative min-h-0 overflow-hidden touch-pan-y"
         }
-        style={{ maxWidth: `calc(100% - ${V_SCROLLBAR_GUTTER_PX}px)` }}
+        style={{
+          flex: "1 1 0%",
+          minWidth: 0,
+          width: 0, // flex basis 0; real width from flex grow
+          maxWidth: "100%",
+        }}
       >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div
