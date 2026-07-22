@@ -212,12 +212,12 @@ export function TerminalHost({
   const onLocalEchoConsumedRef = useRef(onLocalEchoConsumed);
   onLocalEchoConsumedRef.current = onLocalEchoConsumed;
 
-  const redraw = useCallback(() => {
-    rendererRef.current.draw(
-      bufRef.current,
-      selRef.current,
-      scrollOffsetRef.current,
-    );
+  /** Full paint from buffer — re-bind canvas if needed; never blank on bad geometry. */
+  const paint = useCallback(() => {
+    const canvas = canvasRef.current;
+    const r = rendererRef.current;
+    if (!r.ensureMounted(canvas)) return;
+    r.draw(bufRef.current, selRef.current, scrollOffsetRef.current);
   }, []);
 
   const setViewOffset = useCallback(
@@ -227,34 +227,33 @@ export function TerminalHost({
       scrollOffsetRef.current = o;
       setScrollOffset(o);
       setScrollDepth(max);
-      redraw();
+      paint();
     },
-    [redraw],
+    [paint],
   );
 
   /**
-   * Fit: lock 80 cols, shrink font only, never squeeze pitch.
-   * Stage width must exclude the vertical scrollbar gutter (sibling rail).
+   * Single fit+paint pipeline. Buffer content is preserved across grid changes.
+   * Mid-animation 0×0 stages are skipped (keep last bitmap).
    */
   const applyFit = useCallback(
     (opts?: { notifyMud?: boolean }) => {
       const wrap = wrapRef.current;
       const host = wrap?.parentElement;
+      const canvas = canvasRef.current;
       const r = rendererRef.current;
       if (!wrap || !host) return termSizeRef.current;
+      if (!r.ensureMounted(canvas)) return termSizeRef.current;
 
-      // Always subtract vertical scrollbar gutter from the *host* (TerminalHost root).
-      // wrap.clientWidth can still be "full" before flex settles → overflow on portrait.
       const hostW = host.clientWidth;
       const hostH = host.clientHeight;
       const cssW = Math.max(1, hostW - V_SCROLLBAR_GUTTER_PX);
-      // Use visual height of stage box when available (grows after keyboard hide)
-      let cssH =
-        wrap.clientHeight > 20
-          ? wrap.clientHeight
-          : Math.max(1, hostH);
-      if (cssW < 20 || cssH < 20) {
-        redraw();
+      const cssH =
+        wrap.clientHeight > 20 ? wrap.clientHeight : Math.max(1, hostH);
+
+      // Unstable layout (keyboard/orientation mid-frame) — keep last paint
+      if (cssW < 32 || cssH < 32) {
+        paint();
         return termSizeRef.current;
       }
 
@@ -279,7 +278,6 @@ export function TerminalHost({
         measure,
       );
 
-      // Horizontal scroll bar (if any) steals height — re-fit rows
       if (fitted.needsHScroll && cssH > H_SCROLLBAR_GUTTER_PX + 40) {
         fitted = fitTypographyToStage(
           cssW,
@@ -288,7 +286,6 @@ export function TerminalHost({
           lineHeightScale,
           measure,
         );
-        // keep needsHScroll true if still overflowing width
         fitted = {
           ...fitted,
           needsHScroll:
@@ -306,16 +303,27 @@ export function TerminalHost({
       setNeedsHScroll(fitted.needsHScroll);
 
       const next = { cols: fitted.cols, rows: fitted.rows };
+      if (next.cols < 1 || next.rows < 1) {
+        paint();
+        return termSizeRef.current;
+      }
+
       const prev = termSizeRef.current;
       const changed = prev.cols !== next.cols || prev.rows !== next.rows;
       termSizeRef.current = next;
       setTermSizeLabel(`${next.cols}×${next.rows}`);
       if (changed) {
+        // Preserve cells — never blank the MUD screen on resize
         bufRef.current.resize(next.cols, next.rows);
         selRef.current = null;
         setSelection(null);
-        scrollOffsetRef.current = 0;
-        setScrollOffset(0);
+        // Keep scroll offset if still valid
+        const max = bufRef.current.scrollbackDepth();
+        if (scrollOffsetRef.current > max) {
+          scrollOffsetRef.current = max;
+          setScrollOffset(max);
+        }
+        setScrollDepth(max);
         if (opts?.notifyMud) {
           socketRef.current?.sendJson({
             type: "naws",
@@ -324,11 +332,18 @@ export function TerminalHost({
           });
         }
       }
-      redraw();
+      // Always full paint after geometry/metrics change (canvas buffer was wiped)
+      paint();
       return next;
     },
-    [redraw, fontSizePx, lineHeightScale, cellWidthScale, terminalFontStack],
+    [paint, fontSizePx, lineHeightScale, cellWidthScale, terminalFontStack],
   );
+
+  // Stable refs so observers never re-subscribe just because applyFit identity changed
+  const applyFitRef = useRef(applyFit);
+  applyFitRef.current = applyFit;
+  const paintRef = useRef(paint);
+  paintRef.current = paint;
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -366,78 +381,53 @@ export function TerminalHost({
     );
   };
 
+  // ── Mount canvas once; never dispose on fit/font/resize (that blanked the screen) ──
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     rendererRef.current.mount(canvas);
-    if (terminalFontStack) {
-      rendererRef.current.setTypography({
-        fontFamily: terminalFontStack,
-        fontSizePx,
-        cellWidthScale,
-        lineHeightScale,
-      });
-    }
-    applyFit({ notifyMud: false });
-    // Web fonts often load after first paint — remeasure + refit so grid fits phone
+    applyFitRef.current({ notifyMud: false });
     let cancelled = false;
     const fonts = document.fonts;
-    const afterFonts = () => {
-      if (cancelled) return;
-      rendererRef.current.recomputeCellWidth();
-      applyFit({ notifyMud: Boolean(socketRef.current) });
-    };
     if (fonts?.ready) {
-      void fonts.ready.then(afterFonts);
+      void fonts.ready.then(() => {
+        if (cancelled) return;
+        applyFitRef.current({ notifyMud: Boolean(socketRef.current) });
+      });
     }
     return () => {
       cancelled = true;
       rendererRef.current.dispose();
     };
-  }, [
-    applyFit,
-    terminalFontStack,
-    fontSizePx,
-    cellWidthScale,
-    lineHeightScale,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per TerminalHost
+  }, []);
 
+  // User typography settings → refit (does not remount renderer)
   useEffect(() => {
-    if (!terminalFontStack) return;
-    rendererRef.current.setTypography({
-      fontFamily: terminalFontStack,
-      fontSizePx,
-      cellWidthScale,
-      lineHeightScale,
-    });
-    // Font metrics change cell size → re-fit grid and NAWS
-    applyFit({ notifyMud: true });
-  }, [
-    terminalFontStack,
-    fontSizePx,
-    cellWidthScale,
-    lineHeightScale,
-    applyFit,
-  ]);
+    applyFitRef.current({ notifyMud: Boolean(socketRef.current) });
+  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
 
-  // Observe stage size + soft keyboard (mudgate:viewport) + orientation.
+  // Geometry lifecycle: one scheduler, refs only (stable subscription)
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     let raf = 0;
+    let trailing = 0;
     const timers: number[] = [];
     const runFit = () => {
-      applyFit({ notifyMud: Boolean(socketRef.current) });
-      redraw();
+      applyFitRef.current({ notifyMud: Boolean(socketRef.current) });
     };
     const schedule = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(runFit);
+      window.clearTimeout(trailing);
+      // Trailing settle after keyboard/orientation animation
+      trailing = window.setTimeout(runFit, 120);
     };
     const scheduleBurst = () => {
       schedule();
-      for (const ms of [50, 120, 280, 450, 700]) {
-        timers.push(window.setTimeout(schedule, ms));
+      for (const ms of [80, 200, 400, 650]) {
+        timers.push(window.setTimeout(runFit, ms));
       }
     };
     const ro =
@@ -451,7 +441,6 @@ export function TerminalHost({
     vv?.addEventListener("resize", scheduleBurst);
     window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", scheduleBurst);
-    // Soft keyboard open/close — critical: height changes without reliable RO
     window.addEventListener(VV_EVENT, scheduleBurst);
     const mql = window.matchMedia("(orientation: landscape)");
     const onMql = () => scheduleBurst();
@@ -462,6 +451,7 @@ export function TerminalHost({
     }
     return () => {
       cancelAnimationFrame(raf);
+      window.clearTimeout(trailing);
       for (const t of timers) window.clearTimeout(t);
       ro?.disconnect();
       vv?.removeEventListener("resize", scheduleBurst);
@@ -474,20 +464,15 @@ export function TerminalHost({
         mql.removeListener(onMql);
       }
     };
-  }, [applyFit, redraw, wsUrl]);
+  }, [wsUrl]);
 
   // Charset / width mode change: clear buffer so cells never mix modes
   useEffect(() => {
     bufRef.current.setWidthMode(widthMode);
-    redraw();
-  }, [widthMode, redraw]);
+    paintRef.current();
+  }, [widthMode]);
 
-  // Socket lifecycle: ONLY depends on wsUrl. Do NOT depend on applyFit/redraw —
-  // those change identity and would stop() the socket (killing auto-reconnect).
-  const applyFitRef = useRef(applyFit);
-  applyFitRef.current = applyFit;
-  const redrawRef = useRef(redraw);
-  redrawRef.current = redraw;
+  // Socket lifecycle: ONLY depends on wsUrl.
   const lastInjectIdRef = useRef(0);
 
   useEffect(() => {
@@ -504,8 +489,10 @@ export function TerminalHost({
     lineAcc.current = "";
     scrollOffsetRef.current = 0;
     setScrollOffset(0);
+    setScrollDepth(0);
     echoMaskRef.current = false;
     lastInjectIdRef.current = 0;
+    paintRef.current();
 
     const sock = new MudSocket(wsUrl, () => ({
       ...helloRef.current,
@@ -523,14 +510,13 @@ export function TerminalHost({
         setScrollDepth(max);
         // Follow live if user is at bottom; stay put while reading history
         if (scrollOffsetRef.current === 0) {
-          redrawRef.current();
+          paintRef.current();
         } else {
-          // Cap offset if history grew past max (still stay scrolled)
           if (scrollOffsetRef.current > max) {
             scrollOffsetRef.current = max;
             setScrollOffset(max);
           }
-          redrawRef.current();
+          paintRef.current();
         }
         lineAcc.current += text;
         const parts = lineAcc.current.split(/\r?\n/);
@@ -604,10 +590,10 @@ export function TerminalHost({
     if (!localEcho) return;
     const safe = localEcho.replace(/\r|\n/g, " ").slice(0, 400);
     bufRef.current.writeDecoded(`\x1b[2;36m› ${safe}\x1b[0m\r\n`);
-    if (scrollOffsetRef.current === 0) redraw();
+    if (scrollOffsetRef.current === 0) paint();
     else setViewOffset(0);
     onLocalEchoConsumedRef.current?.();
-  }, [localEcho, redraw, setViewOffset]);
+  }, [localEcho, paint, setViewOffset]);
 
   // Keyboard: copy shortcuts, PageUp/Down scrollback, zMUD numpad dirs
   useEffect(() => {
@@ -710,7 +696,7 @@ export function TerminalHost({
     const next = { r0: absR, c0: hit.c, r1: absR, c1: hit.c };
     selRef.current = next;
     setSelection(next);
-    redraw();
+    paint();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
@@ -726,7 +712,7 @@ export function TerminalHost({
     const next = { ...selRef.current, r1: absR, c1: hit.c };
     selRef.current = next;
     setSelection(next);
-    redraw();
+    paint();
   };
 
   const onPointerUp = () => {
@@ -739,7 +725,7 @@ export function TerminalHost({
       selRef.current = null;
       setSelection(null);
       setMenuMode(null);
-      redraw();
+      paint();
       onRequestFocusCmdRef.current?.();
       return;
     }
@@ -968,7 +954,7 @@ export function TerminalHost({
                   selRef.current = null;
                   setSelection(null);
                   setMenuMode(null);
-                  redraw();
+                  paint();
                 }}
               >
                 清除

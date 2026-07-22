@@ -57,6 +57,17 @@ export class Canvas2DRenderer {
     this.dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   }
 
+  /** Re-bind if dispose()'d or canvas node replaced — safe to call every paint. */
+  ensureMounted(canvas: HTMLCanvasElement | null): boolean {
+    if (!canvas) return false;
+    if (this.canvas !== canvas || !this.ctx) this.mount(canvas);
+    return !!this.ctx;
+  }
+
+  isReady(): boolean {
+    return !!this.ctx && !!this.canvas;
+  }
+
   dispose(): void {
     this.canvas = null;
     this.ctx = null;
@@ -181,10 +192,12 @@ export class Canvas2DRenderer {
     return { r, c };
   }
 
-  private syncBackingStore(cssW: number, cssH: number): void {
+  private syncBackingStore(cssW: number, cssH: number): boolean {
     const canvas = this.canvas;
     const ctx = this.ctx;
-    if (!canvas || !ctx) return;
+    if (!canvas || !ctx) return false;
+    // Never zero the backing store mid-resize (that blanks the screen until next paint)
+    if (cssW < 2 || cssH < 2) return false;
     this.dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
     const bw = Math.max(1, Math.round(cssW * this.dpr));
     const bh = Math.max(1, Math.round(cssH * this.dpr));
@@ -195,11 +208,13 @@ export class Canvas2DRenderer {
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    return true;
   }
 
   /**
+   * Full repaint from buffer. Safe after resize/keyboard — always repaints if
+   * metrics are valid; refuses to wipe the canvas with 0×0 geometry.
    * @param scrollOffset lines above live bottom (0 = follow live screen).
-   * When > 0, top rows are filled from plain scrollback history.
    */
   draw(
     buf: ScreenBuffer,
@@ -209,12 +224,14 @@ export class Canvas2DRenderer {
     const ctx = this.ctx;
     const canvas = this.canvas;
     if (!ctx || !canvas) return;
+    if (buf.cols < 1 || buf.rows < 1) return;
+    if (this.cellW < 1 || this.cellH < 1) return;
 
     this.lastCols = buf.cols;
     this.lastRows = buf.rows;
     const cssW = buf.cols * this.cellW;
     const cssH = buf.rows * this.cellH;
-    this.syncBackingStore(cssW, cssH);
+    if (!this.syncBackingStore(cssW, cssH)) return;
 
     // Clip glyph ink that extends past the last cell (CJK / box-drawing)
     ctx.save();
