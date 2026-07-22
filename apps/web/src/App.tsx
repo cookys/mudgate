@@ -927,8 +927,9 @@ export function App() {
       style={{
         background: "var(--bg-void)",
         position: "fixed",
-        inset: 0,
-        width: "100%",
+        top: "var(--app-vtop, 0px)",
+        left: "var(--app-vleft, 0px)",
+        width: "var(--app-vw, 100dvw)",
         height: "var(--app-vh, 100dvh)",
         maxHeight: "var(--app-vh, 100dvh)",
       }}

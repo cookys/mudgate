@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  fitResponsiveTypographyToStage,
   fitTypographyToStage,
   VT_CLASSIC_COLS,
   ABS_MIN_FONT_PX,
@@ -45,5 +46,20 @@ describe("fitTypographyToStage — never squeeze pitch below measure", () => {
   it("cellH only from metrics at same S", () => {
     const r = fitTypographyToStage(800, 300, 15, 1.2, fakeMeasure);
     expect(r.cellH).toBe(fakeMeasure(r.fontSizePx, r.lineHeightScale).cellH);
+  });
+});
+
+describe("fitResponsiveTypographyToStage — no portrait overflow", () => {
+  it("keeps classic 80 columns when measured glyphs fit", () => {
+    const r = fitResponsiveTypographyToStage(800, 400, 15, 1.2, fakeMeasure);
+    expect(r.cols).toBe(80);
+    expect(r.needsHScroll).toBe(false);
+  });
+
+  it("uses the real visible grid when 80 honest cells cannot fit", () => {
+    const r = fitResponsiveTypographyToStage(360, 600, 15, 1.2, fakeMeasure);
+    expect(r.cols).toBe(40);
+    expect(r.cellW * r.cols).toBeLessThanOrEqual(360);
+    expect(r.needsHScroll).toBe(false);
   });
 });

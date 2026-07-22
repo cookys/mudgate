@@ -181,3 +181,29 @@ export function fitTypographyToStage(
     needsHScroll,
   };
 }
+
+/** Prefer 80 columns when honest glyph metrics fit; otherwise expose the real grid. */
+export function fitResponsiveTypographyToStage(
+  stageW: number,
+  stageH: number,
+  userFontPx: number,
+  userLineScale: number,
+  measure: (fontPx: number, lineScale: number) => CellMetrics,
+): FitTypographyResult {
+  const classic = fitTypographyToStage(
+    stageW,
+    stageH,
+    userFontPx,
+    userLineScale,
+    measure,
+  );
+  if (!classic.needsHScroll) return classic;
+  return fitTypographyToStage(
+    stageW,
+    stageH,
+    userFontPx,
+    userLineScale,
+    measure,
+    { classicCols: null },
+  );
+}
