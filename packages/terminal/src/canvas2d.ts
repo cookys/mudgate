@@ -125,6 +125,12 @@ export class Canvas2DRenderer {
     );
   }
 
+  /** Override measured cell size (e.g. lock 80 cols into stage width). */
+  setCellMetrics(cellW: number, cellH: number): void {
+    this.cellW = Math.max(4, Math.round(cellW));
+    this.cellH = Math.max(8, Math.round(cellH));
+  }
+
   /** Measure cell metrics for a candidate size without permanently applying it. */
   measureCellMetrics(
     fontPx: number,

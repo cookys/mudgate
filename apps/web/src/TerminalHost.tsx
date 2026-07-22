@@ -179,6 +179,8 @@ export function TerminalHost({
   const [menuMode, setMenuMode] = useState<CopyMenuMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  /** Reactive scrollback length for the vertical scrollbar. */
+  const [scrollDepth, setScrollDepth] = useState(0);
   const [termSizeLabel, setTermSizeLabel] = useState(
     `${TERM_FIT.defaultCols}×${TERM_FIT.defaultRows}`,
   );
@@ -216,6 +218,7 @@ export function TerminalHost({
       const o = Math.max(0, Math.min(Math.floor(next), max));
       scrollOffsetRef.current = o;
       setScrollOffset(o);
+      setScrollDepth(max);
       redraw();
     },
     [redraw],
@@ -264,6 +267,8 @@ export function TerminalHost({
         cellWidthScale,
         lineHeightScale: fitted.lineHeightScale,
       });
+      // Lock geometry (may force cellW so cols stay 80 on narrow phones)
+      r.setCellMetrics(fitted.cellW, fitted.cellH);
 
       const next = { cols: fitted.cols, rows: fitted.rows };
       const prev = termSizeRef.current;
@@ -479,12 +484,13 @@ export function TerminalHost({
         const text = decoderRef.current.push(bytes);
         if (!text) return;
         bufRef.current.writeDecoded(text);
+        const max = bufRef.current.scrollbackDepth();
+        setScrollDepth(max);
         // Follow live if user is at bottom; stay put while reading history
         if (scrollOffsetRef.current === 0) {
           redrawRef.current();
         } else {
           // Cap offset if history grew past max (still stay scrolled)
-          const max = bufRef.current.scrollbackDepth();
           if (scrollOffsetRef.current > max) {
             scrollOffsetRef.current = max;
             setScrollOffset(max);
@@ -731,14 +737,19 @@ export function TerminalHost({
     return () => el.removeEventListener("wheel", onWheel);
   }, [setViewOffset]);
 
+  const scrollMax = scrollDepth;
+
   return (
     <div
-      ref={wrapRef}
-      lang="und"
-      className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
-      style={{ maxWidth: "100%" }}
+      className="flex h-full min-h-0 w-full max-w-full"
       onContextMenu={onContextMenu}
     >
+      {/* Stage — fit measures this box (excludes scrollbar gutter) */}
+      <div
+        ref={wrapRef}
+        lang="und"
+        className="relative flex-1 min-w-0 min-h-0 overflow-hidden touch-pan-y"
+      >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div
         className="absolute top-1 right-1 z-10 flex flex-wrap gap-1 justify-end max-w-[min(100%,22rem)] kb-hide-toolbar"
@@ -941,6 +952,69 @@ export function TerminalHost({
           {toast}
         </div>
       )}
+      </div>
+
+      {/* Vertical scrollback bar (always visible when there is history, or stub for affordance) */}
+      <div
+        className="shrink-0 flex flex-col items-center py-1 gap-0.5 select-none"
+        style={{
+          width: 14,
+          background: "var(--bg-panel)",
+          borderLeft: "1px solid var(--border)",
+        }}
+        aria-label="scrollback"
+      >
+        <button
+          type="button"
+          className="text-[9px] leading-none px-0.5 py-0.5 rounded"
+          style={{ color: "var(--text-faint)" }}
+          title="Top (oldest)"
+          disabled={scrollMax === 0}
+          onClick={() => setViewOffset(scrollMax)}
+        >
+          ▲
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(1, scrollMax)}
+          step={1}
+          // inverted: top of range = oldest (high offset), bottom = live (0)
+          value={Math.max(0, scrollMax - scrollOffset)}
+          disabled={scrollMax === 0}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setViewOffset(scrollMax - v);
+          }}
+          className="mud-vscroll flex-1 min-h-0 appearance-none bg-transparent"
+          style={
+            {
+              writingMode: "vertical-lr",
+              direction: "rtl",
+              width: 12,
+              height: "100%",
+              accentColor: "var(--accent)",
+              cursor: scrollMax === 0 ? "default" : "pointer",
+            } as React.CSSProperties
+          }
+          aria-valuemin={0}
+          aria-valuemax={scrollMax}
+          aria-valuenow={scrollOffset}
+          aria-label="Scroll history"
+        />
+        <button
+          type="button"
+          className="text-[9px] leading-none px-0.5 py-0.5 rounded"
+          style={{
+            color: scrollOffset > 0 ? "var(--accent)" : "var(--text-faint)",
+          }}
+          title="Live (bottom)"
+          disabled={scrollOffset === 0}
+          onClick={() => setViewOffset(0)}
+        >
+          ▼
+        </button>
+      </div>
     </div>
   );
 }

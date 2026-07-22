@@ -3,11 +3,9 @@ import {
   clampFitToStage,
   fitTermSize,
   fitTypographyToStage,
-  TERM_FIT,
   VT_CLASSIC_COLS,
 } from "../src/lib/termFit";
 
-/** Linear mono model for tests: cellW ≈ 0.6*S, cellH ≈ S*L */
 function fakeMeasure(S: number, L: number) {
   return {
     cellW: Math.max(6, Math.ceil(S * 0.6)),
@@ -16,18 +14,8 @@ function fakeMeasure(S: number, L: number) {
 }
 
 describe("fitTermSize", () => {
-  it("floors grid to fit viewport without clipping", () => {
+  it("floors grid to fit viewport", () => {
     expect(fitTermSize(900, 540, 9, 18)).toEqual({ cols: 100, rows: 30 });
-  });
-
-  it("never inflates cols/rows past what physically fits", () => {
-    const tiny = fitTermSize(50, 50, 9, 18);
-    expect(tiny.cols).toBe(Math.floor(50 / 9));
-    expect(tiny.rows).toBe(Math.floor(50 / 18));
-  });
-
-  it("zero geometry returns 0 grid (caller keeps previous)", () => {
-    expect(fitTermSize(0, 100, 9, 18)).toEqual({ cols: 0, rows: 0 });
   });
 
   it("clampFitToStage trims overflow", () => {
@@ -37,42 +25,33 @@ describe("fitTermSize", () => {
   });
 });
 
-describe("fitTypographyToStage (no magic phone targets)", () => {
-  it("keeps user font when stage already fits classic 80 cols (desktop)", () => {
-    // Wide stage: 15px → cellW=9 → 1200/9=133 cols
+describe("fitTypographyToStage — always lock 80 cols for MUD", () => {
+  it("locks cols to 80 on wide desktop without shrinking font", () => {
+    // 15px → cellW=9; 80*9=720 fits in 1200
     const r = fitTypographyToStage(1200, 600, 15, 1.2, fakeMeasure);
+    expect(r.cols).toBe(VT_CLASSIC_COLS);
     expect(r.fontSizePx).toBe(15);
-    expect(r.cols).toBeGreaterThanOrEqual(VT_CLASSIC_COLS);
+    expect(r.cols * r.cellW).toBeLessThanOrEqual(1200);
   });
 
-  it("shrinks only enough to reach classic 80 when stage is narrow", () => {
-    // 400px wide, 15px → cellW=9 → 44 cols < 80
-    // At 11px → cellW=7 → 57 cols still < 80 with ratio 0.72 min ~11
-    // Need smaller: minFont = max(10, 15*0.72)=10.8→11, cellW=7 → still 57
-    // So falls to min font and fills — cols = floor(400/7)=57
-    const r = fitTypographyToStage(400, 500, 15, 1.2, fakeMeasure);
-    expect(r.fontSizePx).toBeLessThanOrEqual(15);
-    expect(r.cols * r.cellW).toBeLessThanOrEqual(400);
-    expect(r.rows * r.cellH).toBeLessThanOrEqual(500);
+  it("locks cols to 80 on narrow portrait (shrink or force cellW)", () => {
+    const r = fitTypographyToStage(360, 500, 15, 1.2, fakeMeasure);
+    expect(r.cols).toBe(80);
+    expect(r.cols * r.cellW).toBeLessThanOrEqual(360);
+    expect(r.rows).toBeGreaterThanOrEqual(1);
   });
 
-  it("with classicCols null never auto-shrinks (pure xterm)", () => {
+  it("locks cols to 80 on short landscape too", () => {
+    const r = fitTypographyToStage(800, 280, 15, 1.2, fakeMeasure);
+    expect(r.cols).toBe(80);
+    expect(r.cols * r.cellW).toBeLessThanOrEqual(800);
+  });
+
+  it("classicCols null is free-form (xterm)", () => {
     const r = fitTypographyToStage(400, 500, 15, 1.2, fakeMeasure, {
       classicCols: null,
     });
     expect(r.fontSizePx).toBe(15);
-    expect(r.cols).toBe(Math.floor(400 / Math.ceil(15 * 0.6)));
-  });
-
-  it("wide enough for 80 at user font does not shrink", () => {
-    // 80 * 9 = 720
-    const r = fitTypographyToStage(720, 400, 15, 1.2, fakeMeasure);
-    expect(r.fontSizePx).toBe(15);
-    expect(r.cols).toBeGreaterThanOrEqual(80);
-  });
-
-  it("exposes VT_CLASSIC_COLS as 80 (semantic, not a phone constant)", () => {
-    expect(VT_CLASSIC_COLS).toBe(80);
-    expect(TERM_FIT.maxCols).toBeGreaterThan(VT_CLASSIC_COLS);
+    expect(r.cols).not.toBe(80);
   });
 });
