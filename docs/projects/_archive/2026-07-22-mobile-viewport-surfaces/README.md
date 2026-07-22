@@ -1,9 +1,9 @@
-# Mobile viewport surfaces
+# Mobile viewport surfaces — SHIP
 
 ## Project Goal
 
 > **Final goal**: Phone portrait controls are compact, and every full-screen entry/modal surface remains usable when its content exceeds the visual viewport.
-> **Success criteria**: All four user requirements below map to implemented phases; `shellControls.test.ts`, the full test suite, typecheck, and web production build return zero failures; LAN smoke confirms vertical reachability at 320–767px portrait.
+> **Success criteria**: All four user requirements below map to implemented phases; `shellControls.test.ts`, the full test suite, typecheck, and web production build return zero failures; LAN HTTP/WebSocket smoke passes and the 320–767px portrait interaction is ready for user verification.
 > **Scope boundary**: React web shell, ConnectGate, fixed dialogs, shared viewport layout primitive, and tests. Terminal rendering and in-panel map popups are excluded.
 
 ## User-stated requirements ledger
@@ -32,7 +32,15 @@
 |---|---|---|
 | P0 | Portrait locale modal, status indicator, content session tabs | Complete |
 | P1 | Shared visual-viewport container and scroll-bounded fixed dialogs | Complete |
-| P2 | Full quality gate, independent review, merge, LAN smoke | In progress |
+| P2 | Full quality gate, independent review, merge, LAN smoke | Complete |
+
+## Final results
+
+- Portrait locale selection is a button-backed, viewport-bounded modal; connection state is a compact accessible indicator; session navigation moves below the header as content tabs.
+- ConnectGate owns vertical scrolling inside the visual viewport, and every full-screen dialog panel is height-bounded with its own vertical overflow.
+- Regression checks passed: 4 focused shell contracts, 33 test files / 240 tests, TypeScript project check, and production build.
+- Independent review returned PASS; merged to `develop` as `efefeee`.
+- LAN smoke passed on `0.0.0.0:5173` with HTTP 200 and the proxy WebSocket reachable; real-browser short-height interaction remains a manual test, with future automation tracked in `docs/BACKLOG.md`.
 
 ## Skill routing
 

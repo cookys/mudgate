@@ -7,7 +7,6 @@
 
 | Seq | Project | Plan | Branch | Status |
 |-----|---------|------|--------|--------|
-| 0 | [mobile-viewport-surfaces](2026-07-22-mobile-viewport-surfaces/README.md) | [mobile-viewport-surfaces](../plans/2026-07-22-mobile-viewport-surfaces.md) | `feat/mobile-viewport-surfaces` | 🚧 P0–P2 |
 | 1 | [mccp2-stream](2026-07-21-mccp2-stream/README.md) | [mccp2-stream](../plans/2026-07-21-mccp2-stream.md) | `feat/mccp2-stream` | ✅ **SHIP** develop |
 | 1b | [echo-password-mask](2026-07-21-echo-password-mask/README.md) | [echo-password-mask](../plans/2026-07-21-echo-password-mask.md) | `feat/echo-password-mask` | ✅ **SHIP** develop |
 | 1c | [cjk-cell-width](2026-07-21-cjk-cell-width/README.md) | [cjk-cell-width-taiwanmud](../plans/2026-07-21-cjk-cell-width-taiwanmud.md) | `feat/cjk-cell-width` | ✅ **SHIP** develop |
@@ -26,6 +25,7 @@
 
 | Date | Project | Version | Merge | Plan |
 |------|---------|---------|-------|------|
+| 2026-07-22 | [mobile viewport surfaces](_archive/2026-07-22-mobile-viewport-surfaces/README.md) | 0.1 | develop | [mobile-viewport-surfaces](../plans/2026-07-22-mobile-viewport-surfaces.md) |
 | 2026-07-22 | map_d companion C0+C1 | 0.1 | develop | [mapd-nav-companion](../plans/2026-07-22-mapd-nav-companion.md) |
 | 2026-07-22 | site mode S0–S2 + S3 ADR | 0.1 | develop | [t1-site-proxy](../plans/2026-07-22-t1-site-proxy-and-core-daemon.md) |
 | 2026-07-21 | [web-zmud-bootstrap](2026-07-21-web-zmud-bootstrap/README.md) | 0.1 | develop | [web-zmud-rw](../plans/2026-07-21-web-zmud-rw.md) |
