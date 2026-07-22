@@ -1,0 +1,1132 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/mudgate
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 019f88e7-1f86-7380-9215-a20bf627d420
+--------
+user
+# Hetero design: automatic terminal font/grid sizing (no magic constants)
+
+Product: **mudgate** — browser MUD client, Canvas2D dual-width (CJK) VT grid + NAWS.
+Benchmark MUD: 重生的世界 (Big5 map_d, expects classic ~80-col layout when space allows).
+
+## Current (bad) approach
+We hardcode mobile targets like `targetCols=52`, `targetRows=22`, `minFontPx=11`, then loop shrink font until targets met. User rejected hardcoding.
+
+Phone measured **38×14** at desktop 15px before shrink; after hardcode shrink toward 52×22.
+
+## Constraints
+- Grid is integer cols×rows; each half-width cell has measured CSS px size (cellW/cellH from real font metrics).
+- Canvas must NOT CSS-scale glyphs (blurs CJK).
+- NAWS must report the real on-screen grid.
+- Portrait phones ~360–430 CSS px wide; landscape ~700–900 wide, short height.
+- Desktop wide: keep user-chosen font size (settings), do not force 52 cols.
+
+## Ask — answer all sections
+
+**A. Industry / prior art**: How do xterm.js, Blink shell, JuiceSSH, Termux, VS Code terminal, iOS a-Shell, or web SSH clients auto-size font vs cols? Name algorithms (e.g. binary search font to maximize cols under min-readable-px; fixed char density; CSS `ch` units; container query).
+
+**B. What to optimize**: Maximize cols? Maximize area cols*rows? Prefer readable min font then fill? Preserve aspect of classic 80×24 / 80×N?
+
+**C. Algorithm (pseudocode)** given stageCssW, stageCssH, userFontPref, measured mono advance at size S. Must work for portrait AND landscape without `if (phone) target=52`.
+
+**D. Inputs only from geometry + metrics** — list pure functions of (W,H,metrics,userPref). No magic 52/22.
+
+**E. Guardrails**: min readable px for CJK MUD? max cols? when to stop shrinking?
+
+**F. mudgate-specific MUST_FIX** for next PR (file-level if possible: termFit.ts, canvas2d recomputeCellWidth, TerminalHost applyFit).
+
+Output strict:
+```
+PRIOR_ART: ...
+OPTIMIZE: ...
+ALGO: ...
+INPUTS: ...
+GUARDS: ...
+MUST_FIX:
+1. ...
+ONE_LINE: ...
+CONFIDENCE: high|med|low
+```
+codex
+I’m using the survey skill because this asks for current industry prior art across several terminal clients. I’ll verify primary sources, then map the findings onto mudgate’s actual fitting code.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/survey/SKILL.md && rg -n \"termFit|recomputeCellWidth|applyFit|NAWS|cellW|cellH\" . --glob '"'!node_modules'"'" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+---
+name: survey
+description: >
+  Research what the industry does — dual-agent (researcher + skeptic) tech investigation. Use when:
+  "research X", "survey", "investigate options/tradeoffs", "what do others use", "industry standard
+  for X", "compare X vs Y vs Z", "I'm not sure which to pick", "業界怎麼做", "調研一下",
+  "別人怎麼處理的". Not for: strategic priority decisions (→ think-tank), brainstorming designs,
+  or creating implementation plans.
+---
+
+# Survey -- Technology Research
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer external evidence research over internal priority debate).
+
+Two independent agents (researcher + skeptic) search in parallel, bringing different perspectives to avoid anchoring bias and recency bias.
+
+## Trigger
+
+| Method | When |
+|--------|------|
+| Manual | User says "survey", "research", "investigate", "what does the industry do" |
+| Signal suggestion | Plan Mode / brainstorming detects tech selection / architecture decision / uncertainty -> suggest (user confirms before running) |
+
+**Suggestion template** (when signal detected):
+> "This decision involves tech selection. Suggest running `/survey` to research industry practices first. Proceed?"
+
+## Boundary
+
+- **Produce recommendation, marked as suggestion** -- attach reasoning and preconditions so user can judge applicability
+- **No code** -- research only
+- **No auto-trigger** -- signal only suggests, user confirms
+
+## Flow
+
+### Step 1: Scope the Research
+
+Extract from user input:
+- **Topic**: what to research (e.g. "WS compression options")
+- **Constraints**: known limits (e.g. "must support C++20", "latency < 1ms")
+- **Existing bias**: does user already lean toward something? (researcher should specifically probe that option's weaknesses)
+
+If input is vague (e.g. "look into cache"), ask one clarifying round before dispatch.
+
+### Step 2: Parallel Dispatch
+
+**Model routing**: Read `.claude/model-routing-config.md` if exists; otherwise defaults from [references/model-routing.md](references/model-routing.md). Survey agents map to `researcher` → default: `model: "sonnet"` (needs web search tools, so NOT plan mode).
+
+Spawn researcher + skeptic **simultaneously**. Skeptic does NOT wait for researcher -- independent search finds different angles.
+
+```
+Agent tool:
+  name: "survey-researcher"
+  subagent_type: "general-purpose"
+  model: "sonnet"              # from model-routing config (researcher role)
+  run_in_background: true
+  prompt: -> references/prompts.md #Researcher
+
+Agent tool:
+  name: "survey-skeptic"
+  subagent_type: "general-purpose"
+  model: "sonnet"              # from model-routing config (researcher role)
+  run_in_background: true
+  prompt: -> references/prompts.md #Skeptic
+```
+
+> Full agent prompts with variable substitution: [references/prompts.md](references/prompts.md)
+
+### Step 3: Merge Report
+
+After both agents complete:
+
+1. **Deduplicate** -- merge overlapping sources
+2. **Cross-validate** -- researcher's pros vs skeptic's risks, same row per option
+3. **Gap-fill** -- option with only pros and no risks (or vice versa) -> mark "incomplete data"
+4. **Rank** -- by combined pros, risks, industry adoption
+5. **Generate report** -- fixed format below
+
+### Step 4: Present to User
+
+Present report, clearly mark "decision is yours". If user wants to dive deeper into one option, run follow-up search.
+
+## Output Format
+
+```markdown
+## Survey: {topic}
+
+> Date: YYYY-MM-DD
+
+### Background
+{Why this research, 1-2 sentences}
+
+### Options Comparison
+
+| Option | Pros | Risks | Industry Adoption | Fit |
+|--------|------|-------|-------------------|-----|
+| A      | ...  | ...   | ...               | 3/3 |
+| B      | ...  | ...   | ...               | 2/3 |
+
+### Recommendation
+{Recommended option + reasoning + preconditions (under what assumptions this holds). Decision is yours.}
+
+### Sources
+
+**Theory/Standards**
+- [{title}]({url}) -- {one-line summary}
+
+**Production Practice**
+- [{title}]({url}) -- {one-line summary}
+
+**Benchmark / Demo**
+- [{title}]({url}) -- {one-line summary}
+
+**Adoption Cases**
+- [{title}]({url}) -- {one-line summary}
+
+**Risk/Failure Cases**
+- [{title}]({url}) -- {one-line summary}
+```
+
+## Error Handling
+
+| Situation | Action |
+|-----------|--------|
+| WebSearch unavailable | Use LLM knowledge + WebFetch known URLs. Mark "no live search" in report |
+| Agent timeout | Use partial results. Mark "{agent} incomplete" |
+| No sources found for option | Keep in table, mark all fields "no public data" -- this is a risk signal |
+
+## Signal Detection (for other skills)
+
+| Signal | Example |
+|--------|---------|
+| Tech selection | "X or Y?", "which library?" |
+| Architecture decision | "canonical approach for this?" |
+| Uncertainty | "TBD", "undecided", "pending" in plans |
+| New domain | Tech/protocol/pattern team hasn't used |
+| User bias | "I think X is good" -- worth verifying with survey |
+./packages/protocol/src/telnet.ts:15:  NAWS: 31,
+./packages/protocol/src/telnet.ts:160: * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./packages/protocol/src/telnet.ts:188:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./packages/protocol/src/telnet.ts:207:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./packages/protocol/src/telnet.ts:212:    OPT.NAWS,
+./apps/web/src/lib/mudSocket.ts:184:  /** Send a JSON control frame (e.g. mid-session NAWS resize). */
+./apps/web/src/lib/termFit.ts:28:  cellW: number,
+./apps/web/src/lib/termFit.ts:29:  cellH: number,
+./apps/web/src/lib/termFit.ts:33:  const cw = Math.max(1, cellW);
+./apps/web/src/lib/termFit.ts:34:  const ch = Math.max(1, cellH);
+./apps/web/src/lib/termFit.ts:48:  cellW: number,
+./apps/web/src/lib/termFit.ts:49:  cellH: number,
+./apps/web/src/lib/termFit.ts:51:  const cw = Math.max(1, cellW);
+./apps/web/src/lib/termFit.ts:52:  const ch = Math.max(1, cellH);
+./docs/plans/2026-07-21-rw-connect-protocols.md:16:| **Wire** | Telnet IAC、TTYPE、NAWS、ECHO | 連線／密碼遮罩／視窗大小 |
+./docs/plans/2026-07-21-rw-connect-protocols.md:35:| DO | **NAWS** | 必須回視窗 cols×rows |
+./docs/plans/2026-07-21-rw-connect-protocols.md:50:| TTYPE / NAWS | ✅ proxy bridge 協商 |
+./docs/plans/2026-07-21-rw-connect-protocols.md:67:2. **TTYPE + NAWS** 正確  
+./apps/web/tests/termFit.test.ts:2:import { clampFitToStage, fitTermSize, TERM_FIT } from "../src/lib/termFit";
+./docs/plans/2026-07-21-web-zmud-rw.md:32:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/plans/2026-07-21-web-zmud-rw.md:92:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/plans/2026-07-21-web-zmud-rw.md:142:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/plans/2026-07-21-web-zmud-rw.md:270:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/design/terminal-fonts.md:61:mudgate 的 `ScreenBuffer` 是 **cell grid**（一中文常佔 2 columns）。Renderer 的 `cellW` 必須讓：
+./docs/design/terminal-fonts.md:64:width(ASCII) ≈ cellW
+./docs/design/terminal-fonts.md:65:width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
+./docs/design/terminal-fonts.md:125:  // + fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx, ligatures
+./docs/design/terminal-fonts.md:210:| `fontSizePx` | number | 預設 14–16；影響 `cellH` |
+./docs/design/terminal-fonts.md:211:| `cellWidthScale` | number | 0.85–1.25，乘在測得的半形寬 |
+./docs/design/terminal-fonts.md:212:| `lineHeightScale` | number | 1.0–1.4，`cellH = fontSize * scale` |
+./docs/design/terminal-fonts.md:219:1. `setTypography({ fontFamily, fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx })`  
+./docs/design/terminal-fonts.md:222:3. `cellW = wM * cellWidthScale (+ letterSpacing 策略)`  
+./docs/design/terminal-fonts.md:223:4. `cellH = fontSize * lineHeightScale`  
+./apps/proxy/src/bridge.ts:83:  /** Mutable — client may send mid-session resize / NAWS updates. */
+./apps/proxy/src/bridge.ts:253:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./apps/proxy/tests/mccp-bridge.test.ts:256:  it("DO NAWS replies with hello cols/rows", async () => {
+./apps/proxy/tests/mccp-bridge.test.ts:266:    sock.emit("data", Buffer.from([IAC, DO, OPT.NAWS]));
+./apps/proxy/tests/mccp-bridge.test.ts:272:  it("client JSON naws resize updates and re-sends NAWS", async () => {
+./apps/web/src/termFonts/catalog.ts:137:  cellWidthScale: number;
+./apps/web/src/termFonts/catalog.ts:149:  cellWidthScale: 1,
+./docs/architecture.md:24:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./apps/web/src/TerminalHost.tsx:20:import { clampFitToStage, fitTermSize, TERM_FIT } from "./lib/termFit";
+./apps/web/src/TerminalHost.tsx:29:    cellW: number;
+./apps/web/src/TerminalHost.tsx:30:    cellH: number;
+./apps/web/src/TerminalHost.tsx:67:  cellWidthScale?: number;
+./apps/web/src/TerminalHost.tsx:121:  cellWidthScale = 1,
+./apps/web/src/TerminalHost.tsx:156:        cellW: rendererRef.current.cellW,
+./apps/web/src/TerminalHost.tsx:157:        cellH: rendererRef.current.cellH,
+./apps/web/src/TerminalHost.tsx:172:  /** Live grid size reported in hello + mid-session NAWS. */
+./apps/web/src/TerminalHost.tsx:225:  const applyFit = useCallback(
+./apps/web/src/TerminalHost.tsx:253:          cellWidthScale,
+./apps/web/src/TerminalHost.tsx:256:        next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+./apps/web/src/TerminalHost.tsx:257:        next = clampFitToStage(next, cssW, cssH, r.cellW, r.cellH);
+./apps/web/src/TerminalHost.tsx:310:      cellWidthScale,
+./apps/web/src/TerminalHost.tsx:359:        cellWidthScale,
+./apps/web/src/TerminalHost.tsx:363:    applyFit({ notifyMud: false });
+./apps/web/src/TerminalHost.tsx:369:      rendererRef.current.recomputeCellWidth();
+./apps/web/src/TerminalHost.tsx:370:      applyFit({ notifyMud: Boolean(socketRef.current) });
+./apps/web/src/TerminalHost.tsx:380:    applyFit,
+./apps/web/src/TerminalHost.tsx:383:    cellWidthScale,
+./apps/web/src/TerminalHost.tsx:392:      cellWidthScale,
+./apps/web/src/TerminalHost.tsx:395:    // Font metrics change cell size → re-fit grid and NAWS
+./apps/web/src/TerminalHost.tsx:396:    applyFit({ notifyMud: true });
+./apps/web/src/TerminalHost.tsx:400:    cellWidthScale,
+./apps/web/src/TerminalHost.tsx:402:    applyFit,
+./apps/web/src/TerminalHost.tsx:413:      applyFit({ notifyMud: Boolean(socketRef.current) });
+./apps/web/src/TerminalHost.tsx:459:  }, [applyFit, redraw, wsUrl]);
+./apps/web/src/TerminalHost.tsx:467:  // Socket lifecycle: ONLY depends on wsUrl. Do NOT depend on applyFit/redraw —
+./apps/web/src/TerminalHost.tsx:469:  const applyFitRef = useRef(applyFit);
+./apps/web/src/TerminalHost.tsx:470:  applyFitRef.current = applyFit;
+./apps/web/src/TerminalHost.tsx:478:    // Measure before hello so NAWS matches the real viewport
+./apps/web/src/TerminalHost.tsx:479:    const size = applyFitRef.current({ notifyMud: false });
+./apps/web/src/TerminalHost.tsx:791:          title="NAWS terminal size (cols×rows)"
+./apps/web/src/TerminalHost.tsx:856:          // Exact cell grid size from renderer (cols×cellW). Fit logic must keep
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:645:+  const cellWidthMode = useMemo(
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:660:+                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-cjk-width-impl-codex-r2.out:1338:apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+./apps/web/src/components/FontTrialPanel.tsx:51:        cellWidthScale: cfg.cellWidthScale,
+./apps/web/src/App.tsx:358:  const cellWidthMode = useMemo(
+./apps/web/src/App.tsx:1154:                  cellWidthScale={termFont.cellWidthScale}
+./apps/web/src/App.tsx:1156:                  widthMode={cellWidthMode}
+./apps/web/src/App.tsx:1598:                    Cell width ×{termFont.cellWidthScale.toFixed(2)}
+./apps/web/src/App.tsx:1603:                      value={Math.round(termFont.cellWidthScale * 100)}
+./apps/web/src/App.tsx:1608:                          cellWidthScale: Number(e.target.value) / 100,
+./apps/web/src/components/MapCompanion.tsx:272:    const baseW = api?.getCellMetrics().cellW ?? 9;
+./apps/web/src/components/MapCompanion.tsx:273:    const baseH = api?.getCellMetrics().cellH ?? 18;
+./apps/web/src/components/MapCompanion.tsx:276:    const cellW = baseW * zoom;
+./apps/web/src/components/MapCompanion.tsx:277:    const cellH = baseH * zoom;
+./apps/web/src/components/MapCompanion.tsx:290:    ctx.font = `${Math.round(cellH * 0.85)}px ${fontFamily}`;
+./apps/web/src/components/MapCompanion.tsx:303:        const x = c * cellW + pan.x;
+./apps/web/src/components/MapCompanion.tsx:304:        const y = r * cellH + pan.y;
+./apps/web/src/components/MapCompanion.tsx:305:        if (x + cellW < 0 || y + cellH < 0 || x > cssW || y > cssH) continue;
+./apps/web/src/components/MapCompanion.tsx:309:          ctx.fillRect(x, y, cellW * span, cellH);
+./apps/web/src/components/MapCompanion.tsx:320:      const x = pin.c * cellW + pan.x + cellW / 2;
+./apps/web/src/components/MapCompanion.tsx:321:      const y = pin.r * cellH + pan.y + cellH / 2;
+./apps/web/src/components/MapCompanion.tsx:324:      ctx.arc(x, y, Math.max(3, cellW * 0.35), 0, Math.PI * 2);
+./apps/web/src/components/MapCompanion.tsx:327:      ctx.font = `bold ${Math.max(9, Math.round(cellH * 0.45))}px sans-serif`;
+./apps/web/src/components/MapCompanion.tsx:337:    const baseW = api?.getCellMetrics().cellW ?? 9;
+./apps/web/src/components/MapCompanion.tsx:338:    const baseH = api?.getCellMetrics().cellH ?? 18;
+./apps/web/src/components/MapCompanion.tsx:339:    const cellW = baseW * zoom;
+./apps/web/src/components/MapCompanion.tsx:340:    const cellH = baseH * zoom;
+./apps/web/src/components/MapCompanion.tsx:341:    const c = Math.floor((clientX - rect.left - pan.x) / cellW);
+./apps/web/src/components/MapCompanion.tsx:342:    const r = Math.floor((clientY - rect.top - pan.y) / cellH);
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:695:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:994:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1000:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1027:  NAWS: 31,
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1171:/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1185:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1204:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1209:    OPT.NAWS,
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1362:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:1861:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2160:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-mccp2-impl-codex.err:2166:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/research/zmud-feature-matrix.md:35:| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/reviews/2026-07-22-auto-fit-codex.err:16:Product: **mudgate** — browser MUD client, Canvas2D dual-width (CJK) VT grid + NAWS.
+./docs/reviews/2026-07-22-auto-fit-codex.err:25:- Grid is integer cols×rows; each half-width cell has measured CSS px size (cellW/cellH from real font metrics).
+./docs/reviews/2026-07-22-auto-fit-codex.err:27:- NAWS must report the real on-screen grid.
+./docs/reviews/2026-07-22-auto-fit-codex.err:43:**F. mudgate-specific MUST_FIX** for next PR (file-level if possible: termFit.ts, canvas2d recomputeCellWidth, TerminalHost applyFit).
+./docs/reviews/round2-verify.prompt.txt:50:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/round2-verify.prompt.txt:110:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/reviews/round2-verify.prompt.txt:160:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/reviews/round2-verify.prompt.txt:366:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./docs/reviews/2026-07-22-auto-term-fit-prompt.md:3:Product: **mudgate** — browser MUD client, Canvas2D dual-width (CJK) VT grid + NAWS.
+./docs/reviews/2026-07-22-auto-term-fit-prompt.md:12:- Grid is integer cols×rows; each half-width cell has measured CSS px size (cellW/cellH from real font metrics).
+./docs/reviews/2026-07-22-auto-term-fit-prompt.md:14:- NAWS must report the real on-screen grid.
+./docs/reviews/2026-07-22-auto-term-fit-prompt.md:30:**F. mudgate-specific MUST_FIX** for next PR (file-level if possible: termFit.ts, canvas2d recomputeCellWidth, TerminalHost applyFit).
+./docs/research/zmud-input-ux.md:96:| NAWS = 真實可視格數 | ✅ | 有了 |
+./docs/reviews/phase-1a-diff.patch:180:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase-1a-diff.patch:1145:+  NAWS: 31,
+./docs/reviews/phase-1a-diff.patch:1233:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase-1a-diff.patch:1245:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase-1a-diff.patch:1264:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase-1a-diff.patch:1269:+    OPT.NAWS,
+./docs/reviews/phase-1a-diff.patch:1500:+  private cellW = 9;
+./docs/reviews/phase-1a-diff.patch:1501:+  private cellH = 16;
+./docs/reviews/phase-1a-diff.patch:1517:+    const w = buf.cols * this.cellW;
+./docs/reviews/phase-1a-diff.patch:1518:+    const h = buf.rows * this.cellH;
+./docs/reviews/phase-1a-diff.patch:1523:+    ctx.font = `${this.cellH - 2}px ui-monospace, monospace`;
+./docs/reviews/phase-1a-diff.patch:1531:+          ctx.fillRect(c * this.cellW, r * this.cellH, this.cellW, this.cellH);
+./docs/reviews/phase-1a-diff.patch:1535:+          ctx.fillText(cell.ch, c * this.cellW, r * this.cellH + 1);
+./docs/research/rw-probe-2026-07-21.md:20:| DO | 31 | **NAWS** | window size |
+./docs/reviews/round1-qwen.out:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/round1-qwen.out:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./docs/reviews/2026-07-21-w05-echo-codex.out:252:35-| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/reviews/2026-07-22-mobile-ux-kimi.out:15:- Debounce the NAWS refit in TerminalHost on visualViewport resize.
+./docs/reviews/2026-07-22-mobile-ux-kimi.out:20:- Provide a CSS-only dual layout via `@media (orientation: landscape) and (max-height: 500px)`: hide the header and thumb pad, turn the command bar into a thin 48 dp strip (bottom or right edge), and let the terminal canvas fill the rest. Recompute NAWS to gain cols (aim for 90–120) rather than rows.
+./docs/reviews/2026-07-22-mobile-ux-kimi.out:39:5. apps/web/src/lib/termFit.ts / TerminalHost: re-fit cols/rows on visualViewport resize, not just on layout ResizeObserver, and clamp to sensible mobile minimums (≥40 cols, ≥12 rows, but allow rows down to ~8 in keyboard-open portrait).
+./docs/reviews/2026-07-21-hetero-codex.err:460:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-codex.err:517:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-codex.err:621:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-codex.err:633:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-codex.err:652:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-codex.err:657:    OPT.NAWS,
+./docs/reviews/2026-07-21-hetero-codex.err:879:packages/protocol/src/telnet.ts:119:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-codex.err:976:assmud 的 `ScreenBuffer` 是 **cell grid**（一中文常佔 2 columns）。Renderer 的 `cellW` 必須讓：
+./docs/reviews/2026-07-21-hetero-codex.err:979:width(ASCII) ≈ cellW
+./docs/reviews/2026-07-21-hetero-codex.err:980:width(CJK / 全形標點 / 許多框線) ≈ 2 × cellW
+./docs/reviews/2026-07-21-hetero-codex.err:1040:  // + fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx, ligatures
+./docs/reviews/2026-07-21-hetero-codex.err:1125:| `fontSizePx` | number | 預設 14–16；影響 `cellH` |
+./docs/reviews/2026-07-21-hetero-codex.err:1126:| `cellWidthScale` | number | 0.85–1.25，乘在測得的半形寬 |
+./docs/reviews/2026-07-21-hetero-codex.err:1127:| `lineHeightScale` | number | 1.0–1.4，`cellH = fontSize * scale` |
+./docs/reviews/2026-07-21-hetero-codex.err:1134:1. `setTypography({ fontFamily, fontSizePx, cellWidthScale, lineHeightScale, letterSpacingPx })`  
+./docs/reviews/2026-07-22-mobile-ux-hetero.md:19:5. **Do not CSS-scale canvas** — refit cell grid + NAWS; measured cols/rows must not exceed stage (no minRows inflate).
+./docs/reviews/2026-07-22-mobile-ux-hetero.md:36:- `termFit`: no forced minCols/minRows above physical fit
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:453:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:508:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:612:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:624:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:643:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-r3-pack.txt:648:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.out:3:KEYBOARD: Add `interactive-widget=resizes-content` to the viewport meta as progressive enhancement, but do not depend on it alone. Drive `--app-vh` from `window.visualViewport.height` and account for `visualViewport.offsetTop`; listen to both `resize` and `scroll`, batch updates with `requestAnimationFrame`, and set the root shell to `height: var(--app-vh, 100dvh); overflow:hidden`. Use `100dvh` as fallback, not `100vh` or inherited `height:100%`. Detect keyboard-open approximately when `innerHeight - visualViewport.height > 120px` while the command input is focused. In that state hide the thumb row and terminal toolbar, compact the header, remove stage padding, and immediately refit the grid/NAWS. Call `input.scrollIntoView({block:"nearest"})` only after focus if its bounding rect is outside the visual viewport; do not force-scroll the page on every focus. `visualViewport` exposes the viewport actually visible after zoom/keyboard changes, while the Virtual Keyboard API remains limited availability, so it should not be the primary path. [Visual Viewport](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport), [Virtual Keyboard API](https://developer.mozilla.org/en-US/docs/Web/API/VirtualKeyboard_API)
+./docs/reviews/2026-07-22-mobile-ux-codex.out:15:4. In `apps/web/src/TerminalHost.tsx` and `lib/termFit.ts`, refit on every actual wrapper resize and visual-viewport transition, debounce NAWS until geometry settles, and remove the dangerous effective overflow caused by clamping to `minRows:12` when fewer than 12 rows physically fit. The reported grid must never be larger than the canvas area; permit a temporary 4–6-row emergency grid with the keyboard open.
+./docs/reviews/2026-07-22-mobile-ux-codex.out:19:- Never CSS-scale the canvas to fit a desired 80×24 grid; resize the backing grid and send the real cols×rows through NAWS.
+./docs/reviews/2026-07-22-mobile-ux-codex.out:26:- Never send continuous NAWS updates for every noisy viewport pixel; coalesce and send only changed stable cell geometry.
+./docs/reviews/2026-07-21-queue-impl-codex-r3.out:850:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-hetero-pack.txt:447:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-pack.txt:504:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-pack.txt:608:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-pack.txt:620:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-pack.txt:639:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-pack.txt:644:    OPT.NAWS,
+./docs/reviews/phase1a-r3-qwen.out:6:- apps/proxy/src/server.ts:60-61 — minor: cols/rows query params are not range-validated (NaN or >65535 yields garbage NAWS bytes via naws()); protocol-correctness issue only, no privilege impact. Clamp to 1–511 / 1–511 or default on parse failure.
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:697:        cellWidthScale: cfg.cellWidthScale,
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2346:                  cellWidthScale={termFont.cellWidthScale}
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2348:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2398:        cellWidthScale,
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2404:  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2411:      cellWidthScale,
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2415:  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2636:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-agy.out:13:  - Terminal Stage (Flex 1 / ~70–75%): Recalculates rows via NAWS (~12–16 rows × 80 cols).
+./docs/reviews/2026-07-22-mobile-ux-agy.out:20:- Terminal Recalculation: Debounce `window.visualViewport` resize events (via `requestAnimationFrame`) to re-trigger terminal cell fit and dispatch updated NAWS telnet signal (`cols`, `rows`).
+./docs/reviews/2026-07-22-mobile-ux-agy.out:25:  - Left Stage (80% width / Flex 1): Full-height Canvas2D terminal stage maximizing NAWS cols (80–120+ cols × 24–30 rows).
+./docs/reviews/2026-07-22-mobile-ux-agy.out:41:2. `TerminalHost.tsx` / `fit.ts`: Calculate Canvas HTML element width/height using exact integer multiples of cell dimensions (`cols * cellWidth`, `rows * cellHeight`) updated on `visualViewport` resize. Never rely on CSS `width: 100%` canvas stretch.
+./docs/reviews/phase1a-postfix-pack-r4.md:389:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-postfix-pack-r4.md:509:  NAWS: 31,
+./docs/reviews/phase1a-postfix-pack-r4.md:613:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-postfix-pack-r4.md:625:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-postfix-pack-r4.md:644:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-postfix-pack-r4.md:649:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:7:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:649:apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:719:./apps/web/src/App.tsx:502:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1170:  const cellWidthMode = useMemo(
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1249:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1675:+  const cellWidthMode = useMemo(
+./docs/reviews/2026-07-21-cjk-width-impl-codex.out:1690:+                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-queue-impl-codex.out:1858:   137	  cellWidthScale: number;
+./docs/reviews/2026-07-21-queue-impl-codex.out:1870:   149	  cellWidthScale: 1,
+./docs/reviews/2026-07-21-queue-impl-codex.out:2013:    51	        cellWidthScale: cfg.cellWidthScale,
+./docs/reviews/2026-07-21-queue-impl-codex.out:2637:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex.out:3484:   140	  const cellWidthMode = useMemo(
+./docs/reviews/2026-07-21-queue-impl-codex.out:4604:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-queue-impl-codex.out:5365:apps/web/src/TerminalHost.tsx:150:  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+./docs/reviews/2026-07-21-queue-impl-codex.out:5368:apps/web/src/TerminalHost.tsx:161:  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+./docs/reviews/2026-07-21-queue-impl-codex.out:5767:   140	  const cellWidthMode = useMemo(
+./docs/reviews/2026-07-21-queue-impl-codex.out:6056:   557	                  cellWidthScale={termFont.cellWidthScale}
+./docs/reviews/2026-07-21-queue-impl-codex.out:6058:   559	                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-21-queue-impl-codex.out:6140:    51	        cellWidthScale: cfg.cellWidthScale,
+./docs/reviews/phase1a-qwen.prompt.txt:212:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-qwen.prompt.txt:1177:+  NAWS: 31,
+./docs/reviews/phase1a-qwen.prompt.txt:1265:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-qwen.prompt.txt:1277:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-qwen.prompt.txt:1296:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-qwen.prompt.txt:1301:+    OPT.NAWS,
+./docs/reviews/phase1a-qwen.prompt.txt:1532:+  private cellW = 9;
+./docs/reviews/phase1a-qwen.prompt.txt:1533:+  private cellH = 16;
+./docs/reviews/phase1a-qwen.prompt.txt:1549:+    const w = buf.cols * this.cellW;
+./docs/reviews/phase1a-qwen.prompt.txt:1550:+    const h = buf.rows * this.cellH;
+./docs/reviews/phase1a-qwen.prompt.txt:1555:+    ctx.font = `${this.cellH - 2}px ui-monospace, monospace`;
+./docs/reviews/phase1a-qwen.prompt.txt:1563:+          ctx.fillRect(c * this.cellW, r * this.cellH, this.cellW, this.cellH);
+./docs/reviews/phase1a-qwen.prompt.txt:1567:+          ctx.fillText(cell.ch, c * this.cellW, r * this.cellH + 1);
+./docs/reviews/round1-qwen.md:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/round1-qwen.md:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./docs/reviews/full-land-pack.md:672:  NAWS: 31,
+./docs/reviews/full-land-pack.md:776:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/full-land-pack.md:788:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/full-land-pack.md:807:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/full-land-pack.md:812:    OPT.NAWS,
+./docs/reviews/full-land-pack.md:1223:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/round1-qwen.prompt.txt:135:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/round1-qwen.prompt.txt:195:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/round1-qwen.prompt.txt:367:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/round1-qwen.prompt.txt:639:| DO | 31 | **NAWS** | window size |
+./docs/reviews/phase1a-postfix-pack.md:329:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/phase1a-postfix-pack.md:449:  NAWS: 31,
+./docs/reviews/phase1a-postfix-pack.md:537:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/phase1a-postfix-pack.md:549:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/phase1a-postfix-pack.md:568:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/phase1a-postfix-pack.md:573:    OPT.NAWS,
+./docs/reviews/2026-07-21-plan-pack-r6.md:84:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-21-plan-pack-r6.md:144:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/2026-07-21-plan-pack-r6.md:316:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/2026-07-21-plan-pack-r6.md:588:| DO | 31 | **NAWS** | window size |
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:828:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1089:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1091:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1120:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1615:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2428:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2615:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2617:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2646:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-r3-codex.err:466:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-21-hetero-r3-codex.err:521:  NAWS: 31,
+./docs/reviews/2026-07-21-hetero-r3-codex.err:625:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-21-hetero-r3-codex.err:637:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-21-hetero-r3-codex.err:656:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-21-hetero-r3-codex.err:661:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:20:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:67:/usr/bin/zsh -lc "rg --files -g '"'!*node_modules*'"' | sed -n '1,160p' && rg -n \"visualViewport|dvh|viewport|orientation|NAWS|TerminalHost|thumb|Send|map toggle|mapToggle|footer|canvas\" . -g '"'!*node_modules*'"' -g '"'!dist/*'"'" in /home/cookys/projects/mudgate
+./docs/reviews/2026-07-22-mobile-ux-codex.err:219:apps/web/src/lib/termFit.ts
+./docs/reviews/2026-07-22-mobile-ux-codex.err:230:./docs/plans/2026-07-21-rw-connect-protocols.md:16:| **Wire** | Telnet IAC、TTYPE、NAWS、ECHO | 連線／密碼遮罩／視窗大小 |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:231:./docs/plans/2026-07-21-rw-connect-protocols.md:35:| DO | **NAWS** | 必須回視窗 cols×rows |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:232:./docs/plans/2026-07-21-rw-connect-protocols.md:50:| TTYPE / NAWS | ✅ proxy bridge 協商 |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:233:./docs/plans/2026-07-21-rw-connect-protocols.md:67:2. **TTYPE + NAWS** 正確  
+./docs/reviews/2026-07-22-mobile-ux-codex.err:238:./packages/protocol/src/telnet.ts:15:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:239:./packages/protocol/src/telnet.ts:160: * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:240:./packages/protocol/src/telnet.ts:188:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:241:./packages/protocol/src/telnet.ts:207:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:242:./packages/protocol/src/telnet.ts:212:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:244:./docs/architecture.md:24:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:269:./docs/plans/2026-07-21-web-zmud-rw.md:32:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:270:./docs/plans/2026-07-21-web-zmud-rw.md:92:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:273:./docs/plans/2026-07-21-web-zmud-rw.md:142:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:275:./docs/plans/2026-07-21-web-zmud-rw.md:270:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/2026-07-22-mobile-ux-codex.err:286:./docs/research/zmud-feature-matrix.md:35:| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:292:./docs/research/zmud-input-ux.md:96:| NAWS = 真實可視格數 | ✅ | 有了 |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:318:./apps/web/src/lib/mudSocket.ts:184:  /** Send a JSON control frame (e.g. mid-session NAWS resize). */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:338:./apps/web/src/lib/termFit.ts:1:/** Fit terminal cell grid into a CSS-pixel viewport. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:382:./docs/reviews/round2-verify.prompt.txt:50:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:383:./docs/reviews/round2-verify.prompt.txt:110:- Support Telnet option negotiation at least for: TTYPE, NAWS. **Phase 1a MUST reply `DONT MCCP2`** (and refuse options not yet implemented). Optional **DO MCCP2 + inflate** only from Phase 3+. MSSP optional; MXP off until sanitizer green.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:386:./docs/reviews/round2-verify.prompt.txt:160:- Telnet: TTYPE/NAWS; **`DONT MCCP2`** (and refuse unimplemented options).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:388:./docs/reviews/round2-verify.prompt.txt:366:**NAWS**: client reports real cols/rows from the terminal host. If viewport &lt; map ideal width (e.g. city 25), server may clip; client does not fake 80×24 on a 40-col phone unless user opts into “fixed geometry” later.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:412:./docs/reviews/round1-qwen.out:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:413:./docs/reviews/round1-qwen.out:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:414:./docs/reviews/2026-07-21-mccp2-impl-codex.err:695:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:415:./docs/reviews/2026-07-21-mccp2-impl-codex.err:994:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:416:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1000:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:417:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1027:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:418:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1171:/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:419:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1185:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:420:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1204:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:421:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1209:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:422:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1362:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:427:./docs/reviews/2026-07-21-mccp2-impl-codex.err:1861:       } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:428:./docs/reviews/2026-07-21-mccp2-impl-codex.err:2160:-/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:429:./docs/reviews/2026-07-21-mccp2-impl-codex.err:2166:+/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:456:./docs/reviews/phase-1a-diff.patch:180:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:471:./docs/reviews/phase-1a-diff.patch:1145:+  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:472:./docs/reviews/phase-1a-diff.patch:1233:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:473:./docs/reviews/phase-1a-diff.patch:1245:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:474:./docs/reviews/phase-1a-diff.patch:1264:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:475:./docs/reviews/phase-1a-diff.patch:1269:+    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:511:./apps/web/src/TerminalHost.tsx:172:  /** Live grid size reported in hello + mid-session NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:516:./apps/web/src/TerminalHost.tsx:325:    // Font metrics change cell size → re-fit grid and NAWS
+./docs/reviews/2026-07-22-mobile-ux-codex.err:517:./apps/web/src/TerminalHost.tsx:371:    // Measure before hello so NAWS matches the real viewport
+./docs/reviews/2026-07-22-mobile-ux-codex.err:525:./apps/web/src/TerminalHost.tsx:683:          title="NAWS terminal size (cols×rows)"
+./docs/reviews/2026-07-22-mobile-ux-codex.err:531:./docs/research/rw-probe-2026-07-21.md:20:| DO | 31 | **NAWS** | window size |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:533:./apps/web/tests/termFit.test.ts:5:  it("floors grid to fit viewport without clipping", () => {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:535:./docs/reviews/2026-07-21-hetero-pack.txt:447:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:536:./docs/reviews/2026-07-21-hetero-pack.txt:504:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:537:./docs/reviews/2026-07-21-hetero-pack.txt:608:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:538:./docs/reviews/2026-07-21-hetero-pack.txt:620:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:539:./docs/reviews/2026-07-21-hetero-pack.txt:639:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:540:./docs/reviews/2026-07-21-hetero-pack.txt:644:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:545:./docs/reviews/2026-07-21-w05-echo-codex.out:252:35-| W04 | NAWS（視窗大小） | ✅ | **必須** | done | P0 | RW DO 31；hello cols/rows |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:551:./docs/reviews/2026-07-21-hetero-codex.err:460:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:552:./docs/reviews/2026-07-21-hetero-codex.err:517:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:553:./docs/reviews/2026-07-21-hetero-codex.err:621:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:554:./docs/reviews/2026-07-21-hetero-codex.err:633:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:555:./docs/reviews/2026-07-21-hetero-codex.err:652:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:556:./docs/reviews/2026-07-21-hetero-codex.err:657:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:560:./docs/reviews/2026-07-21-hetero-codex.err:879:packages/protocol/src/telnet.ts:119:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:569:./docs/reviews/2026-07-22-mobile-ux-codex.err:20:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:581:./docs/reviews/phase1a-r3-qwen.out:6:- apps/proxy/src/server.ts:60-61 — minor: cols/rows query params are not range-validated (NaN or >65535 yields garbage NAWS bytes via naws()); protocol-correctness issue only, no privilege impact. Clamp to 1–511 / 1–511 or default on parse failure.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:590:./docs/reviews/2026-07-21-queue-impl-codex-r3.out:850:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:606:./docs/reviews/2026-07-21-hetero-r3-codex.err:466:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:607:./docs/reviews/2026-07-21-hetero-r3-codex.err:521:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:608:./docs/reviews/2026-07-21-hetero-r3-codex.err:625:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:609:./docs/reviews/2026-07-21-hetero-r3-codex.err:637:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:610:./docs/reviews/2026-07-21-hetero-r3-codex.err:656:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:611:./docs/reviews/2026-07-21-hetero-r3-codex.err:661:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:620:./docs/reviews/full-land-pack.md:672:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:621:./docs/reviews/full-land-pack.md:776:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:622:./docs/reviews/full-land-pack.md:788:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:623:./docs/reviews/full-land-pack.md:807:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:624:./docs/reviews/full-land-pack.md:812:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:625:./docs/reviews/full-land-pack.md:1223:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:642:./docs/reviews/phase1a-qwen.prompt.txt:212:+      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:657:./docs/reviews/phase1a-qwen.prompt.txt:1177:+  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:658:./docs/reviews/phase1a-qwen.prompt.txt:1265:+/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:659:./docs/reviews/phase1a-qwen.prompt.txt:1277:+  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:660:./docs/reviews/phase1a-qwen.prompt.txt:1296:+/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:661:./docs/reviews/phase1a-qwen.prompt.txt:1301:+    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:678:./docs/reviews/2026-07-21-hetero-r3-pack.txt:453:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:679:./docs/reviews/2026-07-21-hetero-r3-pack.txt:508:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:680:./docs/reviews/2026-07-21-hetero-r3-pack.txt:612:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:681:./docs/reviews/2026-07-21-hetero-r3-pack.txt:624:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:682:./docs/reviews/2026-07-21-hetero-r3-pack.txt:643:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:683:./docs/reviews/2026-07-21-hetero-r3-pack.txt:648:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:686:./docs/reviews/phase1a-postfix-pack.md:329:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:687:./docs/reviews/phase1a-postfix-pack.md:449:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:688:./docs/reviews/phase1a-postfix-pack.md:537:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:689:./docs/reviews/phase1a-postfix-pack.md:549:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:690:./docs/reviews/phase1a-postfix-pack.md:568:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:691:./docs/reviews/phase1a-postfix-pack.md:573:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:704:./docs/reviews/phase1a-postfix-pack-r4.md:389:      } else if (ev.type === "do" && ev.option === OPT.NAWS) {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:705:./docs/reviews/phase1a-postfix-pack-r4.md:509:  NAWS: 31,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:706:./docs/reviews/phase1a-postfix-pack-r4.md:613:/** Phase 1a negotiation replies per plan: refuse MCCP2/MXP, accept TTYPE/NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:707:./docs/reviews/phase1a-postfix-pack-r4.md:625:  if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:708:./docs/reviews/phase1a-postfix-pack-r4.md:644:/** IAC SB NAWS width height IAC SE (16-bit big-endian each) */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:709:./docs/reviews/phase1a-postfix-pack-r4.md:649:    OPT.NAWS,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:723:./apps/proxy/src/bridge.ts:83:  /** Mutable — client may send mid-session resize / NAWS updates. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:724:./apps/proxy/src/bridge.ts:253:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:757:./docs/reviews/2026-07-21-queue-impl-codex-r2.out:2636:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:793:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:828:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:802:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1089:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:803:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1091:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:804:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1120:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:815:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:1615:        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:822:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2428:         if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:831:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2615:-/** Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:832:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2617:+ * Negotiation replies: TTYPE/NAWS accept; MXP refuse; MCCP2 flag-gated;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:833:./docs/reviews/2026-07-21-w05-echo-impl-codex.out:2646:   if (option === OPT.NAWS) return cmd(WILL, OPT.NAWS);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:839:./docs/reviews/round1-qwen.prompt.txt:135:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:840:./docs/reviews/round1-qwen.prompt.txt:195:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:844:./docs/reviews/round1-qwen.prompt.txt:367:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/2026-07-22-mobile-ux-codex.err:848:./docs/reviews/round1-qwen.prompt.txt:639:| DO | 31 | **NAWS** | window size |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:861:./docs/reviews/2026-07-22-mobile-portrait-landscape-prompt.md:7:- Terminal is a **fixed cell grid** (cols×rows via NAWS). Canvas must not CSS-stretch and freckle glyphs.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:871:./docs/reviews/round1-qwen.md:24:- **NAWS ↔ renderer coupling unspecified.** City map is 25×9, area 31×9. If the browser canvas is 80×24 but the phone is 40×20, NAWS tells the server different sizes. The plan doesn't state whether the renderer forces a minimum col/row or lets the server clip. A one-line rule in architecture.md would prevent surprises.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:872:./docs/reviews/round1-qwen.md:40:- Add NAWS ↔ minimum viewport rule to architecture.md (what happens when phone cols < map width).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:878:./apps/proxy/tests/mccp-bridge.test.ts:256:  it("DO NAWS replies with hello cols/rows", async () => {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:879:./apps/proxy/tests/mccp-bridge.test.ts:266:    sock.emit("data", Buffer.from([IAC, DO, OPT.NAWS]));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:880:./apps/proxy/tests/mccp-bridge.test.ts:272:  it("client JSON naws resize updates and re-sends NAWS", async () => {
+./docs/reviews/2026-07-22-mobile-ux-codex.err:895:./docs/reviews/2026-07-21-queue-impl-codex.out:2637:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:898:./docs/reviews/2026-07-21-queue-impl-codex.out:4604:   172	        if (ev.option === OPT.NAWS) sendTcp(naws(cols, rows));
+./docs/reviews/2026-07-22-mobile-ux-codex.err:908:./docs/reviews/2026-07-21-queue-impl-codex.out:5365:apps/web/src/TerminalHost.tsx:150:  }, [redraw, terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale]);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:911:./docs/reviews/2026-07-21-queue-impl-codex.out:5368:apps/web/src/TerminalHost.tsx:161:  }, [terminalFontStack, fontSizePx, cellWidthScale, lineHeightScale, redraw]);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:928:./docs/reviews/2026-07-21-plan-pack-r6.md:84:- Server advertises: **TTYPE, NAWS, MCCP2, MXP, MSSP**.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:929:./docs/reviews/2026-07-21-plan-pack-r6.md:144:- Support Telnet option negotiation at least for: TTYPE, NAWS; optionally MCCP2, MSSP, MXP (MXP must be sanitized — XSS).
+./docs/reviews/2026-07-22-mobile-ux-codex.err:933:./docs/reviews/2026-07-21-plan-pack-r6.md:316:- R1 2026-07-21 — live TCP probe: BIG5 + MCCP2/MXP/MSSP/TTYPE/NAWS; TCP-first wording; dual-color + WASM notes
+./docs/reviews/2026-07-22-mobile-ux-codex.err:937:./docs/reviews/2026-07-21-plan-pack-r6.md:588:| DO | 31 | **NAWS** | window size |
+./docs/reviews/2026-07-22-mobile-ux-codex.err:986:/usr/bin/zsh -lc "sed -n '1,260p' apps/web/src/index.css; sed -n '430,680p' apps/web/src/App.tsx; sed -n '1,260p' apps/web/src/TerminalHost.tsx; cat apps/web/src/lib/termFit.ts; cat apps/web/index.html" in /home/cookys/projects/mudgate
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1268:import { fitTermSize, TERM_FIT } from "./lib/termFit";
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1277:    cellW: number;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1278:    cellH: number;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1315:  cellWidthScale?: number;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1369:  cellWidthScale = 1,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1404:        cellW: rendererRef.current.cellW,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1405:        cellH: rendererRef.current.cellH,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1420:  /** Live grid size reported in hello + mid-session NAWS. */
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1473:  const applyFit = useCallback(
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1481:      const next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1529:  cellW: number,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1530:  cellH: number,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1532:  const cw = Math.max(1, cellW);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1533:  const ch = Math.max(1, cellH);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1866:                  cellWidthScale={termFont.cellWidthScale}
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1868:                  widthMode={cellWidthMode}
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1957:        cellWidthScale,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1961:    applyFit({ notifyMud: false });
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1964:    applyFit,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1967:    cellWidthScale,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1976:      cellWidthScale,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1979:    // Font metrics change cell size → re-fit grid and NAWS
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1980:    applyFit({ notifyMud: true });
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1984:    cellWidthScale,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1986:    applyFit,
+./docs/reviews/2026-07-22-mobile-ux-codex.err:1998:        applyFit({ notifyMud: Boolean(socketRef.current) });
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2006:  }, [applyFit, wsUrl]);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2014:  // Socket lifecycle: ONLY depends on wsUrl. Do NOT depend on applyFit/redraw —
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2016:  const applyFitRef = useRef(applyFit);
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2017:  applyFitRef.current = applyFit;
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2025:    // Measure before hello so NAWS matches the real viewport
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2026:    const size = applyFitRef.current({ notifyMud: false });
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2330:          title="NAWS terminal size (cols×rows)"
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2654:KEYBOARD: Add `interactive-widget=resizes-content` to the viewport meta as progressive enhancement, but do not depend on it alone. Drive `--app-vh` from `window.visualViewport.height` and account for `visualViewport.offsetTop`; listen to both `resize` and `scroll`, batch updates with `requestAnimationFrame`, and set the root shell to `height: var(--app-vh, 100dvh); overflow:hidden`. Use `100dvh` as fallback, not `100vh` or inherited `height:100%`. Detect keyboard-open approximately when `innerHeight - visualViewport.height > 120px` while the command input is focused. In that state hide the thumb row and terminal toolbar, compact the header, remove stage padding, and immediately refit the grid/NAWS. Call `input.scrollIntoView({block:"nearest"})` only after focus if its bounding rect is outside the visual viewport; do not force-scroll the page on every focus. `visualViewport` exposes the viewport actually visible after zoom/keyboard changes, while the Virtual Keyboard API remains limited availability, so it should not be the primary path. [Visual Viewport](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport), [Virtual Keyboard API](https://developer.mozilla.org/en-US/docs/Web/API/VirtualKeyboard_API)
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2666:4. In `apps/web/src/TerminalHost.tsx` and `lib/termFit.ts`, refit on every actual wrapper resize and visual-viewport transition, debounce NAWS until geometry settles, and remove the dangerous effective overflow caused by clamping to `minRows:12` when fewer than 12 rows physically fit. The reported grid must never be larger than the canvas area; permit a temporary 4–6-row emergency grid with the keyboard open.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2670:- Never CSS-scale the canvas to fit a desired 80×24 grid; resize the backing grid and send the real cols×rows through NAWS.
+./docs/reviews/2026-07-22-mobile-ux-codex.err:2677:- Never send continuous NAWS updates for every noisy viewport pixel; coalesce and send only changed stable cell geometry.
+./packages/terminal/src/canvas2d.ts:45:  cellW = 9;
+./packages/terminal/src/canvas2d.ts:46:  cellH = 18;
+./packages/terminal/src/canvas2d.ts:76:   * makes cols×cellW wider than the stage and clips MUD text on phones).
+./packages/terminal/src/canvas2d.ts:81:    cellWidthScale?: number;
+./packages/terminal/src/canvas2d.ts:88:    this.widthScale = opts.cellWidthScale ?? 1;
+./packages/terminal/src/canvas2d.ts:90:    this.cellH = Math.max(12, Math.round(size * lineScale));
+./packages/terminal/src/canvas2d.ts:91:    this.recomputeCellWidth();
+./packages/terminal/src/canvas2d.ts:98:  recomputeCellWidth(): void {
+./packages/terminal/src/canvas2d.ts:99:    const fontPx = Math.max(10, this.cellH - 4);
+./packages/terminal/src/canvas2d.ts:106:      this.cellW = heuristic;
+./packages/terminal/src/canvas2d.ts:117:      this.cellW = heuristic;
+./packages/terminal/src/canvas2d.ts:120:    this.cellW = Math.max(
+./packages/terminal/src/canvas2d.ts:130:    const fontPx = Math.max(10, this.cellH - 4);
+./packages/terminal/src/canvas2d.ts:143:    const x = ((clientX - rect.left) / rect.width) * this.lastCols * this.cellW;
+./packages/terminal/src/canvas2d.ts:144:    const y = ((clientY - rect.top) / rect.height) * this.lastRows * this.cellH;
+./packages/terminal/src/canvas2d.ts:145:    const c = Math.floor(x / this.cellW);
+./packages/terminal/src/canvas2d.ts:146:    const r = Math.floor(y / this.cellH);
+./packages/terminal/src/canvas2d.ts:182:    const cssW = buf.cols * this.cellW;
+./packages/terminal/src/canvas2d.ts:183:    const cssH = buf.rows * this.cellH;
+./packages/terminal/src/canvas2d.ts:195:    const fontPx = Math.max(10, this.cellH - 4);
+./packages/terminal/src/canvas2d.ts:215:              Math.round(col * this.cellW),
+./packages/terminal/src/canvas2d.ts:216:              Math.round(r * this.cellH + 1),
+./packages/terminal/src/canvas2d.ts:228:        const x = c * this.cellW;
+./packages/terminal/src/canvas2d.ts:229:        const y = r * this.cellH;
+./packages/terminal/src/canvas2d.ts:232:          ctx.fillRect(x, y, this.cellW, this.cellH);
+./packages/terminal/src/canvas2d.ts:278:        ca * this.cellW,
+./packages/terminal/src/canvas2d.ts:279:        vr * this.cellH,
+./packages/terminal/src/canvas2d.ts:280:        (cb - ca + 1) * this.cellW,
+./packages/terminal/src/canvas2d.ts:281:        this.cellH,
+./packages/terminal/src/buffer.ts:161:   * orientation / NAWS refits do not blank the screen mid-session.
+
+2026-07-22T08:18:08.538109Z ERROR codex_core::tools::router: error=Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork.
+exec
+/usr/bin/zsh -lc "sed -n '1,180p' apps/web/src/lib/termFit.ts; sed -n '60,150p' packages/terminal/src/canvas2d.ts; sed -n '210,330p' apps/web/src/TerminalHost.tsx; sed -n '350,430p' apps/web/src/TerminalHost.tsx" in /home/cookys/projects/mudgate
+ succeeded in 0ms:
+/** Fit terminal cell grid into a CSS-pixel viewport. */
+
+export type TermFit = { cols: number; rows: number };
+
+export const TERM_FIT = {
+  /** Soft preference only — never force above what the stage can hold. */
+  preferredMinCols: 40,
+  preferredMinRows: 12,
+  /** Phone portrait targets (auto-shrink font until met or min font). */
+  mobileTargetCols: 52,
+  mobileTargetRows: 22,
+  mobileMinFontPx: 11,
+  mobileMinLineScale: 1.05,
+  /** Hard floor when stage is tiny (keyboard open). */
+  emergencyMinCols: 20,
+  emergencyMinRows: 4,
+  maxCols: 200,
+  maxRows: 80,
+  defaultCols: 80,
+  defaultRows: 28,
+} as const;
+
+/** Shrink fit so grid never exceeds stage pixels. */
+export function clampFitToStage(
+  fit: TermFit,
+  cssW: number,
+  cssH: number,
+  cellW: number,
+  cellH: number,
+): TermFit {
+  let cols = fit.cols;
+  let rows = fit.rows;
+  const cw = Math.max(1, cellW);
+  const ch = Math.max(1, cellH);
+  while (cols > 1 && cols * cw > cssW) cols -= 1;
+  while (rows > 1 && rows * ch > cssH) rows -= 1;
+  return { cols, rows };
+}
+
+/**
+ * Compute cols/rows that fit `cssW`×`cssH` at the given cell size.
+ * Floor so the full grid is always visible (no clipped bottom half).
+ * Never inflate cols/rows past what physically fits — that overflowed mobile.
+ */
+export function fitTermSize(
+  cssW: number,
+  cssH: number,
+  cellW: number,
+  cellH: number,
+): TermFit {
+  const cw = Math.max(1, cellW);
+  const ch = Math.max(1, cellH);
+  const rawCols = Math.floor(Math.max(0, cssW) / cw);
+  const rawRows = Math.floor(Math.max(0, cssH) / ch);
+  // If measurement failed, fall back to defaults (desktop first paint).
+  if (rawCols < 1 || rawRows < 1) {
+    return { cols: TERM_FIT.defaultCols, rows: TERM_FIT.defaultRows };
+  }
+  // Never inflate past physical fit (that overflowed mobile). Soft prefs are docs only.
+  return {
+    cols: Math.min(TERM_FIT.maxCols, Math.max(1, rawCols)),
+    rows: Math.min(TERM_FIT.maxRows, Math.max(1, rawRows)),
+  };
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, Math.trunc(n)));
+}
+  dispose(): void {
+    this.canvas = null;
+    this.ctx = null;
+  }
+
+  setFontFamily(family: string): void {
+    this.fontFamily = family;
+  }
+
+  private widthScale = 1;
+  private letterSpacingPx = 0;
+
+  /**
+   * Apply typography for dual-width mono stacks.
+   * fontFamily should already be a full CSS stack (primary + TC fallbacks).
+   * Cell width prefers **measured** mono advance (never under-estimate — that
+   * makes cols×cellW wider than the stage and clips MUD text on phones).
+   */
+  setTypography(opts: {
+    fontFamily: string;
+    fontSizePx?: number;
+    cellWidthScale?: number;
+    lineHeightScale?: number;
+    letterSpacingPx?: number;
+  }): void {
+    this.fontFamily = opts.fontFamily;
+    const size = opts.fontSizePx ?? 15;
+    const lineScale = opts.lineHeightScale ?? 1.2;
+    this.widthScale = opts.cellWidthScale ?? 1;
+    this.letterSpacingPx = opts.letterSpacingPx ?? 0;
+    this.cellH = Math.max(12, Math.round(size * lineScale));
+    this.recomputeCellWidth();
+  }
+
+  /**
+   * Re-measure half-width cell from real font metrics (call after mount / fonts.ready).
+   * Uses ceil so grid never claims more columns than glyphs can paint without overflow.
+   */
+  recomputeCellWidth(): void {
+    const fontPx = Math.max(10, this.cellH - 4);
+    const heuristic = Math.max(
+      6,
+      Math.round(fontPx * 0.6 * this.widthScale + this.letterSpacingPx),
+    );
+    const ctx = this.ctx;
+    if (!ctx) {
+      this.cellW = heuristic;
+      return;
+    }
+    ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
+    // Max of common mono probes — under-estimate is what overflowed the phone stage
+    const wM = ctx.measureText("M").width || 0;
+    const w0 = ctx.measureText("0").width || 0;
+    const wW = ctx.measureText("W").width || 0;
+    // Fonts not ready → measureText often returns 0; never use 1px cells (→ huge cols)
+    const measured = Math.max(wM, w0, wW);
+    if (measured < 4) {
+      this.cellW = heuristic;
+      return;
+    }
+    this.cellW = Math.max(
+      6,
+      Math.ceil(measured * this.widthScale + this.letterSpacingPx),
+    );
+  }
+
+  /** alignScore ≈ width(中)/width(M); ideal ~2.0 for dual-width. */
+  measureAlignScore(): number {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const fontPx = Math.max(10, this.cellH - 4);
+    ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
+    const wM = ctx.measureText("M").width || 1;
+    const wC = ctx.measureText("中").width || 0;
+    return wC / wM;
+  }
+
+  /** Map pointer client coords → cell index. */
+  hitTest(clientX: number, clientY: number): { r: number; c: number } | null {
+    const canvas = this.canvas;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const x = ((clientX - rect.left) / rect.width) * this.lastCols * this.cellW;
+    const y = ((clientY - rect.top) / rect.height) * this.lastRows * this.cellH;
+    const c = Math.floor(x / this.cellW);
+    const r = Math.floor(y / this.cellH);
+    if (r < 0 || c < 0 || r >= this.lastRows || c >= this.lastCols) return null;
+    return { r, c };
+  }
+
+    );
+  }, []);
+
+  const setViewOffset = useCallback(
+    (next: number) => {
+      const max = bufRef.current.scrollbackDepth();
+      const o = Math.max(0, Math.min(Math.floor(next), max));
+      scrollOffsetRef.current = o;
+      setScrollOffset(o);
+      redraw();
+    },
+    [redraw],
+  );
+
+  /** Fit buffer + canvas to wrap; notify MUD via hello (initial) or JSON naws. */
+  const applyFit = useCallback(
+    (opts?: { notifyMud?: boolean }) => {
+      const wrap = wrapRef.current;
+      const r = rendererRef.current;
+      if (!wrap) return termSizeRef.current;
+      const cssW = wrap.clientWidth;
+      const cssH = wrap.clientHeight;
+      if (cssW < 20 || cssH < 20) {
+        // Mid-orientation layout often reports 0 — keep prior size, still try paint
+        redraw();
+        return termSizeRef.current;
+      }
+
+      // Narrow / short stages (phone portrait, short landscape): auto-compact font
+      // so we approach ~52×22 instead of ~38×14 at desktop 15px settings.
+      const narrow = cssW < 560;
+      const short = cssH < 640;
+      let size = fontSizePx;
+      let line = lineHeightScale;
+      let next = { cols: 80, rows: 24 };
+      const family =
+        terminalFontStack ||
+        '"Sarasa Term TC", "Noto Sans Mono CJK TC", ui-monospace, monospace';
+
+      for (let step = 0; step < 16; step++) {
+        r.setTypography({
+          fontFamily: family,
+          fontSizePx: size,
+          cellWidthScale,
+          lineHeightScale: line,
+        });
+        next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
+        next = clampFitToStage(next, cssW, cssH, r.cellW, r.cellH);
+
+        const colsOk = !narrow || next.cols >= TERM_FIT.mobileTargetCols;
+        const rowsOk = !short || next.rows >= TERM_FIT.mobileTargetRows;
+        if (colsOk && rowsOk) break;
+        if (
+          size <= TERM_FIT.mobileMinFontPx &&
+          line <= TERM_FIT.mobileMinLineScale
+        ) {
+          break;
+        }
+        // Prefer shrinking width first (banner/map_d), then line height for rows
+        if (narrow && next.cols < TERM_FIT.mobileTargetCols) {
+          size = Math.max(TERM_FIT.mobileMinFontPx, size - 0.5);
+        } else if (short && next.rows < TERM_FIT.mobileTargetRows) {
+          line = Math.max(
+            TERM_FIT.mobileMinLineScale,
+            Math.round((line - 0.03) * 100) / 100,
+          );
+        } else {
+          break;
+        }
+      }
+
+      const prev = termSizeRef.current;
+      const changed = prev.cols !== next.cols || prev.rows !== next.rows;
+      termSizeRef.current = next;
+      if (changed) {
+        // Preserve overlapping cells — blanking made landscape look "empty"
+        bufRef.current.resize(next.cols, next.rows);
+        setTermSizeLabel(`${next.cols}×${next.rows}`);
+        selRef.current = null;
+        setSelection(null);
+        scrollOffsetRef.current = 0;
+        setScrollOffset(0);
+        if (opts?.notifyMud) {
+          socketRef.current?.sendJson({
+            type: "naws",
+            cols: next.cols,
+            rows: next.rows,
+          });
+        }
+      } else {
+        setTermSizeLabel(`${next.cols}×${next.rows}`);
+      }
+      // Always redraw: canvas.width assignment clears the bitmap on rotate
+      redraw();
+      return next;
+    },
+    [
+      redraw,
+      fontSizePx,
+      lineHeightScale,
+      cellWidthScale,
+      terminalFontStack,
+    ],
+  );
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 1600);
+  };
+
+  const copyText = async (
+    kind: "plain" | "ansi",
+    scope: "selection" | "screen" | "history",
+  ) => {
+    const buf = bufRef.current;
+    const sel = selRef.current;
+    let text: string;
+    if (scope === "history") {
+      text = buf.snapshotScrollbackPlain();
+    } else if (scope === "selection" && sel) {
+      // Selection uses absolute document rows (follows text when scrolled)
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    rendererRef.current.mount(canvas);
+    if (terminalFontStack) {
+      rendererRef.current.setTypography({
+        fontFamily: terminalFontStack,
+        fontSizePx,
+        cellWidthScale,
+        lineHeightScale,
+      });
+    }
+    applyFit({ notifyMud: false });
+    // Web fonts often load after first paint — remeasure + refit so grid fits phone
+    let cancelled = false;
+    const fonts = document.fonts;
+    const afterFonts = () => {
+      if (cancelled) return;
+      rendererRef.current.recomputeCellWidth();
+      applyFit({ notifyMud: Boolean(socketRef.current) });
+    };
+    if (fonts?.ready) {
+      void fonts.ready.then(afterFonts);
+    }
+    return () => {
+      cancelled = true;
+      rendererRef.current.dispose();
+    };
+  }, [
+    applyFit,
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+  ]);
+
+  useEffect(() => {
+    if (!terminalFontStack) return;
+    rendererRef.current.setTypography({
+      fontFamily: terminalFontStack,
+      fontSizePx,
+      cellWidthScale,
+      lineHeightScale,
+    });
+    // Font metrics change cell size → re-fit grid and NAWS
+    applyFit({ notifyMud: true });
+  }, [
+    terminalFontStack,
+    fontSizePx,
+    cellWidthScale,
+    lineHeightScale,
+    applyFit,
+  ]);
+
+  // Observe terminal stage size (window / drawer / map panel / soft keyboard /
+  // portrait↔landscape). Multiple delayed passes — mid-rotation layout is often 0×0.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let raf = 0;
+    const timers: number[] = [];
+    const runFit = () => {
+      applyFit({ notifyMud: Boolean(socketRef.current) });
+      // Always repaint even if cols×rows unchanged (canvas buffer was cleared
+      // when style/backing store size changed on rotate).
+      redraw();
+    };
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(runFit);
+    };
+    const scheduleBurst = () => {
+      schedule();
+      for (const ms of [50, 150, 350, 600]) {
+        timers.push(window.setTimeout(schedule, ms));
+      }
+    };
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(schedule)
+
+web search: 
+2026-07-22T08:18:26.718959Z ERROR codex_core::tools::router: error=Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork.
+web search: site:xtermjs.org xterm.js fit addon proposeDimensions font size terminal cols rows ...
+2026-07-22T08:18:36.276253Z ERROR codex_core::tools::router: error=collab spawn failed: agent thread limit reached
+codex
+The central design constraint is now clear: geometry and font metrics can tell us how many cells fit at a chosen font, but they cannot decide how much readability to trade for more cells without an explicit policy. I’m separating the default “preserve preference” rule from an optional, semantically named classic-layout mode so constants don’t sneak back in disguised as formulas.
+web search: 
+web search: site:github.com/termux/termux-app "changeFontSize" terminal rows columns source ...
+collab: Wait
+collab: Wait
+collab: Wait
+collab: Wait
+codex
+PRIOR_ART: Verified mainstream practice is “preserve the current/user font, measure the rendered cell, fit integer rows/columns to the container, then resize the PTY/NAWS”—not automatic font shrinking.
+
+- xterm.js FitAddon computes `floor(availableWidth / cellWidth)` and `floor(availableHeight / cellHeight)` at the existing font size. It does not optimize font size. [xterm.js FitAddon](https://github.com/xtermjs/xterm.js/blob/master/addons/addon-fit/src/FitAddon.ts)
+- VS Code exposes user-controlled `fontSize`, `letterSpacing`, and `lineHeight`; panel resizing changes grid geometry, not the selected font. [VS Code terminal appearance](https://code.visualstudio.com/docs/terminal/appearance)
+- Termux pinch-zoom changes font explicitly; afterward it measures the new cell and recomputes rows/columns using floor division. [Termux font gesture](https://github.com/termux/termux-app/blob/3df69d1da197dd9bd71a3bafd902dffd720576b4/app/src/main/java/com/termux/app/terminal/TermuxTerminalViewClient.java#L174-L180), [grid calculation](https://github.com/termux/termux-app/blob/3df69d1da197dd9bd71a3bafd902dffd720576b4/terminal-view/src/main/java/com/termux/view/TerminalView.java#L984-L997)
+- Blink Shell documents pinch/Cmd± text resizing—manual zoom, not automatic density optimization. [Blink Shell](https://github.com/blinksh/blink)
+- a-Shell exposes per-window font and font-size configuration; no public auto-font algorithm is documented. [a-Shell](https://github.com/holzschu/a-shell)
+- WebSSH separates font size from an explicit fixed-size compatibility mode such as `80x25`. [WebSSH font size](https://webssh.net/documentation/help/SSH/terminal-settings/terminal-font-size/), [SSH configuration](https://webssh.net/documentation/help/SSH/ssh-config-file/)
+- JuiceSSH has insufficient public primary-source detail to claim an auto-sizing algorithm.
+- CSS `ch`, container queries, and ResizeObserver can expose geometry or trigger fitting; they cannot choose the readability-versus-density tradeoff.
+
+OPTIMIZE: Default to readability first: preserve `userFontPref`, then fill the container with the maximum integer grid at that font. Do not maximize columns or `cols*rows`: both monotonically select the smallest permitted font, including on desktop. Do not preserve `80×24` aspect automatically; portrait and short landscape would waste space or shrink aggressively. If classic layout is important, expose a named, opt-in “Fit classic layout” profile whose `80×24` goal is a semantic compatibility policy, not a hidden mobile constant.
+
+ALGO:
+```text
+fit(W, H, userFontPref, measure):
+    if W <= 0 or H <= 0:
+        return previousStableFit
+
+    S = userFontPref
+    metrics = measure(S)            // after actual web font is ready
+    cellW = ceil(metrics.halfAdvance + metrics.letterSpacing)
+    cellH = ceil(metrics.lineHeight)
+
+    assert cellW > 0 && cellH > 0
+
+    cols = floor(W / cellW)
+    rows = floor(H / cellH)
+
+    return {
+        fontPx: S,
+        cellW,
+        cellH,
+        cols: max(1, cols),
+        rows: max(1, rows)
+    }
+```
+
+Optional explicit compatibility mode:
+
+```text
+fitClassic(W, H, userPref, readableFloor, classicCols, classicRows):
+    binary-search largest S in [readableFloor, userPref]
+    such that floor(W / cellW(S)) >= classicCols
+          and floor(H / cellH(S)) >= classicRows
+
+    if no S satisfies both:
+        use readableFloor          // return actual grid; never fake classic size
+
+    return geometryFit(W, H, S)
+```
+
+Binary search is useful only after a target/profile has been explicitly selected. It does not manufacture a target from geometry.
+
+INPUTS: Pure geometry/metrics functions are:
+
+- `cellMetrics(font, size, widthScale, lineScale, letterSpacing)`
+- `gridFor(W,H,cellW,cellH) = (floor(W/cellW), floor(H/cellH))`
+- `unusedSpace = (W-cols*cellW, H-rows*cellH)`
+- `fits(W,H,S,requestedCols,requestedRows)`
+- `largestFittingFont(...)` when requested geometry is an explicit input
+- `hitTest(pointer,cellMetrics,grid)`
+- `canvasBackingSize(grid,cellMetrics,DPR)`
+
+There is no pure function of only `(W,H,metrics,userPref)` that both preserves the font on desktop and decides to shrink it on phones. Geometry contains no information about how many columns are worth sacrificing readability for. Any solution claiming otherwise hides a target, breakpoint, weight, readable floor, or character-density constant.
+
+GUARDS: For the default mode, stop at `userFontPref` because it does not shrink. For optional auto/classic fitting, make the readable floor a user/accessibility/profile input. There is no universal evidence-backed CJK minimum; a provisional product default around 12–13 CSS px may be tested, but it must remain configurable and respect browser/OS text scaling. Stop shrinking at that floor, when the requested profile fits, or when a smaller candidate produces the same integer grid. Validate CJK at actual device DPR and font stack. Do not impose an arbitrary application `maxCols`; use the protocol limit (`65535`) plus a separately justified renderer/performance limit. Never report more cells than physically fit, never CSS-scale the canvas, and send NAWS only when the stable integer grid changes.
+
+MUST_FIX:
+1. In `apps/web/src/lib/termFit.ts`, remove `mobileTargetCols`, `mobileTargetRows`, mobile breakpoints/minima, desktop fallback geometry, and unexplained `maxCols/maxRows`. Make `fitTermSize` a direct, pure floor calculation. Zero/unmeasurable geometry should return “invalid/keep previous,” not fabricated `80×28`.
+2. In `packages/terminal/src/canvas2d.ts`, store the actual `fontSizePx` and `lineHeightScale` separately. `recomputeCellWidth()` currently reconstructs font size as `cellH - 4`, so changing or rounding line height silently changes the measured glyph font. Measure with the exact font used by `draw()`.
+3. In the same renderer, use one canonical metrics result for fitting and drawing. Validate the half-width advance and CJK width relationship after `document.fonts.ready`; avoid allowing fallback-font measurements and final-font drawing to disagree.
+4. In `apps/web/src/TerminalHost.tsx::applyFit`, delete the `narrow`, `short`, 16-step shrink loop, and `52×22` objective. Apply user typography once, measure once, floor the real grid, resize the buffer/canvas, and report exactly that grid.
+5. Keep the previous stable fit during transient `0×0` orientation/layout states. Coalesce ResizeObserver/font/visual-viewport events, and emit NAWS only after the resulting `cols×rows` changes.
+6. Add tests covering portrait, short landscape, wide desktop, font-load metric changes, fractional advances, zero/transient geometry, and the invariant `cols*cellW <= W && rows*cellH <= H`. Confirm desktop font size never changes during resize.
+
+ONE_LINE: Preserve the user’s font, derive the real integer grid from measured cells, and make any 80-column compatibility shrink an explicit mode—geometry alone cannot justify automatic font reduction.
+
+CONFIDENCE: high
+tokens used
+58,189
+CODEX:0

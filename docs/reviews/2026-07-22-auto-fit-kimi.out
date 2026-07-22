@@ -1,0 +1,84 @@
+SEAT: Kimi-K2.7-Code (K3 not in qoderclicn list)
+PRIOR_ART:
+- **xterm.js `@xterm/addon-fit`**: keeps the user-chosen font, measures the rendered cell, then returns `cols = floor(availableWidth / cellWidth)` and `rows = floor(availableHeight / cellHeight)`; it does **not** auto-shrink font [xterm.js FitAddon](https://github.com/xtermjs/xterm.js/blob/master/addons/addon-fit/src/FitAddon.ts).
+- **VS Code terminal**: lets the user set `terminal.integrated.fontSize`, `letterSpacing`, and `lineHeight`; resizing the panel changes grid geometry at the fixed font, not the font itself [VS Code terminal appearance](https://code.visualstudio.com/docs/terminal/appearance).
+- **Blink Shell**: documents pinch-to-zoom / Cmd± for text size; grid follows the new font metrics, with no automatic density heuristic [Blink Shell docs](https://docs.blink.sh/).
+- **Termux**: pinch-zoom changes font explicitly, then recomputes rows/columns from the new cell size via floor division [Termux terminal view](https://github.com/termux/termux-app).
+- **iOS a-Shell / JuiceSSH / WebSSH**: expose font-size / terminal-size settings (e.g. `80×25` compatibility mode) and let the user or host drive the grid; no public auto-shrink algorithm.
+- **CSS `ch` / container queries / ResizeObserver**: useful for measuring container geometry and triggering refit, but they cannot decide the readability-vs-density tradeoff — that requires a product policy.
+
+OPTIMIZE:
+- **Default to readability first.** Preserve `userFontPref` and `userLinePref` whenever the stage can already hold a classic 80-column grid. This satisfies the desktop constraint.
+- **When the stage is too narrow for 80 columns at the user font**, shrink *only enough* to reach the canonical 80×24 VT grid, bounded below by a readable CJK floor. This replaces the arbitrary 52×22 phone constant with the MUD’s own native layout.
+- **If 80×24 is impossible even at the readable floor**, fall back to the readable floor and fill the stage (max cols/rows), because below the floor text is illegible anyway.
+- **Reject pure area maximization**: it would shrink the font on every resize, including desktop.
+
+ALGO:
+```
+fit(W, H, userFont, userLine, measure):
+  // measure(S,L) returns {cellW, cellH} for that exact font/line scale
+
+  CLASSIC_COLS = 80
+  CLASSIC_ROWS = 24
+  MIN_FONT     = 11   // CJK readability guardrail, see GUARDS
+  MIN_LINE     = 1.05
+
+  // Pure helpers
+  grid(S, L):
+    m = measure(S, L)
+    return { cols: floor(W / m.cellW), rows: floor(H / m.cellH), m }
+
+  chooseLine(S, L_user, H):
+    // largest L <= L_user that gives at least CLASSIC_ROWS rows,
+    // but never below MIN_LINE
+    L24 = H / (CLASSIC_ROWS * S)            // geometry-derived target
+    return clamp(MIN_LINE, L_user, L24)    // keeps L_user if it already fits
+
+  // 1. Desktop / wide: user font already fits 80 cols -> keep it.
+  u = grid(userFont, userLine)
+  if u.cols >= CLASSIC_COLS:
+    return { font: userFont, line: userLine, cols: u.cols, rows: u.rows }
+
+  // 2. Narrow stage: can we reach 80 cols between MIN_FONT and userFont?
+  if grid(MIN_FONT, userLine).cols >= CLASSIC_COLS:
+    // Binary-search the largest readable font that still gives 80 cols.
+    S = largest S in [MIN_FONT, userFont] with grid(S, userLine).cols >= CLASSIC_COLS
+    L = chooseLine(S, userLine, H)
+    g = grid(S, L)
+    return { font: S, line: L, cols: g.cols, rows: g.rows }
+
+  // 3. Too small even for 80 cols at MIN_FONT: maximize content at readable floor.
+  L = chooseLine(MIN_FONT, userLine, H)
+  g = grid(MIN_FONT, L)
+  return { font: MIN_FONT, line: L, cols: g.cols, rows: g.rows }
+```
+
+INPUTS (pure functions of W, H, metrics, userPref):
+- `measure(S, L, family, widthScale, letterSpacing) -> {cellW, cellH}`: real Canvas2D `measureText` of half-width mono probes.
+- `cols(W, cellW) = floor(W / cellW)`, `rows(H, cellH) = floor(H / cellH)`.
+- `largestFontForCols(W, targetCols, minFont, userFont, measure)`: binary search on the above.
+- `chooseLineScale(H, S, userLine, minLine, targetRows) = clamp(minLine, userLine, H / (targetRows * S))`.
+- `fit(W, H, userFont, userLine, measure)`: the orchestration above.
+
+GUARDS:
+- **Min readable CJK font**: 11 CSS px as a provisional default. Below ~11 px CJK strokes blur in Canvas2D. Make it a user/accessibility setting.
+- **Min line scale**: 1.05 to avoid vertical glyph clipping.
+- **Max cols/rows**: cap at 256×128 or 200×80 purely for renderer memory and NAWS sanity; never use as a target.
+- **Stop shrinking when**: (a) 80 cols are reached, (b) font hits `MIN_FONT`, (c) line scale hits `MIN_LINE`, or (d) further shrinking yields the same integer grid (stability guard).
+- **Never report a grid larger than the stage** and never CSS-scale the canvas.
+
+MUST_FIX:
+1. `apps/web/src/lib/termFit.ts`: delete `mobileTargetCols`, `mobileTargetRows`, `mobileMinFontPx`, `mobileMinLineScale`, and the `narrow`/`short` breakpoints. Replace the 16-step loop with the `fit()` algorithm above. Keep `fitTermSize`/`clampFitToStage` as pure `floor(W/cellW)` helpers only.
+2. `packages/terminal/src/canvas2d.ts`: store `fontSizePx` and `lineHeightScale` separately; make `recomputeCellWidth(fontPx, lineScale)` measure at the exact `(S,L)` instead of deriving font as `cellH - 4`. Update `draw()` to use the stored `fontSizePx`, not `cellH - 4`.
+3. `apps/web/src/TerminalHost.tsx::applyFit`: remove the hardcoded shrink loop; call the new term-fit function; set the renderer typography once with the chosen `(S,L)`; ensure the canvas backing store is exactly `cols*cellW` by `rows*cellH`; NAWS the real grid only when it changes; preserve buffer content across resizes.
+4. `apps/web/tests/termFit.test.ts`: add tests for portrait/landscape phone, wide desktop, and the invariant that desktop `fontSize` never changes when the stage already fits 80 columns.
+
+ONE_LINE: Replace the magic 52×22 phone targets with a classic-80 geometry policy: keep the user font when it already fits 80 columns, otherwise shrink only to the readable floor to reach 80×24, and report the real integer grid to NAWS.
+
+CONFIDENCE: high
+
+Sources:
+- [xterm.js FitAddon](https://github.com/xtermjs/xterm.js/blob/master/addons/addon-fit/src/FitAddon.ts)
+- [VS Code terminal appearance](https://code.visualstudio.com/docs/terminal/appearance)
+- [Blink Shell docs](https://docs.blink.sh/)
+- [Termux terminal view](https://github.com/termux/termux-app)

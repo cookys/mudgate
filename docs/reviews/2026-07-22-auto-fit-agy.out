@@ -1,0 +1,86 @@
+PRIOR_ART:
+- **xterm.js (`@xterm/addon-fit`)**: Holds font size fixed to user preference and calculates `cols = floor(stageW / cellW)` & `rows = floor(stageH / cellH)`. Does not shrink font automatically.
+- **Blink Shell & JuiceSSH**: Use bounded geometric font scaling (`font = clamp(stageW / (targetCols * aspect), minFont, userPref)`). Scales font down dynamically to preserve target column count (e.g. 80 cols) on narrow screens.
+- **Termux & iOS a-Shell**: Use viewport-driven font sizing with user pinch-zoom override. Font metrics dictate grid bounds without device-specific `if (mobile)` heuristics.
+
+OPTIMIZE:
+- **Primary**: Maximize column fit towards standard **80-column benchmark** (essential for classic Big5 MUD map layouts like 重生的世界 `map_d`) when viewport width `stageCssW < 80 * cellW(userFontPref)`.
+- **Desktop/Wide Viewports**: Preserve user font preference (`userFontPref`) without forced shrinking; allow `cols` to expand beyond 80 (`cols = floor(W / cellW)`).
+- **Constrained Viewports (Mobile/Short)**: Binary search or step-down font size $S \in [\text{minFontPx}, S_{\text{user}}]$ to achieve $\ge 80$ cols or max achievable cols at `minFontPx`.
+- **Visual Integrity**: Keep 1:1 canvas backing store ratio to prevent CJK glyph blur from CSS scaling.
+
+ALGO:
+```typescript
+function computeAutoFitFontGrid(
+  stageW: number,
+  stageH: number,
+  userFontPx: number,
+  userLineScale: number,
+  measureCell: (fontPx: number, lineScale: number) => { cellW: number; cellH: number },
+  opts: { benchmarkCols?: number; minFontPx?: number; minLineScale?: number } = {}
+) {
+  const BENCHMARK_COLS = opts.benchmarkCols ?? 80;
+  const MIN_FONT = opts.minFontPx ?? 11;
+  const MIN_LINE = opts.minLineScale ?? 1.05;
+
+  let bestFont = userFontPx;
+  let bestLine = userLineScale;
+
+  // 1. If user pref already yields >= 80 cols, keep user font size intact
+  let metrics = measureCell(userFontPx, userLineScale);
+  let cols = Math.floor(stageW / metrics.cellW);
+
+  if (cols < BENCHMARK_COLS) {
+    // 2. Step-down / binary search for largest readable font >= MIN_FONT that achieves BENCHMARK_COLS
+    let low = MIN_FONT;
+    let high = userFontPx;
+    bestFont = MIN_FONT;
+
+    while (high - low >= 0.5) {
+      const mid = Math.round(((low + high) / 2) * 2) / 2; // 0.5px steps
+      const m = measureCell(mid, userLineScale);
+      if (Math.floor(stageW / m.cellW) >= BENCHMARK_COLS) {
+        bestFont = mid;
+        low = mid + 0.5; // Try larger font while retaining benchmark cols
+      } else {
+        high = mid - 0.5; // Shrink font further
+      }
+    }
+  }
+
+  // 3. Check height constraint for short viewports/landscapes
+  metrics = measureCell(bestFont, bestLine);
+  if (Math.floor(stageH / metrics.cellH) < 12 && bestLine > MIN_LINE) {
+    bestLine = Math.max(MIN_LINE, Math.round((stageH / (12 * bestFont)) * 100) / 100);
+    metrics = measureCell(bestFont, bestLine);
+  }
+
+  return {
+    fontSizePx: bestFont,
+    lineHeightScale: bestLine,
+    cols: Math.max(1, Math.floor(stageW / metrics.cellW)),
+    rows: Math.max(1, Math.floor(stageH / metrics.cellH)),
+    cellW: metrics.cellW,
+    cellH: metrics.cellH,
+  };
+}
+```
+
+INPUTS:
+- `getStageGeometry(wrapElement)`: `(W: number, H: number)` from DOM container bounding rect.
+- `measureFontMetrics(fontPx, lineScale, fontStack)`: `(cellW: number, cellH: number)` measured via Canvas2D `measureText('M')` / `measureText('0')`.
+- `calcGridSize(stageW, stageH, cellW, cellH)`: `(cols: floor(stageW / cellW), rows: floor(stageH / cellH))`.
+
+GUARDS:
+- **Min CJK Readable Font**: `minFontPx = 11` (below 11px, 12×12 vector/bitmap CJK strokes blur significantly in Canvas2D).
+- **Min Line Height Scale**: `minLineScale = 1.05` (prevents vertical glyph clipping).
+- **Stop Condition**: Stop shrinking when `cols >= 80` is achieved or `fontSizePx <= 11px` hard floor is hit.
+- **Max Grid Clamp**: Clamp `cols <= 200`, `rows <= 80` for NAWS payload sanity.
+
+MUST_FIX:
+1. [termFit.ts](file:///home/cookys/projects/mudgate/apps/web/src/lib/termFit.ts): Remove `mobileTargetCols: 52` and `mobileTargetRows: 22` hardcoded constants; implement pure `computeAutoFitFontGrid()` driven by stage width and 80-col benchmark.
+2. [TerminalHost.tsx](file:///home/cookys/projects/mudgate/apps/web/src/TerminalHost.tsx): Replace the `narrow` / `mobileTargetCols` hardcoded loop in `applyFit` with calling `computeAutoFitFontGrid()`.
+3. Canvas2D Renderer (`recomputeCellWidth`): Ensure cell width is recomputed synchronously during font search steps before evaluating stage fit.
+
+ONE_LINE: Replace device-specific magic targets (52×22) with a pure geometric auto-fit algorithm that binary-searches font size to target 80 columns down to an 11px CJK readability floor.
+CONFIDENCE: high

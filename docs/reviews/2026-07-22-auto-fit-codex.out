@@ -1,0 +1,79 @@
+PRIOR_ART: Verified mainstream practice is “preserve the current/user font, measure the rendered cell, fit integer rows/columns to the container, then resize the PTY/NAWS”—not automatic font shrinking.
+
+- xterm.js FitAddon computes `floor(availableWidth / cellWidth)` and `floor(availableHeight / cellHeight)` at the existing font size. It does not optimize font size. [xterm.js FitAddon](https://github.com/xtermjs/xterm.js/blob/master/addons/addon-fit/src/FitAddon.ts)
+- VS Code exposes user-controlled `fontSize`, `letterSpacing`, and `lineHeight`; panel resizing changes grid geometry, not the selected font. [VS Code terminal appearance](https://code.visualstudio.com/docs/terminal/appearance)
+- Termux pinch-zoom changes font explicitly; afterward it measures the new cell and recomputes rows/columns using floor division. [Termux font gesture](https://github.com/termux/termux-app/blob/3df69d1da197dd9bd71a3bafd902dffd720576b4/app/src/main/java/com/termux/app/terminal/TermuxTerminalViewClient.java#L174-L180), [grid calculation](https://github.com/termux/termux-app/blob/3df69d1da197dd9bd71a3bafd902dffd720576b4/terminal-view/src/main/java/com/termux/view/TerminalView.java#L984-L997)
+- Blink Shell documents pinch/Cmd± text resizing—manual zoom, not automatic density optimization. [Blink Shell](https://github.com/blinksh/blink)
+- a-Shell exposes per-window font and font-size configuration; no public auto-font algorithm is documented. [a-Shell](https://github.com/holzschu/a-shell)
+- WebSSH separates font size from an explicit fixed-size compatibility mode such as `80x25`. [WebSSH font size](https://webssh.net/documentation/help/SSH/terminal-settings/terminal-font-size/), [SSH configuration](https://webssh.net/documentation/help/SSH/ssh-config-file/)
+- JuiceSSH has insufficient public primary-source detail to claim an auto-sizing algorithm.
+- CSS `ch`, container queries, and ResizeObserver can expose geometry or trigger fitting; they cannot choose the readability-versus-density tradeoff.
+
+OPTIMIZE: Default to readability first: preserve `userFontPref`, then fill the container with the maximum integer grid at that font. Do not maximize columns or `cols*rows`: both monotonically select the smallest permitted font, including on desktop. Do not preserve `80×24` aspect automatically; portrait and short landscape would waste space or shrink aggressively. If classic layout is important, expose a named, opt-in “Fit classic layout” profile whose `80×24` goal is a semantic compatibility policy, not a hidden mobile constant.
+
+ALGO:
+```text
+fit(W, H, userFontPref, measure):
+    if W <= 0 or H <= 0:
+        return previousStableFit
+
+    S = userFontPref
+    metrics = measure(S)            // after actual web font is ready
+    cellW = ceil(metrics.halfAdvance + metrics.letterSpacing)
+    cellH = ceil(metrics.lineHeight)
+
+    assert cellW > 0 && cellH > 0
+
+    cols = floor(W / cellW)
+    rows = floor(H / cellH)
+
+    return {
+        fontPx: S,
+        cellW,
+        cellH,
+        cols: max(1, cols),
+        rows: max(1, rows)
+    }
+```
+
+Optional explicit compatibility mode:
+
+```text
+fitClassic(W, H, userPref, readableFloor, classicCols, classicRows):
+    binary-search largest S in [readableFloor, userPref]
+    such that floor(W / cellW(S)) >= classicCols
+          and floor(H / cellH(S)) >= classicRows
+
+    if no S satisfies both:
+        use readableFloor          // return actual grid; never fake classic size
+
+    return geometryFit(W, H, S)
+```
+
+Binary search is useful only after a target/profile has been explicitly selected. It does not manufacture a target from geometry.
+
+INPUTS: Pure geometry/metrics functions are:
+
+- `cellMetrics(font, size, widthScale, lineScale, letterSpacing)`
+- `gridFor(W,H,cellW,cellH) = (floor(W/cellW), floor(H/cellH))`
+- `unusedSpace = (W-cols*cellW, H-rows*cellH)`
+- `fits(W,H,S,requestedCols,requestedRows)`
+- `largestFittingFont(...)` when requested geometry is an explicit input
+- `hitTest(pointer,cellMetrics,grid)`
+- `canvasBackingSize(grid,cellMetrics,DPR)`
+
+There is no pure function of only `(W,H,metrics,userPref)` that both preserves the font on desktop and decides to shrink it on phones. Geometry contains no information about how many columns are worth sacrificing readability for. Any solution claiming otherwise hides a target, breakpoint, weight, readable floor, or character-density constant.
+
+GUARDS: For the default mode, stop at `userFontPref` because it does not shrink. For optional auto/classic fitting, make the readable floor a user/accessibility/profile input. There is no universal evidence-backed CJK minimum; a provisional product default around 12–13 CSS px may be tested, but it must remain configurable and respect browser/OS text scaling. Stop shrinking at that floor, when the requested profile fits, or when a smaller candidate produces the same integer grid. Validate CJK at actual device DPR and font stack. Do not impose an arbitrary application `maxCols`; use the protocol limit (`65535`) plus a separately justified renderer/performance limit. Never report more cells than physically fit, never CSS-scale the canvas, and send NAWS only when the stable integer grid changes.
+
+MUST_FIX:
+1. In `apps/web/src/lib/termFit.ts`, remove `mobileTargetCols`, `mobileTargetRows`, mobile breakpoints/minima, desktop fallback geometry, and unexplained `maxCols/maxRows`. Make `fitTermSize` a direct, pure floor calculation. Zero/unmeasurable geometry should return “invalid/keep previous,” not fabricated `80×28`.
+2. In `packages/terminal/src/canvas2d.ts`, store the actual `fontSizePx` and `lineHeightScale` separately. `recomputeCellWidth()` currently reconstructs font size as `cellH - 4`, so changing or rounding line height silently changes the measured glyph font. Measure with the exact font used by `draw()`.
+3. In the same renderer, use one canonical metrics result for fitting and drawing. Validate the half-width advance and CJK width relationship after `document.fonts.ready`; avoid allowing fallback-font measurements and final-font drawing to disagree.
+4. In `apps/web/src/TerminalHost.tsx::applyFit`, delete the `narrow`, `short`, 16-step shrink loop, and `52×22` objective. Apply user typography once, measure once, floor the real grid, resize the buffer/canvas, and report exactly that grid.
+5. Keep the previous stable fit during transient `0×0` orientation/layout states. Coalesce ResizeObserver/font/visual-viewport events, and emit NAWS only after the resulting `cols×rows` changes.
+6. Add tests covering portrait, short landscape, wide desktop, font-load metric changes, fractional advances, zero/transient geometry, and the invariant `cols*cellW <= W && rows*cellH <= H`. Confirm desktop font size never changes during resize.
+
+ONE_LINE: Preserve the user’s font, derive the real integer grid from measured cells, and make any 80-column compatibility shrink an explicit mode—geometry alone cannot justify automatic font reduction.
+
+CONFIDENCE: high

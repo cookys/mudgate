@@ -17,7 +17,7 @@ import {
 import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
-import { clampFitToStage, fitTermSize, TERM_FIT } from "./lib/termFit";
+import { fitTypographyToStage, TERM_FIT } from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
 
@@ -221,7 +221,10 @@ export function TerminalHost({
     [redraw],
   );
 
-  /** Fit buffer + canvas to wrap; notify MUD via hello (initial) or JSON naws. */
+  /**
+   * Fit like xterm FitAddon + optional VT classic-80 shrink (hetero 2026-07-22).
+   * No device breakpoints / magic 52×22 — only geometry + metrics + user pref.
+   */
   const applyFit = useCallback(
     (opts?: { notifyMud?: boolean }) => {
       const wrap = wrapRef.current;
@@ -230,61 +233,45 @@ export function TerminalHost({
       const cssW = wrap.clientWidth;
       const cssH = wrap.clientHeight;
       if (cssW < 20 || cssH < 20) {
-        // Mid-orientation layout often reports 0 — keep prior size, still try paint
         redraw();
         return termSizeRef.current;
       }
 
-      // Narrow / short stages (phone portrait, short landscape): auto-compact font
-      // so we approach ~52×22 instead of ~38×14 at desktop 15px settings.
-      const narrow = cssW < 560;
-      const short = cssH < 640;
-      let size = fontSizePx;
-      let line = lineHeightScale;
-      let next = { cols: 80, rows: 24 };
       const family =
         terminalFontStack ||
         '"Sarasa Term TC", "Noto Sans Mono CJK TC", ui-monospace, monospace';
 
-      for (let step = 0; step < 16; step++) {
-        r.setTypography({
-          fontFamily: family,
-          fontSizePx: size,
-          cellWidthScale,
-          lineHeightScale: line,
-        });
-        next = fitTermSize(cssW, cssH, r.cellW, r.cellH);
-        next = clampFitToStage(next, cssW, cssH, r.cellW, r.cellH);
+      // Ensure family/scale are on the renderer before measure probes
+      r.setTypography({
+        fontFamily: family,
+        fontSizePx,
+        cellWidthScale,
+        lineHeightScale,
+      });
 
-        const colsOk = !narrow || next.cols >= TERM_FIT.mobileTargetCols;
-        const rowsOk = !short || next.rows >= TERM_FIT.mobileTargetRows;
-        if (colsOk && rowsOk) break;
-        if (
-          size <= TERM_FIT.mobileMinFontPx &&
-          line <= TERM_FIT.mobileMinLineScale
-        ) {
-          break;
-        }
-        // Prefer shrinking width first (banner/map_d), then line height for rows
-        if (narrow && next.cols < TERM_FIT.mobileTargetCols) {
-          size = Math.max(TERM_FIT.mobileMinFontPx, size - 0.5);
-        } else if (short && next.rows < TERM_FIT.mobileTargetRows) {
-          line = Math.max(
-            TERM_FIT.mobileMinLineScale,
-            Math.round((line - 0.03) * 100) / 100,
-          );
-        } else {
-          break;
-        }
-      }
+      const fitted = fitTypographyToStage(
+        cssW,
+        cssH,
+        fontSizePx,
+        lineHeightScale,
+        (S, L) => r.measureCellMetrics(S, L),
+        // classicCols=80 is VT/MUD layout policy, not a phone constant
+      );
 
+      r.setTypography({
+        fontFamily: family,
+        fontSizePx: fitted.fontSizePx,
+        cellWidthScale,
+        lineHeightScale: fitted.lineHeightScale,
+      });
+
+      const next = { cols: fitted.cols, rows: fitted.rows };
       const prev = termSizeRef.current;
       const changed = prev.cols !== next.cols || prev.rows !== next.rows;
       termSizeRef.current = next;
+      setTermSizeLabel(`${next.cols}×${next.rows}`);
       if (changed) {
-        // Preserve overlapping cells — blanking made landscape look "empty"
         bufRef.current.resize(next.cols, next.rows);
-        setTermSizeLabel(`${next.cols}×${next.rows}`);
         selRef.current = null;
         setSelection(null);
         scrollOffsetRef.current = 0;
@@ -296,20 +283,11 @@ export function TerminalHost({
             rows: next.rows,
           });
         }
-      } else {
-        setTermSizeLabel(`${next.cols}×${next.rows}`);
       }
-      // Always redraw: canvas.width assignment clears the bitmap on rotate
       redraw();
       return next;
     },
-    [
-      redraw,
-      fontSizePx,
-      lineHeightScale,
-      cellWidthScale,
-      terminalFontStack,
-    ],
+    [redraw, fontSizePx, lineHeightScale, cellWidthScale, terminalFontStack],
   );
 
   const flash = (msg: string) => {

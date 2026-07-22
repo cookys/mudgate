@@ -68,6 +68,9 @@ export class Canvas2DRenderer {
 
   private widthScale = 1;
   private letterSpacingPx = 0;
+  /** Exact CSS px used in draw() — do not reverse from cellH. */
+  fontSizePx = 15;
+  lineHeightScale = 1.2;
 
   /**
    * Apply typography for dual-width mono stacks.
@@ -83,35 +86,34 @@ export class Canvas2DRenderer {
     letterSpacingPx?: number;
   }): void {
     this.fontFamily = opts.fontFamily;
-    const size = opts.fontSizePx ?? 15;
-    const lineScale = opts.lineHeightScale ?? 1.2;
+    this.fontSizePx = opts.fontSizePx ?? 15;
+    this.lineHeightScale = opts.lineHeightScale ?? 1.2;
     this.widthScale = opts.cellWidthScale ?? 1;
     this.letterSpacingPx = opts.letterSpacingPx ?? 0;
-    this.cellH = Math.max(12, Math.round(size * lineScale));
+    this.cellH = Math.max(12, Math.round(this.fontSizePx * this.lineHeightScale));
     this.recomputeCellWidth();
   }
 
   /**
-   * Re-measure half-width cell from real font metrics (call after mount / fonts.ready).
+   * Re-measure half-width cell from real font metrics at **stored fontSizePx**.
    * Uses ceil so grid never claims more columns than glyphs can paint without overflow.
    */
   recomputeCellWidth(): void {
-    const fontPx = Math.max(10, this.cellH - 4);
+    const fontPx = Math.max(10, this.fontSizePx);
     const heuristic = Math.max(
       6,
       Math.round(fontPx * 0.6 * this.widthScale + this.letterSpacingPx),
     );
+    this.cellH = Math.max(12, Math.round(fontPx * this.lineHeightScale));
     const ctx = this.ctx;
     if (!ctx) {
       this.cellW = heuristic;
       return;
     }
     ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
-    // Max of common mono probes — under-estimate is what overflowed the phone stage
     const wM = ctx.measureText("M").width || 0;
     const w0 = ctx.measureText("0").width || 0;
     const wW = ctx.measureText("W").width || 0;
-    // Fonts not ready → measureText often returns 0; never use 1px cells (→ huge cols)
     const measured = Math.max(wM, w0, wW);
     if (measured < 4) {
       this.cellW = heuristic;
@@ -123,11 +125,36 @@ export class Canvas2DRenderer {
     );
   }
 
+  /** Measure cell metrics for a candidate size without permanently applying it. */
+  measureCellMetrics(
+    fontPx: number,
+    lineScale: number,
+  ): { cellW: number; cellH: number } {
+    const size = Math.max(10, fontPx);
+    const cellH = Math.max(12, Math.round(size * lineScale));
+    const heuristic = Math.max(
+      6,
+      Math.round(size * 0.6 * this.widthScale + this.letterSpacingPx),
+    );
+    const ctx = this.ctx;
+    if (!ctx) return { cellW: heuristic, cellH };
+    ctx.font = `500 ${size}px ${this.fontFamily}`;
+    const wM = ctx.measureText("M").width || 0;
+    const w0 = ctx.measureText("0").width || 0;
+    const wW = ctx.measureText("W").width || 0;
+    const measured = Math.max(wM, w0, wW);
+    const cellW =
+      measured < 4
+        ? heuristic
+        : Math.max(6, Math.ceil(measured * this.widthScale + this.letterSpacingPx));
+    return { cellW, cellH };
+  }
+
   /** alignScore ≈ width(中)/width(M); ideal ~2.0 for dual-width. */
   measureAlignScore(): number {
     const ctx = this.ctx;
     if (!ctx) return 0;
-    const fontPx = Math.max(10, this.cellH - 4);
+    const fontPx = Math.max(10, this.fontSizePx);
     ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
     const wM = ctx.measureText("M").width || 1;
     const wC = ctx.measureText("中").width || 0;
@@ -192,7 +219,7 @@ export class Canvas2DRenderer {
     ctx.fillStyle = VOID;
     ctx.fillRect(0, 0, cssW, cssH);
 
-    const fontPx = Math.max(10, this.cellH - 4);
+    const fontPx = Math.max(10, this.fontSizePx);
     ctx.font = `500 ${fontPx}px ${this.fontFamily}`;
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
