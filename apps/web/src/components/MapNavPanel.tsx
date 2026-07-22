@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
-import type { NearbyHud, MoveDialect, CompassDir } from "@assmud/mapper";
-import { commandForDir, labelForDir } from "@assmud/mapper";
+import type { NearbyHud, MoveDialect, CompassDir } from "@mudgate/mapper";
+import { commandForDir, labelForDir } from "@mudgate/mapper";
 import { MapGraphPoc } from "./MapGraphPoc";
 
 export type MapPanelMode = "nearby" | "trail" | "mirror";

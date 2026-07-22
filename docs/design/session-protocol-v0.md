@@ -1,7 +1,7 @@
 # Session Protocol v0 — display ↔ player daemon
 
 > **Status**: draft accepted for S3.2 spike (2026-07-22)  
-> **Transport today**: WebSocket JSON control + binary telnet (existing assmud web↔proxy).  
+> **Transport today**: WebSocket JSON control + binary telnet (existing mudgate web↔proxy).  
 > **Target**: same shape between **thin web** and **player daemon (P)**; site gateway (G) keeps current hello/ready bridge.
 
 ## Goals

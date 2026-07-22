@@ -1,4 +1,4 @@
-# UI Spec — assmud ink terminal
+# UI Spec — mudgate ink terminal
 
 > Frozen from Board answers 2026-07-21 + plan `docs/plans/2026-07-21-ui-redesign.md`
 
@@ -6,7 +6,7 @@
 
 | Item | Value |
 |------|--------|
-| Product | **assmud** |
+| Product | **mudgate** |
 | Tagline (connect gate) | Rotating Ass-themed prank lines (`pickTagline()`) |
 | Primary line | **Ass-embly required. Mud optional. Regret included.** |
 | Alt lines | Half Ass half MUD · If this crashes the Ass is yours · No WASM TCP just Ass WSS… |
@@ -18,7 +18,7 @@
 | `mint` (default) | `#3dffa8` | `rgba(61,255,168,.25)` |
 | `blue` | `#5b9dff` | `rgba(91,157,255,.25)` |
 
-Persisted: `localStorage.assmud.accent`
+Persisted: `localStorage.mudgate.accent`
 
 ## Surfaces
 
@@ -40,9 +40,9 @@ Persisted: `localStorage.assmud.accent`
 | Item | Value |
 |------|--------|
 | Locales v1 | **`zh-TW`**, **`zh-CN`**, **`en`** (allowlist；**不**把簡體併入正體) |
-| Storage | `localStorage.assmud.locale` (try/catch) |
+| Storage | `localStorage.mudgate.locale` (try/catch) |
 | Default | **站台設定** → 瀏覽器偵測 → `zh-TW`；使用者選過則 storage 優先 |
-| Site default | `VITE_DEFAULT_LOCALE` 或 `window.__ASSMUD_SITE__.defaultLocale` |
+| Site default | `VITE_DEFAULT_LOCALE` 或 `window.__MUDGATE_SITE__.defaultLocale` |
 | Scope | **Shell only** — never MUD stream / scripts |
 | Status | `StatusEvent` codes → `t()`；tone from code only |
 | Switcher | ConnectGate + drawer + **desktop topbar** |

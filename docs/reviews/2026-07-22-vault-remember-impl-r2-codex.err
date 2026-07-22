@@ -1,0 +1,1887 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8806-716d-7d50-8375-7c45e9c870ed
+--------
+user
+Impl review R2. Impl R2 after Codex MUST_FIX fold:
+1. probe/canRemember require real IndexedDB (or vaultTestAllowMemoryKeys only in tests)
+2. VaultPanel surfaces clearVault + lock failures; restore_flag_write_failed warns F5 may restore
+3. Test vaultTestClearSessionRam F5 model: restore + setVaultSecret works
+
+Re-review. MUST_FIX only real blockers.
+VERDICT / MUST_FIX / NITS / ONE_LINE format.
+packages/profiles/src/vault.ts:340:let allowMemoryKeys = false;
+packages/profiles/src/vault.ts:342:function hasIdbBackend(): boolean {
+packages/profiles/src/vault.ts:343:  return typeof indexedDB !== "undefined" || allowMemoryKeys;
+packages/profiles/src/vault.ts:350:  allowMemoryKeys = false;
+packages/profiles/src/vault.ts:373:  allowMemoryKeys = on;
+packages/profiles/src/vault.ts:378:export function vaultTestClearSessionRam(): void {
+packages/profiles/src/vault.ts:678:    if (!allowMemoryKeys) throw new Error("no indexedDB");
+packages/profiles/src/vault.ts:697:    if (!allowMemoryKeys) throw new Error("no indexedDB");
+packages/profiles/src/vault.ts:715:    if (!allowMemoryKeys) throw new Error("no indexedDB");
+packages/profiles/src/vault.ts:736:    if (!allowMemoryKeys) return false;
+packages/profiles/src/vault.ts:772:  return hasWebCryptoSubtle() && hasIdbBackend();
+packages/profiles/src/vault.ts:777:    if (!hasWebCryptoSubtle() || !hasIdbBackend()) {
+packages/profiles/src/vault.ts:1063:      reasons.push("restore_flag_write_failed");
+packages/profiles/src/vault.ts:1141:      reasons.push("restore_flag_write_failed");
+packages/profiles/src/vault.ts:1205:      reasons.push("restore_flag_write_failed");
+packages/profiles/tests/vault.test.ts:31:  vaultTestClearSessionRam,
+packages/profiles/tests/vault.test.ts:163:  it("probe fails without IDB backend", async () => {
+packages/profiles/tests/vault.test.ts:175:  it("F5 model: RAM clear + durable restoreAllowed=1 restores secrets", async () => {
+packages/profiles/tests/vault.test.ts:183:    vaultTestClearSessionRam();
+apps/web/src/components/VaultPanel.tsx:243:                      "restore_flag_write_failed",
+codex
+I’m using the quality-pipeline review workflow to re-check only release-blocking correctness issues in the R2 fold, with the requested verdict format.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: quality-pipeline
+description: >
+  Run pre-commit or pre-merge quality checks: tests, completeness scan (no stubs/TODOs/mocks),
+  code review. Use when: "quality gate", "quality checks", "run tests before merge", "check for
+  stubs", "scan for completeness", "is this ready to commit?", "pre-merge review", "品質檢查",
+  "準備好可以 commit 了嗎", "跑一下檢查". Not for: writing new tests (→ TDD), debugging CI
+  failures, or receiving external review feedback.
+---
+
+# Quality Pipeline (Unified Quality Gate)
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer pre-merge gate failures over manual debugging).
+
+**Pipeline is a dispatcher. Each step follows its reference doc.**
+
+## Project Config (auto-injected)
+!`cat .claude/quality-gate-config.md 2>/dev/null || true`
+!`cat .claude/dispatch-config.md 2>/dev/null || true`
+
+## Sub-step References
+
+- **Test policy**: [references/test-policy.md](references/test-policy.md) — failure investigation, pre-existing cleanup
+- **Completeness gate**: [references/completeness-gate.md](references/completeness-gate.md) — anti-stub scan
+- **Test integrity gate**: [references/test-integrity-gate.md](references/test-integrity-gate.md) — L0 anti-gaming (no deleted/skipped/weakened tests)
+- **Code review**: [references/code-review.md](references/code-review.md) — 4-tier severity, fix-first classification
+- **Anti-rationalization patterns**: [references/anti-rationalization.md](references/anti-rationalization.md) — invoked from Failure Handling when retries exhaust
+
+## Available Scripts (prefer over LLM judgment)
+
+Each script encodes a step the pipeline previously asked the LLM to do by hand. Use them; the JSON output is stable across rounds and cheap to consume.
+
+| Script | Replaces LLM-judgment for | When invoked |
+|--------|---------------------------|--------------|
+| [`scripts/completeness-scan.sh`](../../scripts/completeness-scan.sh) | Anti-stub regex pass + new-vs-pre-existing classification | Completeness Gate step |
+| [`scripts/error-path-scan.sh`](../../scripts/error-path-scan.sh) | L0 attention-slip scan for error paths (swallowed errors, broadened catches, untested error paths) | Completeness Gate step (advisory to review) |
+| [`scripts/secret-scan-diff.js`](../../scripts/secret-scan-diff.js) | L0 attention-slip scan for leaked secrets | Completeness Gate step (blocking) |
+| [`scripts/adjudicate-findings.js`](../../scripts/adjudicate-findings.js) | "Is this finding real?" — probe-backed statuses (REPRODUCED/REFUTED/UNPROBED/PROOF_BY_TRACE); `gate --ids` blocks fix dispatch on non-actionable findings | Review step, before acting on any finding |
+| [`scripts/check-redispatch-prompt.sh`](../../scripts/check-redispatch-prompt.sh) | Round 2+ leaky-phrase detection (per `references/blind-dispatch.md`) | Before every re-review dispatch |
+| [`scripts/diff-file-list.sh`](../../scripts/diff-file-list.sh) | Reviewer's "list every file I read" enumeration in Verified Clean | Reviewer prompt assembly |
+| [`scripts/diff-scope-report.sh`](../../scripts/diff-scope-report.sh) | v2 scope-creep filter: whitespace-only files, files not in message, comment-only hunks, quote-style swaps | Code Review step (Scope Creep Scan) |
+| [`scripts/resolve-dispatch.sh`](../../scripts/resolve-dispatch.sh) | Per-dispatch model/mode lookup against `model-routing-config.md` | Any subagent dispatch |
+| [`scripts/check-test-integrity.sh`](../../scripts/check-test-integrity.sh) | "Did the implementer game the tests?" — deleted / skipped / soloed / weakened existing tests, escaped fixtures/config (see [references/test-integrity-gate.md](references/test-integrity-gate.md)) | After impl, before merge — esp. delegated / `/l5` hetero dispatch |
+| [`scripts/verify-preexisting.sh`](../../scripts/verify-preexisting.sh) | Stash + checkout-base + run-test classification | Test Failure Investigation step |
+| [`scripts/verify-red-green.sh`](../../scripts/verify-red-green.sh) | Red-green validation: a change's tests must be GREEN at head and RED at base+tests (else they don't exercise the change) — isolated detached worktrees, verdict from real exit codes | When judging whether new tests actually test the change (see [references/test-policy.md](references/test-policy.md)) |
+| [`scripts/risk-counter.js`](../../scripts/risk-counter.js) | Cross-round WTF-Likelihood Cap state tracking | Self-Regulation section |
+| [`scripts/diff-since-last-round.sh`](../../scripts/diff-since-last-round.sh) | Round-N checkpoint + delta-since-checkpoint (dispatcher-only) | Re-review Loop short-circuit decision |
+| [`scripts/qc-panel.js`](../../scripts/qc-panel.js) | Cross-family interrogation panel (shadow mode, task-tree engine) | Shadow QC panel section below |
+| [`scripts/calibration.sh`](../../scripts/calibration.sh) | Panel verdict sample store + agreement report | Shadow QC panel section below |
+| [`scripts/resolve-qc-gate.sh`](../../scripts/resolve-qc-gate.sh) | Per-project anti-skip gate strength (`block`/`warn`/`off`) for the `.githooks/pre-push` enforcer | On PASS, stamp the landing/merge commit with `QC-Verdict: PASS (reviewer <id>, <date>)` so the pre-push gate is satisfied |
+
+All scripts: `<script> --help` for usage; deterministic exit codes; JSON output where applicable. If a user project ships its own script with the same contract, prefer the project version.
+
+### Shadow QC panel (task-tree engine)
+
+When `docs/projects/<proj>/tree/` exists AND the review target is a verdict-bearing node (report has non-null `verdict`), the dispatcher MUST run `scripts/qc-panel.js` in parallel with the authoritative reviewer (Amendment 4: a silently-dead shadow fails the gate). Convention: `--proj` is the active project's directory name under `docs/projects/` (no auto-detection — an omitted `--proj` means the shadow silently doesn't run, so the dispatcher owns supplying it). The existing reviewer flow REMAINS authoritative — this is shadow-only (KR5: zero behavior change for non-opted-in users; the wiring is conditional on the tree existing).
+
+```
+IF docs/projects/<proj>/tree/ exists AND node report has verdict != null:
+  Run scripts/qc-panel.js --report <node-report.json> \
+      --artifacts <artifact-paths> --out <panel-out-dir> \
+      --proj <proj> --node <node-id>
+  Panel writes verdict artifact + appends a liveness (self-report-baseline)
+  calibration sample automatically (Amendment 4 liveness).
+  After the authoritative reviewer completes, add the graduation-bearing sample:
+    scripts/calibration.sh add-sample \
+      --panel-verdict <panel_verdict> \
+      --authoritative-verdict <reviewer_verdict> \
+      --baseline reviewer \
+      [--class <severity-class>]
+  (Baseline separation: the panel's internal sample is liveness-only and
+  excluded from graduation math; only the dispatcher's reviewer-baseline
+  sample counts toward graduation criteria.)
+ELSE: shadow path is a no-op; authoritative reviewer runs unchanged.
+```
+
+See [references/code-review.md](references/code-review.md) "Shadow QC panel" subsection for full wiring details and Amendment 4 liveness requirements.
+
+## Route Table
+
+| Size | Route | Steps |
+|------|-------|-------|
+| **S** | scan → completeness → review | completeness (if not skip) + review |
+| **L** | test → scan → completeness → review | all steps |
+| **hotfix** | test → review | skip scan/completeness for speed |
+
+## Execution Steps
+
+> **Contract** — the pseudocode blocks below are the **executable dispatch contract** that quality-pipeline reads at runtime: which step runs, which script to invoke, which reference doc owns the rest. They are intentionally minimal. Each step's full spec — rationale, examples, exceptions, prohibitions — lives in the linked reference doc, which is the **canonical source of truth**. Edits to the canonical spec MUST be mirrored here if (and only if) they change the dispatch shape (script name, branching outcome, ordering). Edits to examples/rationale stay in the reference — never duplicate them here.
+
+### Tests (L-size only)
+
+```
+Follow references/test-policy.md
+  → failure? → classify via `scripts/verify-preexisting.sh '<test-cmd>'`
+              → PRE_EXISTING / INTRODUCED / NO_FAILURE / INCONCLUSIVE
+              → INTRODUCED + (≥3 failures OR flaky/intermittent OR root cause not
+                obvious from the diff) → invoke `autopilot:test-strategy` for the
+                failure-investigation funnel (baseline / regression scoping / flaky
+                systemic handling) BEFORE patching blindly
+              → otherwise: fix per test-policy → re-run tests
+  → pass? → continue
+```
+
+> **Why route to test-strategy** (added v2.25.10): the classifier tells you *whose* failure it
+> is, not *why* it fails or whether it's flaky-systemic. A cluster of INTRODUCED failures or an
+> intermittent one is exactly where test-strategy's funnel (test-pyramid placement, baseline
+> 守則, regression scoping) prevents whack-a-mole patching. A single obvious INTRODUCED failure
+> with a clear diff cause does NOT need it — fix directly. This is the cross-cutting routing edge
+> that was missing (2026-06-26 methodology inventory).
+
+> **Long-running / CI-backed test commands (Claude Code only, capability-gated):** when the
+> test command is a remote CI run or a multi-minute build, prefer the **`Monitor`** tool over
+> re-running `gh run watch` in a busy-loop — Monitor runs the watch script in the background
+> and streams each output line back, re-invoking the session on change instead of polling.
+> This is optional leverage; on agents without Monitor, fall back to manual `gh run watch` /
+> re-checking by hand. See [references/multi-agent-portability.md §7](../../references/multi-agent-portability.md).
+
+### Completeness Gate (if not skip)
+
+```
+Follow references/completeness-gate.md
+  → run `scripts/completeness-scan.sh` (exit 1 ⇒ has new findings)
+  → TODO/stub/placeholder found? → complete or remove them
+  → clean? → continue
+```
+
+### Code Review (always runs)
+
+**Model routing**: resolve via `scripts/resolve-dispatch.sh --role reviewer` — reads `.claude/model-routing-config.md` if present, else defaults from [references/model-routing.md](references/model-routing.md). Do not hardcode defaults in this file.
+
+```
+Follow references/code-review.md (dispatches per .claude/dispatch-config.md '## Code Review' chain; defaults to autopilot:reviewer when chain unset or no chain entry is dispatchable)
+  Agent dispatch: read JSON from `resolve-dispatch.sh --role reviewer`
+  Before any round 2+ dispatch: `scripts/check-redispatch-prompt.sh <prompt>` (exit 1 ⇒ leaky, strip and retry)
+  Optional short-circuit: `scripts/diff-since-last-round.sh stat` (dispatcher-only — doc_only=true ⇒ skip re-review)
+  → Critical/Major? → fix → re-review (repeat until clean)
+  → Suggestion/Minor? → dispatch via Decision Tree below
+  → LGTM? → pass
+```
+
+### Pre-existing Error Cleanup (after main task)
+
+```
+Follow references/test-policy.md "Pre-existing Error Cleanup" section
+  → Project hand-written code? → analyze + fix
+  → Auto-generated code? → record root cause, don't edit generated file
+  → Third-party dependency? → document only
+```
+
+## Dispatch Decision Tree (Non-Critical Findings)
+
+After code review, each Suggestion/Minor finding must be dispatched — never ignored:
+
+```
+Finding (Suggestion or Minor severity)
+├── (a) S-size fix (< 5 min, self-contained) → fix now, treat as Major
+├── (b) False positive / by-design → close with written rationale
+├── (c) Independent task needing separate analysis → create task with context
+└── (d) Deferred → add to BACKLOG with trigger condition
+```
+
+**Rules:**
+- Every finding must reach exactly one of (a)-(d). "Will look at it later" is not a valid outcome.
+- Backlog entries without a trigger condition are rejected (see references/code-review.md).
+- If 3+ findings route to (c) in the same review, consider whether scope was underestimated.
+
+## Self-Regulation (WTF-Likelihood Cap)
+
+During fix loops, track cumulative risk via `scripts/risk-counter.js` (persisted per repo+branch — no LLM cross-round memory required):
+
+| Event | Risk delta | Increment command |
+|-------|-----------|-------------------|
+| Fix reverted (didn't work) | +15 | `scripts/risk-counter.js increment --event reverted` |
+| Fix touches 3+ files | +5 | `scripts/risk-counter.js increment --event multi-file` |
+| After 10th fix in same pipeline run | +1 per add'l fix | `scripts/risk-counter.js increment --event late-fix` |
+| Fix touches files unrelated to original change | +20 | `scripts/risk-counter.js increment --event unrelated-files` |
+| Any other fix (just counts toward fixes total) | 0 | `scripts/risk-counter.js increment --event fix` |
+
+**Thresholds** (orthogonal to retries-per-step below):
+- Risk > 20 → **STOP** (check via `scripts/risk-counter.js threshold-hit`; exit 1 ⇒ stop). Report: "Fix loop risk elevated. N fixes attempted, M reverted."
+- Hard cap: 30 fixes per pipeline run (separate from per-step retry cap below)
+- On STOP: list all attempted fixes, outcomes, and remaining issues; reset via `scripts/risk-counter.js reset` only after closing the pipeline run
+
+## Failure Handling
+
+Any step fails → stop → fix → resume from that step. **Never skip.**
+
+```
+Step N fails
+  1. Fix the problem
+  2. Re-run from Step N (not Step 1)
+  3. Pass → continue to Step N+1
+```
+
+**Max retries per step**: 3 (counts step failures, not fix attempts — orthogonal to the 30-fix pipeline cap and the 20-risk threshold above). After 3 step failures, escalate via [references/anti-rationalization.md](references/anti-rationalization.md) (7-point checklist + structured failure report) before declaring inability to solve.
+
+## See Also
+- `autopilot:dev-flow` — sets session rules and dispatches pipeline
+
+exec
+/usr/bin/zsh -lc "sed -n '1,260p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/quality-pipeline/references/code-review.md && git status --short && git diff -- packages/profiles/src/vault.ts packages/profiles/tests/vault.test.ts apps/web/src/components/VaultPanel.tsx" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+# Code Review (All Sizes, Mandatory)
+
+**Every commit/merge requires code review. No exceptions.**
+
+## Fix-First Classification (C++ Safe)
+
+Classify each finding AUTO-FIX or ASK before presenting.
+
+**C++ safety principle:** Even "mechanical" C++ edits can change compiled output and runtime. Auto-fix stays narrow.
+
+### AUTO-FIX (apply immediately, no asking)
+
+Only these — nothing that changes compiled output:
+
+| Category | Examples | Why safe |
+|----------|----------|----------|
+| Comment typos/formatting | `// retrun` → `// return`, missing period | Zero compiled output change |
+| Trailing whitespace / extra blank lines | Whitespace-only diffs | Zero compiled output change |
+| Log message text corrections | `spdlog::info("recieved")` → `spdlog::info("received")` | String literal only |
+| Markdown / documentation fixes | Typos in `docs/`, README, CLAUDE.md | Not compiled |
+| Unused `#include` removal | **Only if compiler confirms** no transitive dependency (project build passes) | Must verify — C++ headers have side effects |
+
+**Hard boundary:** Doubt → ASK, not AUTO-FIX.
+
+### ASK (present to user with recommendation)
+
+Everything else, including seemingly trivial items:
+
+| Category | Why not auto-fix |
+|----------|-----------------|
+| Any code logic change (even "obvious") | C++ implicit conversions, overload resolution |
+| `#include` reordering | May change implicit conversion behavior, macro definitions |
+| Type cast changes (even narrowing → widening) | Affects overload resolution, template instantiation |
+| Variable/function rename | May affect serialization, protocol field names, reflection |
+| Error handling changes | Different exception paths, return codes |
+| Default parameter changes | Affects all call sites, ABI |
+| Const/constexpr additions | May change overload selection |
+| `std::move` / forwarding changes | Ownership semantics |
+
+### Workflow
+
+```
+1. Collect all findings from code-reviewer agent
+2. Classify each finding as AUTO-FIX or ASK
+3. Apply all AUTO-FIX silently
+   - If any AUTO-FIX involves #include removal: run the project build command to verify
+   - Revert on build failure → reclassify as ASK
+4. Present ASK findings one-at-a-time with severity + recommendation
+5. Summary: "Auto-fixed N items (comments/formatting). M items need your decision."
+```
+
+### Classification Example
+
+| # | Finding | Class | Rationale |
+|---|---------|-------|-----------|
+| 1 | Comment: `// caluclate score` | AUTO-FIX | Typo in comment, no compiled effect |
+| 2 | Trailing whitespace in `GameRoom.cpp` | AUTO-FIX | Whitespace only |
+| 3 | `spdlog::warn("faild to connect")` | AUTO-FIX | Log string typo |
+| 4 | Unused `#include <algorithm>` | AUTO-FIX | Only after build verification |
+| 5 | `int` → `size_t` for loop counter | ASK | Changes type, affects comparisons |
+| 6 | Reorder includes alphabetically | ASK | May change macro/conversion behavior |
+| 7 | Rename `tmp` → `pendingCards` | ASK | May affect debug tooling, serialization |
+| 8 | Add `[[nodiscard]]` to return value | ASK | Changes compiler warnings at call sites |
+
+
+## Invocation
+
+**Dispatch per the `.claude/dispatch-config.md` `## Code Review` chain** (auto-injected atop `skills/quality-pipeline/SKILL.md`). quality-pipeline picks the **first AVAILABLE** reviewer; missing plugins skipped. **`autopilot:reviewer` is the default fallback** when chain unset or nothing dispatchable. Chain = declarative preference; one-off non-chain reviewer → Agent tool direct.
+
+**Model/mode**: `scripts/resolve-dispatch.sh --role reviewer` → JSON `{model, mode, agent, source}` from `.claude/model-routing-config.md` or [`references/model-routing.md`](../../../references/model-routing.md) defaults. Never hardcode at dispatch site.
+
+Example (chain selects `autopilot:reviewer`):
+
+```
+Task tool:
+  subagent_type: "autopilot:reviewer"
+  prompt: "Review the changes against [plan/task description]. Focus on [specific concerns]."
+```
+
+> (canonical: references/blind-dispatch.md § Verifier isolation) **Verifier isolation (MUST — EVERY round, round 1 included).** Dispatch prompt/context MUST carry **only artifacts** — diff / changed files / test output — plus the **original** task / plan / commit message as baseline. It **MUST NOT** include the implementer's self-report, summary, "what I did" writeup, or self-assessed verdict: that anchors the verifier into confirming the claim (multi-agent hallucination cascade) — the failure a decorrelated gate prevents. `[plan/task description]` is the *specification*, not a report of work done — keep it; strip any "here's what I changed / it works / this is done" narrative. Rule + baseline-vs-report test: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § "Verifier isolation". Orthogonal to round-2+ blind re-dispatch (strips *prior verdicts*); both apply.
+>
+> Round 2+ (Re-review Loop): leave `[specific concerns]` blank or **non-finding-derived** scope reminders only. Run `scripts/check-redispatch-prompt.sh <prompt>` before dispatch — exit 1 = leaky per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); MUST strip.
+
+Whichever reviewer the chain selects, the agent (canonical scope also consumed by `agents/reviewer.md`) will:
+1. Read every file affected by the diff and the **original task / plan / commit message** as baseline. Callers / tests / config only when a finding depends on them.
+2. Run the full correctness / security / boundary / error-handling / performance / API-usage / scope-creep checklist (scope-creep in "Scope Creep / Surgical Changes Scan" below).
+3. Return findings with 4-tier severity (🔴 Critical / 🟠 Major / 🟡 Minor / 🔵 Suggestion) + `✅ Verified Clean` section + `### Handoff` with enum `Next consumer`.
+
+(Non-autopilot reviewers may use another shape — see "Handoff Consumption" for enum vocabulary; foreign shapes → quality-pipeline inline interpretation.)
+
+## Handoff Consumption
+
+Read `### Handoff`; route by enum.
+
+**Scope note**: table = enums `autopilot:reviewer` emits. Global grammar (`agents/README.md`) also has `AUTOPILOT_PLANNER`, `PARALLEL_DISPATCH`, `SEQUENTIAL_DISPATCH` — other methodology agents only; quality-pipeline need not consume them here.
+
+| Enum | quality-pipeline action |
+|------|------------------------|
+| `MAIN_CLAUDE` | Apply fixes inline (or hand to main Claude context) |
+| `AUTOPILOT_DEBUGGER` | Re-dispatch `autopilot:debugger` as an independent session to investigate root cause, then loop back to review |
+| `AUTOPILOT_PLANNER` | Re-dispatch `autopilot:planner` for six-element Task Prompt decomposition before attempting the fix |
+| `NEEDS_DOMAIN_EXPERT` | Use the rationale to pick the appropriate voltagent role agent (e.g., `voltagent-lang:rust-engineer`, `voltagent-data-ai:postgres-pro`) and dispatch for the fix |
+| `DOCUMENT_ONLY` | Record the findings without taking fix action (typical for 🟡 Minor / 🔵 Suggestion only runs) |
+
+Methodology agents never call each other. Re-dispatch is quality-pipeline's job, not the reviewer's session.
+
+### Consuming a finding — verify before implementing (findings are suggestions to evaluate, not orders)
+
+A finding is a *claim to check*, not a command. Before acting:
+
+1. **Verify against the codebase.** Open cited `file:line`; confirm the claim. Reviewers confabulate — unreproducible = false positive, not a task. (Consumer half of the Fact-driven Red Line.)
+2. **Push back with technical reasoning when wrong** — breaks existing behavior, missing context, legacy/compat, or conflicts a prior decision. Cite refuting test/code. No defensive dismissal; no blind compliance.
+3. **YAGNI-check "do it properly"** — "implement X fully" → `grep` if X is used; unused → propose removal, not expansion.
+4. **No performative agreement.** Never "You're absolutely right!", "Great catch!", or thanks. State the fix (`Fixed — <what changed>`) or reasoned pushback. Actions over affect; the diff shows you heard it.
+5. **One fix at a time, re-verify** — no batch-apply-and-hope; each fix checked (re-review loop enforces at round level).
+
+Mechanical form: adjudication table (`scripts/adjudicate-findings.js`, statuses `REPRODUCED` / `REFUTED` / `UNPROBED` / `PROOF_BY_TRACE`); `union-on-verified-critical` "verified" = actionable status there.
+
+## Scope Creep / Surgical Changes Scan
+
+**Every changed line must trace directly to the stated task, plan, or commit message.**
+
+Beyond correctness / security / boundary / error-handling / performance / API-usage, the reviewer **must** scan for unrequested changes — the common LLM failure of "improving" adjacent code, refactoring unbroken code, or cleaning what they think they understand.
+
+### Pre-screen (cheap, deterministic)
+
+Before per-hunk judgment: `scripts/diff-scope-report.sh [--message-file <commit-msg>]`. v1 signals: `whitespace_only_file`, `unrelated_to_message`. JSON `findings` = candidates to judge, not auto-findings. Unscreened hunks still get the mapping test below.
+
+### What counts as scope creep
+
+| Pattern | Example |
+|---------|---------|
+| Reformatting unrelated lines | Reindenting a function the task didn't touch |
+| Renaming outside the task surface | Renaming `tmp` → `pendingCards` in a file the task only adds one method to |
+| Refactoring "while we're here" | Extracting a helper from existing code the task didn't need to call |
+| Style alignment beyond changed lines | `'` → `"` quote swaps, trailing commas, etc., in unmodified code |
+| Deleting pre-existing dead code | Removing a function the task didn't make unused (only newly-orphaned code may be removed) |
+| Comment cleanup unrelated to the change | Rewording or removing comments on lines the task didn't touch |
+| Dependency / config tweaks not required by the task | Bumping unrelated package versions, reordering imports |
+
+### The test
+
+Per changed hunk: **"Which sentence of the task description does this hunk implement?"** No map → scope creep.
+
+### Severity
+
+| Situation | Severity |
+|-----------|----------|
+| Unrequested change in compiled output (rename, refactor, dep change, behavior tweak) | **Major** |
+| Unrequested whitespace / formatting / comment edit in compiled-output files | **Minor** |
+| Unrequested whitespace / formatting in pure-doc files (`.md`, comments-only) | **Suggestion** |
+| Newly-orphaned imports/variables/functions removed by the task | ✅ Verified Clean (not scope creep — cleanup is required) |
+
+### Reviewer output contract
+
+Scope creep found → dedicated subsection:
+
+```
+### Scope Creep Findings
+
+🟠 Major — `src/foo.cpp:42-58` reindented; not in task description.
+🟡 Minor    — `src/bar.h:103` comment reworded; not part of the requested fix.
+```
+
+No scope creep → `✅ Verified Clean` MUST include:
+
+```
+- No scope creep — every changed line traces to the task.
+```
+
+so consumers know the scan ran. Seed Verified Clean via `scripts/diff-file-list.sh changed` (no LLM-from-memory file list).
+
+### Why this matters (one-liner)
+
+Mixed task + scope-creep changes inflate review, break `git blame` / bisect, and (esp. C++) risk silent behavior shifts from "harmless" refactors. Push back at review; cheaper than post-merge revert.
+
+## No silent caps — disclose every bound
+
+**Any bounded coverage — top-N, per-segment, sampled, or skipped-on-timeout — MUST be DISCLOSED in the verdict. An undisclosed bound is a defect.** Partial file reads, one partition, samples, or timeout drops belong in the report (`### ✅ Verified Clean` or `### Summary`) as *what was NOT covered*. Believing a partial sweep was exhaustive is worse than knowing the bound.
+
+**Generalizes `skills/doc-sync` ethos**: doc-sync treats its non-deterministic LLM sweep as bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — never proof of absence. Same honesty for any bounded review/audit: name the bound; never silent.
+
+## Panel aggregation (multi-reviewer / disjoint-family qc)
+
+When authoritative qc is a **panel** (depth-0 from `scripts/resolve-review-loop.sh` `qc_panel` / `required_review_families` / `min_panel_size`; homogeneous all-Claude must not drop below resolver **`min_panel_size`** (default 3), separate from `required_review_families` — lens diversity ≠ family decorrelation; same-family lenses share blind spots; no resolver → fall back to 3 — see [`skills/ceo-agent/references/level-front-door.md`](../../ceo-agent/references/level-front-door.md) § "qc@depth-0"), combine by **`union-on-verified-critical`**, NOT majority:
+
+- **Any panelist's _verified_ Critical/Major blocks.** Correlated-blind-spot catches appear to ONE reviewer (often cross-family). **Majority would suppress exactly the finding the panel exists for** — majority **forbidden** (`resolve-review-loop.sh` rejects `qc_panel_aggregation: majority` → `union-on-verified-critical`).
+- **"Verified" gates the union, not raw count.** Before a single-track finding blocks: reproduce it — **executable** via `independent_harness` (execution = decorrelation ceiling, zero shared LLM lineage); non-executable (design/spec-fit) → depth-0 second-look. Stops noisy false-blocks; never lets a real single-track Critical through.
+- **No-verdict = FAIL-CLOSED.** Empty/unparseable (e.g. `dispatch-review.sh` `status:no_verdict` from agy stdout-drop) = **"did not clear"**, never silent pass. Re-dispatch or treat as blocking unknown.
+- **Decorrelate by _family_, not just lens.** Same-vendor N share failure modes; panel needs **≥1 family ≠ implementer's** (`cross_family_required`/`cross_family_satisfied` from `resolve-review-loop.sh`; **unknown-family** fails closed = unsatisfied). Grounding: PoLL (disjoint families beat one large judge + cut intra-model bias) + same-family self-preference/familiarity bias.
+- **Risk-tiered depth, honest terminals (v2.25.11).** Depth follows deterministic `implementation_review_risk` (NOT source-trust alone — diff risk, oracle availability, security surface; `resolve-review-loop.sh`), not who implemented. **High risk**: cross-family hard-required + **decorrelated execution oracle (`l1_required`) mandatory** — absence → `block`/non-automerge (`--enforce` exit 3). Terminals, never forged softer: **`verified`** (decorrelated oracle/reviewer cleared), **`unverified-nonblocking`** (low-risk, proceeds but HONESTLY unverified — NOT green), **`unverified-blocking`** (high-risk missing L1/cross-family — blocked). `warn`/`off` may suppress BLOCKING but **never** relabel `unverified` as `verified`. Design (honest-but-weak only, not malicious-proof): [`docs/plans/2026-06-26-trust-tiered-review-policy.md`](../../../docs/plans/2026-06-26-trust-tiered-review-policy.md).
+
+## 4-Tier Severity
+
+| Severity | Definition | Action |
+|----------|------------|--------|
+| **Critical** | Correctness / security / data-loss | Fix immediately, before commit |
+| **Major** | Quality / maintainability / reliability | Fix immediately, before commit |
+| **Minor** | Style, naming, cosmetic | Analyze, then backlog or fix (see below) |
+| **Suggestion** | Improvement, does not affect correctness | Analyze, then backlog or fix (see below) |
+
+**Classification guide:**
+
+| Symptom | Severity |
+|---------|----------|
+| Crash, data corruption, security hole | **Critical** |
+| Coding convention violation, missing error handling, resource leak risk | **Major** |
+| Naming style, whitespace, formatting | **Minor** |
+| Better design, readability, performance suggestion | **Suggestion** |
+
+## Re-review Loop (Critical / Major)
+
+Fix Critical/Major → re-review until only Suggestion/Minor or LGTM.
+
+```
+review → findings?
+├── Has Critical/Major → fix → re-review (repeat until clean)
+├── Only Suggestion/Minor → process per below → commit
+└── Clean (LGTM) → commit
+```
+
+**Re-review scope:** After each fix round, re-review the **entire diff**, not just the fix. Fixes can introduce new issues.
+
+**Re-review checkpoint (dispatcher-only)**: Before round 1, `scripts/diff-since-last-round.sh mark` snapshots HEAD; between rounds `scripts/diff-since-last-round.sh stat` → JSON `{changed_files, insertions, deletions, doc_only}`. If `doc_only=true` and `changed_files` trivially small, dispatcher MAY short-circuit. Decision + data stay **in the dispatcher only** — never pass delta to the reviewer (leaks round-cycle meta-signal per [`references/blind-dispatch.md`](../../../references/blind-dispatch.md)). Loop closed → `scripts/diff-since-last-round.sh clear`.
+
+**Re-review dispatch is blind** — round 2+ re-dispatch of `autopilot:reviewer` (or chain pick) MUST strip prior-round findings. Pre-flight: [`references/blind-dispatch.md`](../../../references/blind-dispatch.md); `scripts/check-redispatch-prompt.sh <prompt-file>` — exit 1 ⇒ strip and re-check. Prior finding stays in dispatcher memory; fixer is NOT blind (gets full finding). Skipping the linter self-bypasses the gate. Holds at any nesting depth — neither reviewer nor fixer dispatches the next round's review ([`references/blind-dispatch.md`](../../../references/blind-dispatch.md) § Nested dispatch).
+
+## Suggestion / Minor Processing
+
+**Suggestion/Minor ≠ "ignore."** Analyze each before merge:
+
+```
+For each Suggestion/Minor finding:
+    ↓
+Dispatch Explore agent to analyze impact and effort
+    ↓
+Classify into one of four outcomes:
+├── S-size fix (< 5 min) → fix now, treat as Major
+├── False positive / by-design → close with written rationale
+├── Independent task needing more analysis → create next task with context
+└── Has clear trigger condition → add to docs/BACKLOG.md with trigger
+```
+
+### Example Processing Table
+
+| # | Issue | Severity | Analysis | Size | Disposition |
+|---|-------|----------|----------|------|-------------|
+| 1 | Null deref in error path | Critical | Crash when DB returns empty | S | Fix now + re-review |
+| 2 | Missing mutex on shared map | Major | Race condition under load | S | Fix now + re-review |
+| 3 | Could use string_view instead of string copy | Suggestion | 2% fewer allocations in hot path | S | Fix now (upgrade to Major) |
+| 4 | Function name `doIt()` unclear | Minor | Rename to `processMatchResult()` | S | Fix now (upgrade to Major) |
+| 5 | Consider caching DB query result | Suggestion | Would help at 10K+ users, not current scale | M | Backlog (trigger: when optimizing for 10K+) |
+| 6 | "Magic number 42" | Minor | Actually `MAX_TILES` constant, used consistently | - | Close (by-design) |
+
+### Backlog Entry Format
+
+Every backlog entry **must** include a trigger:
+
+```markdown
+- [ ] [Suggestion] Cache rank table query results
+M  .claude/ship-config.md
+M  .grok/skills/ship/SKILL.md
+M  apps/web/src/App.tsx
+MM apps/web/src/components/VaultPanel.tsx
+ M apps/web/tests/profileEditor.test.ts
+M  docs/knowledge/hetero-definition.md
+A  docs/plans/2026-07-22-vault-remember-unlock.md
+A  docs/reviews/2026-07-22-vault-remember-unlock-hetero.md
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-claude-opus.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-codex.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-gemini36.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-glm52.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-minimax-m3.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r8-qwen38.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-claude-opus.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-codex.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-gemini36.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-glm52.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-minimax-m3.out
+A  docs/reviews/2026-07-22-vault-remember-unlock-r9-qwen38.out
+M  packages/profiles/src/index.ts
+MM packages/profiles/src/vault.ts
+MM packages/profiles/tests/vault.test.ts
+?? docs/TRY-FEATURES.md
+?? docs/reviews/2026-07-22-t1-site-plan-r1-gemini36.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-glm52.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-gpt56sol.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-minimax.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-qwen38.err
+?? docs/reviews/2026-07-22-t1-site-plan-r2-gemini36.err
+?? docs/reviews/2026-07-22-t1-site-plan-r2-gpt56sol.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-codex.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-codex.out
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-glm52.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-glm52.out
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-minimax-m3.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r1-minimax-m3.out
+?? docs/reviews/2026-07-22-vault-remember-impl-r2-codex.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r2-codex.out
+?? docs/reviews/2026-07-22-vault-remember-impl-r2-minimax-m3.err
+?? docs/reviews/2026-07-22-vault-remember-impl-r2-minimax-m3.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-claude.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-claude.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r2-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r2-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r2-gemini.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r2-gemini.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r3-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r3-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r3-gemini.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r3-gemini.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r4-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r4-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r4-gemini.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r4-gemini.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r5-agy.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r5-agy.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r5-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r5-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r6-agy.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r6-agy.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r6-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r6-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r7-agy.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r7-agy.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r7-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r7-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-claude-opus.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-gemini36.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-glm52.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-minimax-m3.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r8-qwen38.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-claude-opus.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-gemini36.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-glm52.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-minimax-m3.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r9-qwen38.err
+diff --git a/apps/web/src/components/VaultPanel.tsx b/apps/web/src/components/VaultPanel.tsx
+index 326319b..a034317 100644
+--- a/apps/web/src/components/VaultPanel.tsx
++++ b/apps/web/src/components/VaultPanel.tsx
+@@ -210,7 +210,14 @@ export function VaultPanel({ onChange }: Props) {
+                   )
+                 ) {
+                   void run(async () => {
+-                    await clearVault();
++                    const r = await clearVault();
++                    if (!r.ok) {
++                      setWarn(
++                        "清除未完全成功（" +
++                          r.reasons.join(", ") +
++                          "）。請重試或手動清除站台資料。",
++                      );
++                    }
+                   });
+                 }
+               }}
+@@ -232,10 +239,17 @@ export function VaultPanel({ onChange }: Props) {
+                 void run(async () => {
+                   const r = await lockVault();
+                   if (!r.ok) {
++                    const flagFail = r.reasons.includes(
++                      "restore_flag_write_failed",
++                    );
+                     setWarn(
+-                      "本頁已鎖定；本機金鑰清除可能未完成（" +
+-                        r.reasons.join(", ") +
+-                        "）。一般重新整理不會自動解鎖。",
++                      flagFail
++                        ? "本頁 RAM 已鎖，但撤銷標記寫入失敗 — 重新整理「可能」仍自動解鎖。請重試鎖定或清除站台資料。（" +
++                            r.reasons.join(", ") +
++                            "）"
++                        : "本頁已鎖定；本機 IDB 金鑰清除可能未完成（" +
++                            r.reasons.join(", ") +
++                            "）。一般 F5 因 restoreAllowed=0 不會 auto-restore；同源腳本仍可能用殘 key。",
+                     );
+                   }
+                 })
+@@ -250,7 +264,14 @@ export function VaultPanel({ onChange }: Props) {
+               onClick={() => {
+                 if (confirm("清除密碼庫？不可恢復。")) {
+                   void run(async () => {
+-                    await clearVault();
++                    const r = await clearVault();
++                    if (!r.ok) {
++                      setWarn(
++                        "清除未完全成功（" +
++                          r.reasons.join(", ") +
++                          "）。本頁已視為鎖定；請重試或手動清除站台資料。",
++                      );
++                    }
+                   });
+                 }
+               }}
+diff --git a/packages/profiles/src/vault.ts b/packages/profiles/src/vault.ts
+index 91c3f6f..bce6cc0 100644
+--- a/packages/profiles/src/vault.ts
++++ b/packages/profiles/src/vault.ts
+@@ -326,7 +326,7 @@ function storageDel(key: string): void {
+ /** Node/test memory backend when no localStorage */
+ const memoryKV = new Map<string, string>();
+ 
+-/** In-memory IDB stand-in for tests / no IDB */
++/** In-memory IDB stand-in — **tests only** when vaultTestAllowMemoryKeys(true) */
+ type KeyRecord = {
+   id: string;
+   cryptoKey: CryptoKey;
+@@ -336,11 +336,18 @@ type KeyRecord = {
+   opToken: string;
+ };
+ const memoryKeys = new Map<string, KeyRecord>();
++/** When true, allow memoryKeys as IDB stand-in (vitest). Production always false. */
++let allowMemoryKeys = false;
++
++function hasIdbBackend(): boolean {
++  return typeof indexedDB !== "undefined" || allowMemoryKeys;
++}
+ 
+ /** Test helper */
+ export function vaultTestResetStorage(): void {
+   memoryKV.clear();
+   memoryKeys.clear();
++  allowMemoryKeys = false;
+   if (typeof localStorage !== "undefined") {
+     localStorage.removeItem(VAULT_KEY);
+     localStorage.removeItem(VAULT_META_KEY);
+@@ -361,6 +368,17 @@ export function vaultTestResetStorage(): void {
+   probeCache = null;
+ }
+ 
++/** Test-only: enable in-memory CryptoKey store (simulates IDB). */
++export function vaultTestAllowMemoryKeys(on: boolean): void {
++  allowMemoryKeys = on;
++  probeCache = null;
++}
++
++/** Test-only: drop RAM session without lock (simulate F5 mid-session). */
++export function vaultTestClearSessionRam(): void {
++  session = null;
++}
++
+ function readMeta(): Meta {
+   const raw = storageGet(VAULT_META_KEY);
+   if (!raw) return { gen: 0 };
+@@ -657,6 +675,7 @@ function openKeysDb(): Promise<IDBDatabase> {
+ 
+ async function idbPut(rec: KeyRecord): Promise<void> {
+   if (typeof indexedDB === "undefined") {
++    if (!allowMemoryKeys) throw new Error("no indexedDB");
+     memoryKeys.set(rec.id, rec);
+     return;
+   }
+@@ -675,6 +694,7 @@ async function idbPut(rec: KeyRecord): Promise<void> {
+ 
+ async function idbGet(id: string): Promise<KeyRecord | null> {
+   if (typeof indexedDB === "undefined") {
++    if (!allowMemoryKeys) throw new Error("no indexedDB");
+     return memoryKeys.get(id) ?? null;
+   }
+   const db = await openKeysDb();
+@@ -692,6 +712,7 @@ async function idbGet(id: string): Promise<KeyRecord | null> {
+ 
+ async function idbDelete(id: string): Promise<void> {
+   if (typeof indexedDB === "undefined") {
++    if (!allowMemoryKeys) throw new Error("no indexedDB");
+     memoryKeys.delete(id);
+     return;
+   }
+@@ -712,6 +733,7 @@ async function idbDelete(id: string): Promise<void> {
+ async function atomicDeleteIfOpToken(expectedToken: string): Promise<boolean> {
+   if (!expectedToken) return false;
+   if (typeof indexedDB === "undefined") {
++    if (!allowMemoryKeys) return false;
+     const rec = memoryKeys.get(IDB_DEFAULT_ID);
+     if (rec && rec.opToken === expectedToken) {
+       memoryKeys.delete(IDB_DEFAULT_ID);
+@@ -747,15 +769,12 @@ let probeCache: boolean | null = null;
+ 
+ export function canRememberUnlock(): boolean {
+   if (probeCache != null) return probeCache;
+-  return (
+-    hasWebCryptoSubtle() &&
+-    (typeof indexedDB !== "undefined" || memoryKeys !== undefined)
+-  );
++  return hasWebCryptoSubtle() && hasIdbBackend();
+ }
+ 
+ export async function probeRememberUnlock(): Promise<boolean> {
+   try {
+-    if (!hasWebCryptoSubtle()) {
++    if (!hasWebCryptoSubtle() || !hasIdbBackend()) {
+       probeCache = false;
+       return false;
+     }
+diff --git a/packages/profiles/tests/vault.test.ts b/packages/profiles/tests/vault.test.ts
+index a88530e..880cea1 100644
+--- a/packages/profiles/tests/vault.test.ts
++++ b/packages/profiles/tests/vault.test.ts
+@@ -27,6 +27,9 @@ import {
+   getRestoreAllowed,
+   setRememberUnlock,
+   tryRestoreVaultSession,
++  vaultTestAllowMemoryKeys,
++  vaultTestClearSessionRam,
++  probeRememberUnlock,
+ } from "../src/vault.js";
+ 
+ describe("vault crypto", () => {
+@@ -153,6 +156,13 @@ describe("vault crypto", () => {
+ describe("vault remember unlock", () => {
+   beforeEach(() => {
+     vaultTestResetStorage();
++    // Node has no IndexedDB; enable test memory CryptoKey store only for this suite
++    vaultTestAllowMemoryKeys(true);
++  });
++
++  it("probe fails without IDB backend", async () => {
++    vaultTestAllowMemoryKeys(false);
++    expect(await probeRememberUnlock()).toBe(false);
+   });
+ 
+   it("remember OFF → restore false", async () => {
+@@ -162,47 +172,30 @@ describe("vault remember unlock", () => {
+     expect(await tryRestoreVaultSession()).toBe(false);
+   });
+ 
+-  it("setRememberUnlock true + restore after lock needs restoreAllowed", async () => {
+-    await createVault("remember-on-master");
+-    await setVaultSecret("p", { account: "a", password: "b" });
++  it("F5 model: RAM clear + durable restoreAllowed=1 restores secrets", async () => {
++    await createVault("restore-master-xx");
++    await setVaultSecret("rw", { account: "hero", password: "s3cret" });
+     const put = await setRememberUnlock(true);
+     expect(put.ok).toBe(true);
+-    expect(getRememberUnlock()).toBe(true);
+-    expect(getRestoreAllowed()).toBe(true);
+-
+-    // Simulate F5: clear RAM only (not durable flags / IDB)
+-    // lockVault clears restoreAllowed — so use internal session clear for boot model
+-    // Instead: unlock path write, then tryRestore after session=null via lock then re-enable...
+-    // Plan: after lock restoreAllowed=0. Boot model test:
+-    // unlock with remember already ON puts IDB + restoreAllowed=1
+-    await lockVault();
+-    expect(getRestoreAllowed()).toBe(false);
+-    expect(await tryRestoreVaultSession()).toBe(false);
+-
+-    // re-unlock with preference still on (user re-enters password once)
+-    await unlockVault("remember-on-master");
+-    // preference may still be on; unlock with remember ON should re-put
+-    if (!getRememberUnlock()) {
+-      await setRememberUnlock(true);
+-    }
+     expect(getRestoreAllowed()).toBe(true);
+-  });
+ 
+-  it("restore with durable flags + IDB key restores cryptoKey-only session", async () => {
+-    await createVault("restore-master-xx");
+-    await setVaultSecret("rw", { account: "hero", password: "s3cret" });
+-    await setRememberUnlock(true);
+-    expect(getRestoreAllowed()).toBe(true);
++    // Simulate hard reload: drop RAM only, keep durable flags + memory key store
++    vaultTestClearSessionRam();
++    expect(isVaultUnlocked()).toBe(false);
+ 
+-    // Soft clear session as if soft reload mid-tab without lockVault:
+-    // We cannot access session directly; lock clears restoreAllowed.
+-    // So: set restoreAllowed back after lock would be wrong product-wise.
+-    // Test path: unlock → remember on → session still unlocked → tryRestore returns true early
+     expect(await tryRestoreVaultSession()).toBe(true);
+-
+-    // After lock, F5 model fails (restoreAllowed 0)
+-    await lockVault();
+-    expect(await tryRestoreVaultSession()).toBe(false);
++    expect(isVaultUnlocked()).toBe(true);
++    expect(getVaultSecret("rw")).toEqual({
++      account: "hero",
++      password: "s3cret",
++    });
++    // cryptoKey-only path: can still persist
++    await setVaultSecret("rw", {
++      account: "hero",
++      password: "s3cret2",
++      autoLogin: true,
++    });
++    expect(getVaultSecret("rw")?.password).toBe("s3cret2");
+   });
+ 
+   it("lock blocks restore even if remember preference stays ON", async () => {
+
+exec
+/usr/bin/zsh -lc "sed -n '300,410p' packages/profiles/src/vault.ts; sed -n '620,810p' packages/profiles/src/vault.ts; sed -n '980,1235p' packages/profiles/src/vault.ts; sed -n '1,310p' apps/web/src/components/VaultPanel.tsx; sed -n '140,280p' packages/profiles/tests/vault.test.ts; cat package.json; cat packages/profiles/package.json" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+
+function storageGet(key: string): string | null {
+  if (typeof localStorage === "undefined") return memoryKV.get(key) ?? null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, val: string): void {
+  if (typeof localStorage === "undefined") {
+    memoryKV.set(key, val);
+    return;
+  }
+  localStorage.setItem(key, val);
+}
+
+function storageDel(key: string): void {
+  if (typeof localStorage === "undefined") {
+    memoryKV.delete(key);
+    return;
+  }
+  localStorage.removeItem(key);
+}
+
+/** Node/test memory backend when no localStorage */
+const memoryKV = new Map<string, string>();
+
+/** In-memory IDB stand-in — **tests only** when vaultTestAllowMemoryKeys(true) */
+type KeyRecord = {
+  id: string;
+  cryptoKey: CryptoKey;
+  gen: number;
+  rev: number;
+  createdAt: number;
+  opToken: string;
+};
+const memoryKeys = new Map<string, KeyRecord>();
+/** When true, allow memoryKeys as IDB stand-in (vitest). Production always false. */
+let allowMemoryKeys = false;
+
+function hasIdbBackend(): boolean {
+  return typeof indexedDB !== "undefined" || allowMemoryKeys;
+}
+
+/** Test helper */
+export function vaultTestResetStorage(): void {
+  memoryKV.clear();
+  memoryKeys.clear();
+  allowMemoryKeys = false;
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem(VAULT_KEY);
+    localStorage.removeItem(VAULT_META_KEY);
+    localStorage.removeItem(LEGACY_SECRETS_KEY);
+    localStorage.removeItem(REMEMBER_UNLOCK_KEY);
+    localStorage.removeItem(RESTORE_ALLOWED_KEY);
+  }
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+    }
+  } catch {
+    /* ignore */
+  }
+  session = null;
+  opEpoch = 0;
+  vaultOpTail = Promise.resolve();
+  probeCache = null;
+}
+
+/** Test-only: enable in-memory CryptoKey store (simulates IDB). */
+export function vaultTestAllowMemoryKeys(on: boolean): void {
+  allowMemoryKeys = on;
+  probeCache = null;
+}
+
+/** Test-only: drop RAM session without lock (simulate F5 mid-session). */
+export function vaultTestClearSessionRam(): void {
+  session = null;
+}
+
+function readMeta(): Meta {
+  const raw = storageGet(VAULT_META_KEY);
+  if (!raw) return { gen: 0 };
+  try {
+    const j = JSON.parse(raw) as Meta;
+    const gen = Number(j.gen);
+    return { gen: Number.isFinite(gen) && gen >= 0 ? Math.floor(gen) : 0 };
+  } catch {
+    return { gen: 0 };
+  }
+}
+
+function writeMeta(m: Meta): void {
+  storageSet(VAULT_META_KEY, JSON.stringify({ gen: m.gen }));
+}
+
+function readSnap(): VaultSnap {
+  const metaGen = readMeta().gen;
+  const raw = storageGet(VAULT_KEY);
+  if (raw == null) return { kind: "absent", metaGen };
+  if (raw.length > MAX_ENVELOPE_CHARS) {
+    throw new VaultError("envelope too large", "size");
+  }
+  try {
+    const env = JSON.parse(raw) as Envelope;
+    if (env.v !== 1 || env.kdf !== "PBKDF2-SHA256") {
+      throw new VaultError("bad envelope version", "corrupt");
+    }
+    return {
+function enqueueVaultOp<T>(
+  kind: string,
+  body: (ticket: MutationTicket) => Promise<T>,
+): Promise<T> {
+  const run = vaultOpTail.catch(() => {}).then(async () => {
+    return withExclusiveVaultLock(async () => {
+      const ticket = beginMutation(kind);
+      return body(ticket);
+    });
+  });
+  vaultOpTail = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+
+// --- Durable flags ---
+
+export function getRememberUnlock(): boolean {
+  return storageGet(REMEMBER_UNLOCK_KEY) === "1";
+}
+
+export function getRestoreAllowed(): boolean {
+  return storageGet(RESTORE_ALLOWED_KEY) === "1";
+}
+
+function setDurableRememberUnlock(v: 0 | 1): void {
+  storageSet(REMEMBER_UNLOCK_KEY, String(v));
+}
+
+function setDurableRestoreAllowed(v: 0 | 1): void {
+  storageSet(RESTORE_ALLOWED_KEY, String(v));
+}
+
+// --- IndexedDB key store ---
+
+function openKeysDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("no indexedDB"));
+      return;
+    }
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onerror = () => reject(req.error ?? new Error("idb open failed"));
+    req.onblocked = () => reject(new Error("idb blocked"));
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+async function idbPut(rec: KeyRecord): Promise<void> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    memoryKeys.set(rec.id, rec);
+    return;
+  }
+  const db = await openKeysDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("idb put failed"));
+      tx.objectStore(IDB_STORE).put(rec);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbGet(id: string): Promise<KeyRecord | null> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    return memoryKeys.get(id) ?? null;
+  }
+  const db = await openKeysDb();
+  try {
+    return await new Promise<KeyRecord | null>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(id);
+      req.onsuccess = () => resolve((req.result as KeyRecord) ?? null);
+      req.onerror = () => reject(req.error ?? new Error("idb get failed"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbDelete(id: string): Promise<void> {
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) throw new Error("no indexedDB");
+    memoryKeys.delete(id);
+    return;
+  }
+  const db = await openKeysDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("idb delete failed"));
+      tx.objectStore(IDB_STORE).delete(id);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Single-tx compare-and-delete by opToken. */
+async function atomicDeleteIfOpToken(expectedToken: string): Promise<boolean> {
+  if (!expectedToken) return false;
+  if (typeof indexedDB === "undefined") {
+    if (!allowMemoryKeys) return false;
+    const rec = memoryKeys.get(IDB_DEFAULT_ID);
+    if (rec && rec.opToken === expectedToken) {
+      memoryKeys.delete(IDB_DEFAULT_ID);
+      return true;
+    }
+    return false;
+  }
+  const db = await openKeysDb();
+  try {
+    return await new Promise<boolean>((resolve, reject) => {
+      let deleted = false;
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      const store = tx.objectStore(IDB_STORE);
+      const getReq = store.get(IDB_DEFAULT_ID);
+      getReq.onsuccess = () => {
+        const rec = getReq.result as KeyRecord | undefined;
+        if (rec && rec.opToken === expectedToken) {
+          store.delete(IDB_DEFAULT_ID);
+          deleted = true;
+        }
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("idb cas delete failed"));
+      tx.oncomplete = () => resolve(deleted);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+// --- Capability probe ---
+
+let probeCache: boolean | null = null;
+
+export function canRememberUnlock(): boolean {
+  if (probeCache != null) return probeCache;
+  return hasWebCryptoSubtle() && hasIdbBackend();
+}
+
+export async function probeRememberUnlock(): Promise<boolean> {
+  try {
+    if (!hasWebCryptoSubtle() || !hasIdbBackend()) {
+      probeCache = false;
+      return false;
+    }
+    const keyBytes = randomBytes(32);
+    const cryptoKey = await importAesCryptoKey(keyBytes);
+    keyBytes.fill(0);
+    if (!validateCryptoKey(cryptoKey)) {
+      probeCache = false;
+      return false;
+    }
+    const opToken = mintOpToken(-1);
+    const rec: KeyRecord = {
+      id: IDB_PROBE_ID,
+      cryptoKey,
+      gen: 0,
+      rev: 0,
+      createdAt: Date.now(),
+      opToken,
+    };
+    await idbPut(rec);
+    const got = await idbGet(IDB_PROBE_ID);
+    await idbDelete(IDB_PROBE_ID);
+    if (!got || !validateCryptoKey(got.cryptoKey)) {
+      probeCache = false;
+      return false;
+    }
+    // smoke encrypt/decrypt
+    const iv = randomBytes(12);
+    const plain = utf8("probe");
+    const ct = await aesGcmEncryptKey(got.cryptoKey, iv, plain);
+    const back = await aesGcmDecryptKey(got.cryptoKey, iv, ct);
+    if (new TextDecoder().decode(back) !== "probe") {
+      probeCache = false;
+      iter,
+    };
+    await maybePutRememberKey(ticket, cryptoKey, metaGen, 1);
+    if (ticket.stillOwner()) notifyVaultListeners();
+  });
+}
+
+export async function unlockVault(masterPassword: string): Promise<void> {
+  await enqueueVaultOp("unlock", async (ticket) => {
+    const raw = storageGet(VAULT_KEY);
+    if (!raw) throw new VaultError("no vault", "missing");
+    const { keyBytes, payload, env } = await decryptEnvelopeWithPassword(
+      masterPassword,
+      raw,
+    );
+    const salt = b64decode(env.salt_b64);
+    let cryptoKey: CryptoKey | undefined;
+    if (hasWebCryptoSubtle()) {
+      try {
+        cryptoKey = await importAesCryptoKey(keyBytes);
+      } catch {
+        cryptoKey = undefined;
+      }
+    }
+    if (!ticket.stillOwner()) {
+      keyBytes.fill(0);
+      throw new VaultError("superseded", "superseded");
+    }
+    session = {
+      keyBytes,
+      cryptoKey,
+      payload: structuredClonePayload(payload),
+      gen: env.gen,
+      rev: env.rev,
+      raw,
+      salt,
+      iter: env.iter,
+    };
+    await maybePutRememberKey(ticket, cryptoKey, env.gen, env.rev);
+    if (ticket.stillOwner()) notifyVaultListeners();
+  });
+}
+
+export async function setRememberUnlock(on: boolean): Promise<LockResult> {
+  if (on) {
+    return enqueueVaultOp("remember-on", async (ticket) => {
+      const s = session;
+      if (!s) throw new VaultError("vault locked", "locked");
+      if (!(await probeRememberUnlock())) {
+        throw new VaultError("remember unlock unavailable", "capability");
+      }
+      let cryptoKey = s.cryptoKey;
+      if (!cryptoKey) {
+        if (!s.keyBytes) throw new VaultError("no key material", "locked");
+        cryptoKey = await importAesCryptoKey(s.keyBytes);
+        s.cryptoKey = cryptoKey;
+      }
+      if (!validateCryptoKey(cryptoKey)) {
+        throw new VaultError("bad crypto key", "capability");
+      }
+      await idbPut({
+        id: IDB_DEFAULT_ID,
+        cryptoKey,
+        gen: s.gen,
+        rev: s.rev,
+        createdAt: Date.now(),
+        opToken: ticket.opToken,
+      });
+      if (!ticket.stillOwner()) {
+        await atomicDeleteIfOpToken(ticket.opToken);
+        throw new VaultError("superseded", "superseded");
+      }
+      setDurableRememberUnlock(1);
+      setDurableRestoreAllowed(1);
+      return { ok: true as const };
+    });
+  }
+
+  return enqueueVaultOp("remember-off", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    try {
+      setDurableRememberUnlock(0);
+    } catch {
+      reasons.push("remember_flag_write_failed");
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      /* ignore */
+    }
+    return reasons.length === 0
+      ? { ok: true as const }
+      : { ok: false as const, reasons };
+  });
+}
+
+export async function tryRestoreVaultSession(): Promise<boolean> {
+  return enqueueVaultOp("restore", async (ticket) => {
+    if (session) return true;
+    if (!getRememberUnlock()) return false;
+    if (!getRestoreAllowed()) return false;
+    if (!(await probeRememberUnlock())) return false;
+    const rec = await idbGet(IDB_DEFAULT_ID);
+    if (!rec || !validateCryptoKey(rec.cryptoKey)) return false;
+    const seenToken = rec.opToken;
+    const raw = storageGet(VAULT_KEY);
+    if (!raw) {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    let env: Envelope;
+    try {
+      env = parseEnvelope(raw);
+    } catch {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (env.gen !== rec.gen) {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (!ticket.stillOwner()) return false;
+    let payload: VaultPayload;
+    try {
+      payload = await decryptEnvelopeWithCryptoKey(rec.cryptoKey, raw);
+    } catch {
+      await atomicDeleteIfOpToken(seenToken);
+      return false;
+    }
+    if (!ticket.stillOwner()) return false;
+    session = {
+      cryptoKey: rec.cryptoKey,
+      // no keyBytes after restore
+      payload: structuredClonePayload(payload),
+      gen: env.gen,
+      rev: env.rev,
+      raw,
+      salt: b64decode(env.salt_b64),
+      iter: env.iter,
+    };
+    notifyVaultListeners();
+    return true;
+  });
+}
+
+export async function lockVault(): Promise<LockResult> {
+  return enqueueVaultOp("lock", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    session = null;
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem("assmud.vault.tabSession.v1");
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      notifyVaultListeners();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      /* ignore */
+    }
+    return reasons.length === 0
+      ? { ok: true as const }
+      : { ok: false as const, reasons };
+  });
+}
+
+export function getVaultSecret(profileId: string): VaultSecretEntry | undefined {
+  const s = requireSession();
+  const e = s.payload.profiles[profileId];
+  return e ? { ...e } : undefined;
+}
+
+export async function setVaultSecret(
+  profileId: string,
+  entry: VaultSecretEntry | null,
+): Promise<void> {
+  const s = requireSession();
+  if (entry == null) {
+    delete s.payload.profiles[profileId];
+  } else {
+    const clean: VaultSecretEntry = {};
+    if (entry.account?.trim()) clean.account = entry.account.trim();
+    if (entry.password) clean.password = entry.password;
+    if (entry.autoLogin) clean.autoLogin = true;
+    if (!clean.account && !clean.password && !clean.autoLogin) {
+      delete s.payload.profiles[profileId];
+    } else {
+      s.payload.profiles[profileId] = clean;
+    }
+  }
+  await persistSession(s);
+}
+
+export async function clearVault(): Promise<LockResult> {
+  return enqueueVaultOp("clear", async () => {
+    const reasons: string[] = [];
+    try {
+      setDurableRestoreAllowed(0);
+    } catch {
+      reasons.push("restore_flag_write_failed");
+    }
+    try {
+      setDurableRememberUnlock(0);
+    } catch {
+      reasons.push("remember_flag_write_failed");
+    }
+    session = null;
+    try {
+      notifyVaultListeners();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await idbDelete(IDB_DEFAULT_ID);
+    } catch {
+      reasons.push("idb_delete_failed");
+    }
+    try {
+      const before = readSnap();
+      const metaGen = before.metaGen + 1;
+      writeMeta({ gen: metaGen });
+      storageDel(VAULT_KEY);
+    } catch {
+      reasons.push("envelope_delete_failed");
+    }
+    try {
+      setDurableRestoreAllowed(0);
+      setDurableRememberUnlock(0);
+    } catch {
+      /* ignore */
+import { useEffect, useState } from "react";
+import {
+  vaultExists,
+  isVaultUnlocked,
+  createVault,
+  unlockVault,
+  lockVault,
+  clearVault,
+  hasLegacyPlaintextSecrets,
+  migrateLegacyIntoVault,
+  discardLegacyPlaintext,
+  hasWebCryptoSubtle,
+  getRememberUnlock,
+  setRememberUnlock,
+  probeRememberUnlock,
+  VaultError,
+} from "@assmud/profiles";
+
+type Props = {
+  onChange: () => void;
+};
+
+export function VaultPanel({ onChange }: Props) {
+  const [master, setMaster] = useState("");
+  const [master2, setMaster2] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [rememberCapable, setRememberCapable] = useState(false);
+  const exists = vaultExists();
+  const unlocked = isVaultUnlocked();
+  const legacy = hasLegacyPlaintextSecrets();
+
+  useEffect(() => {
+    setRemember(getRememberUnlock());
+    void probeRememberUnlock().then((ok) => {
+      setRememberCapable(ok);
+    });
+  }, [unlocked, exists]);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setErr(null);
+    setWarn(null);
+    try {
+      await fn();
+      setMaster("");
+      setMaster2("");
+      onChange();
+    } catch (e) {
+      const msg =
+        e instanceof VaultError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "vault error";
+      setErr(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded border p-3 space-y-2 text-xs"
+      style={{ borderColor: "var(--border)", background: "var(--bg-elevated)" }}
+    >
+      <div className="font-medium" style={{ color: "var(--text)" }}>
+        密碼庫（Vault）{" "}
+        <span style={{ color: "var(--text-faint)" }}>
+          {exists ? (unlocked ? "· 已解鎖" : "· 🔒 已鎖定") : "· 尚未建立"}
+        </span>
+      </div>
+      <p className="text-[10px] leading-snug" style={{ color: "var(--text-faint)" }}>
+        AES-256-GCM + PBKDF2 at-rest
+        {hasWebCryptoSubtle()
+          ? "（WebCrypto）"
+          : "（純 JS 後備 — LAN HTTP 無 subtle）"}
+        。解鎖當下 XSS/擴充仍可能竊取主密碼；線上 telnet 亦非 E2E。
+      </p>
+
+      {legacy && (
+        <div
+          className="rounded border p-2 space-y-1"
+          style={{ borderColor: "var(--accent)", color: "var(--text-dim)" }}
+        >
+          <div>發現舊版明文密碼庫（assmud.profileSecrets）</div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy || master.length < 4}
+              className="rounded px-2 py-1 font-semibold disabled:opacity-40"
+              style={{ background: "var(--accent)", color: "#0a0b0e" }}
+              onClick={() =>
+                void run(async () => {
+                  await migrateLegacyIntoVault(master);
+                })
+              }
+            >
+              匯入並加密
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--border)" }}
+              onClick={() => {
+                if (confirm("丟棄明文密碼庫？不可恢復。")) {
+                  discardLegacyPlaintext();
+                  onChange();
+                }
+              }}
+            >
+              丟棄明文
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!exists && (
+        <>
+          <label className="block" style={{ color: "var(--text-dim)" }}>
+            建立主密碼（至少 4 字）
+            <input
+              type="password"
+              className="mt-0.5 w-full rounded border px-2 py-1 font-mono"
+              style={{
+                background: "var(--bg-void)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+              value={master}
+              onChange={(e) => setMaster(e.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+          <label className="block" style={{ color: "var(--text-dim)" }}>
+            再輸入一次
+            <input
+              type="password"
+              className="mt-0.5 w-full rounded border px-2 py-1 font-mono"
+              style={{
+                background: "var(--bg-void)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+              value={master2}
+              onChange={(e) => setMaster2(e.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || master.length < 4 || master !== master2}
+            className="rounded px-2 py-1.5 font-semibold disabled:opacity-40"
+            style={{ background: "var(--accent)", color: "#0a0b0e" }}
+            onClick={() =>
+              void run(async () => {
+                if (master !== master2) throw new Error("passwords differ");
+                await createVault(master);
+              })
+            }
+          >
+            建立密碼庫
+          </button>
+        </>
+      )}
+
+      {exists && !unlocked && (
+        <>
+          <label className="block" style={{ color: "var(--text-dim)" }}>
+            主密碼解鎖
+            <input
+              type="password"
+              className="mt-0.5 w-full rounded border px-2 py-1 font-mono"
+              style={{
+                background: "var(--bg-void)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+              value={master}
+              onChange={(e) => setMaster(e.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy || !master}
+              className="rounded px-2 py-1.5 font-semibold disabled:opacity-40"
+              style={{ background: "var(--accent)", color: "#0a0b0e" }}
+              onClick={() =>
+                void run(async () => {
+                  await unlockVault(master);
+                })
+              }
+            >
+              解鎖
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+              onClick={() => {
+                if (
+                  confirm(
+                    "清除密碼庫？所有已存帳密將永久消失（at-rest 密文刪除）。",
+                  )
+                ) {
+                  void run(async () => {
+                    const r = await clearVault();
+                    if (!r.ok) {
+                      setWarn(
+                        "清除未完全成功（" +
+                          r.reasons.join(", ") +
+                          "）。請重試或手動清除站台資料。",
+                      );
+                    }
+                  });
+                }
+              }}
+            >
+              清除密碼庫
+            </button>
+          </div>
+        </>
+      )}
+
+      {exists && unlocked && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--border)" }}
+              onClick={() =>
+                void run(async () => {
+                  const r = await lockVault();
+                  if (!r.ok) {
+                    const flagFail = r.reasons.includes(
+                      "restore_flag_write_failed",
+                    );
+                    setWarn(
+                      flagFail
+                        ? "本頁 RAM 已鎖，但撤銷標記寫入失敗 — 重新整理「可能」仍自動解鎖。請重試鎖定或清除站台資料。（" +
+                            r.reasons.join(", ") +
+                            "）"
+                        : "本頁已鎖定；本機 IDB 金鑰清除可能未完成（" +
+                            r.reasons.join(", ") +
+                            "）。一般 F5 因 restoreAllowed=0 不會 auto-restore；同源腳本仍可能用殘 key。",
+                    );
+                  }
+                })
+              }
+            >
+              鎖定
+            </button>
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+              onClick={() => {
+                if (confirm("清除密碼庫？不可恢復。")) {
+                  void run(async () => {
+                    const r = await clearVault();
+                    if (!r.ok) {
+                      setWarn(
+                        "清除未完全成功（" +
+                          r.reasons.join(", ") +
+                          "）。本頁已視為鎖定；請重試或手動清除站台資料。",
+                      );
+                    }
+                  });
+                }
+              }}
+            >
+              清除密碼庫
+            </button>
+          </div>
+
+          <label
+            className="flex items-start gap-2 cursor-pointer"
+            style={{ color: "var(--text-dim)" }}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={remember}
+              disabled={busy || !rememberCapable}
+              onChange={(e) => {
+                const on = e.target.checked;
+                void run(async () => {
+                  const r = await setRememberUnlock(on);
+                  setRemember(getRememberUnlock());
+                  if (!r.ok) {
+                    setWarn(
+                      on
+                        ? "無法啟用記住解鎖"
+                        : "已關閉偏好；本機金鑰清除可能未完成（" +
+                            r.reasons.join(", ") +
+                            "）",
+                    );
+                  }
+                });
+              }}
+            />
+            <span className="text-[10px] leading-snug">
+              <strong style={{ color: "var(--text)" }}>記住解鎖（本機）</strong>
+    try {
+      vaultTestResetStorage();
+      await createVault("lan-http-master");
+      await setVaultSecret("rw", { account: "a", password: "b" });
+      await lockVault();
+      await unlockVault("lan-http-master");
+      expect(getVaultSecret("rw")?.password).toBe("b");
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        configurable: true,
+        value: real,
+      });
+    }
+  });
+});
+
+describe("vault remember unlock", () => {
+  beforeEach(() => {
+    vaultTestResetStorage();
+    // Node has no IndexedDB; enable test memory CryptoKey store only for this suite
+    vaultTestAllowMemoryKeys(true);
+  });
+
+  it("probe fails without IDB backend", async () => {
+    vaultTestAllowMemoryKeys(false);
+    expect(await probeRememberUnlock()).toBe(false);
+  });
+
+  it("remember OFF → restore false", async () => {
+    await createVault("remember-off-master");
+    expect(getRememberUnlock()).toBe(false);
+    await lockVault();
+    expect(await tryRestoreVaultSession()).toBe(false);
+  });
+
+  it("F5 model: RAM clear + durable restoreAllowed=1 restores secrets", async () => {
+    await createVault("restore-master-xx");
+    await setVaultSecret("rw", { account: "hero", password: "s3cret" });
+    const put = await setRememberUnlock(true);
+    expect(put.ok).toBe(true);
+    expect(getRestoreAllowed()).toBe(true);
+
+    // Simulate hard reload: drop RAM only, keep durable flags + memory key store
+    vaultTestClearSessionRam();
+    expect(isVaultUnlocked()).toBe(false);
+
+    expect(await tryRestoreVaultSession()).toBe(true);
+    expect(isVaultUnlocked()).toBe(true);
+    expect(getVaultSecret("rw")).toEqual({
+      account: "hero",
+      password: "s3cret",
+    });
+    // cryptoKey-only path: can still persist
+    await setVaultSecret("rw", {
+      account: "hero",
+      password: "s3cret2",
+      autoLogin: true,
+    });
+    expect(getVaultSecret("rw")?.password).toBe("s3cret2");
+  });
+
+  it("lock blocks restore even if remember preference stays ON", async () => {
+    await createVault("lock-gate-master");
+    await setRememberUnlock(true);
+    await lockVault();
+    expect(getRememberUnlock()).toBe(true);
+    expect(getRestoreAllowed()).toBe(false);
+    expect(await tryRestoreVaultSession()).toBe(false);
+  });
+
+  it("setRememberUnlock false does not throw when already off", async () => {
+    await createVault("off-master");
+    const r = await setRememberUnlock(false);
+    expect(r.ok).toBe(true);
+    expect(getRememberUnlock()).toBe(false);
+  });
+
+  it("never writes key bytes to sessionStorage", async () => {
+    await createVault("ss-master");
+    await setRememberUnlock(true);
+    if (typeof sessionStorage !== "undefined") {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (!k) continue;
+        const v = sessionStorage.getItem(k) ?? "";
+        expect(v).not.toMatch(/key_b64|rawKey|aes.?key/i);
+      }
+    }
+  });
+});
+
+{
+  "name": "assmud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "dev:proxy": "npm run dev -w @assmud/proxy",
+    "dev:web": "npm run dev -w @assmud/web",
+    "qc": "npm test && npm run test:e2e",
+    "secret-scan": "bash scripts/secret-scan.sh",
+    "lint": "echo 'lint: no-op until eslint lands'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10"
+  },
+  "license": "MIT"
+}
+{
+  "name": "@assmud/profiles",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/hashes": "^2.2.0"
+  }
+}
+
+codex
+The three requested paths are present. I’m now checking the surrounding failure semantics—especially whether warnings survive the shared async wrapper—and running the focused vault tests plus typechecking.
+exec
+/usr/bin/zsh -lc 'npx vitest run packages/profiles/tests/vault.test.ts && npm run typecheck' in /home/cookys/projects/assmud
+ succeeded in 6178ms:
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/cookys/projects/assmud
+
+ ✓ packages/profiles/tests/vault.test.ts (12 tests) 3772ms
+   ✓ vault crypto > works without crypto.subtle (LAN HTTP / noble fallback) 2410ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  12:12:56
+   Duration  4.25s (transform 75ms, setup 0ms, collect 77ms, tests 3.77s, environment 0ms, prepare 71ms)
+
+
+> assmud@0.1.0 typecheck
+> tsc -b
+
+
+codex
+VERDICT: PASS
+
+MUST_FIX: None.
+
+NITS: None.
+
+ONE_LINE: Real-IDB gating, failure warnings, and the F5 restore/write path are correctly implemented; 12 vault tests and TypeScript typecheck pass.
+tokens used
+42,797

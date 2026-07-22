@@ -1,12 +1,12 @@
 # ADR-003 — Player mode daemon vs site gateway (D1)
 
 - **Status**: Accepted (docs spike S3.1 · 2026-07-22)
-- **Deciders**: cookys / assmud board
+- **Deciders**: cookys / mudgate board
 - **Extends**: ADR-002 remote-auth-proxy; plan `2026-07-22-t1-site-proxy-and-core-daemon.md`
 
 ## Context
 
-assmud today is **fat web + thin Node proxy** (site / self-host / localhost). Owner product split:
+mudgate today is **fat web + thin Node proxy** (site / self-host / localhost). Owner product split:
 
 | Mode | Runner | Web role |
 |------|--------|----------|

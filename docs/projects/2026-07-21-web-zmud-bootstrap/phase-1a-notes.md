@@ -9,12 +9,12 @@
 | Item | Status |
 |------|--------|
 | npm workspaces monorepo | yes |
-| `@assmud/protocol` Telnet + DONT MCCP2 | yes + tests |
-| `@assmud/codec-big5` Big5-HKSCS stream + banner golden | yes |
-| `@assmud/vt` SGR + HTML sanitize/XSS tests | yes |
-| `@assmud/terminal` ScreenBuffer + Canvas2D API | yes |
-| `@assmud/proxy` auth/Origin/allowlist/SSRF policy + WS bridge | yes + tests |
-| `@assmud/web` React+Vite+Tailwind TerminalHost | yes |
+| `@mudgate/protocol` Telnet + DONT MCCP2 | yes + tests |
+| `@mudgate/codec-big5` Big5-HKSCS stream + banner golden | yes |
+| `@mudgate/vt` SGR + HTML sanitize/XSS tests | yes |
+| `@mudgate/terminal` ScreenBuffer + Canvas2D API | yes |
+| `@mudgate/proxy` auth/Origin/allowlist/SSRF policy + WS bridge | yes + tests |
+| `@mudgate/web` React+Vite+Tailwind TerminalHost | yes |
 | `npm test` 15 green | yes |
 
 ## Deferred / partial (medium cut)

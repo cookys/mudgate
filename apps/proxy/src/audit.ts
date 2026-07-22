@@ -50,7 +50,7 @@ export function tokenHmac(
 
 /**
  * Structured one-line JSON audit. Never includes passwords/payloads.
- * Default sink: stderr. Optional ASSMUD_AUDIT_LOG=path for append file.
+ * Default sink: stderr. Optional MUDGATE_AUDIT_LOG=path for append file.
  */
 export function writeAudit(
   evt: AuditEvent,
@@ -76,7 +76,7 @@ export function writeAudit(
 }
 
 function defaultSink(line: string): void {
-  const path = process.env.ASSMUD_AUDIT_LOG?.trim();
+  const path = process.env.MUDGATE_AUDIT_LOG?.trim();
   if (path) {
     try {
       appendFileSync(path, line + "\n", { mode: 0o640 });

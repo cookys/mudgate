@@ -119,10 +119,10 @@ non-extractable **只**防 raw bytes 外帶離站，**不**防 on-origin 使用�
 
 | 存什麼 | 哪裡 | extractable / 說明 |
 |--------|------|-------------------|
-| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
-| 解鎖用 AES key | **IndexedDB** `assmud-vault-keys` | **false** |
-| 記住解鎖**偏好** | `localStorage` `assmud.vault.rememberUnlock=0\|1` | 非 secret；使用者意圖 |
-| **restore 授權** | `localStorage` `assmud.vault.restoreAllowed=0\|1` | **durable · 非 secret**；**獨立**於 preference |
+| Vault envelope（密文） | `localStorage` `mudgate.vault.v1` | n/a |
+| 解鎖用 AES key | **IndexedDB** `mudgate-vault-keys` | **false** |
+| 記住解鎖**偏好** | `localStorage` `mudgate.vault.rememberUnlock=0\|1` | 非 secret；使用者意圖 |
+| **restore 授權** | `localStorage` `mudgate.vault.restoreAllowed=0\|1` | **durable · 非 secret**；**獨立**於 preference |
 | 主密碼 | **永不**持久化 | — |
 | raw key bytes in sessionStorage | **禁止** | — |
 
@@ -143,7 +143,7 @@ non-extractable **只**防 raw bytes 外帶離站，**不**防 on-origin 使用�
 ### 4.2 IndexedDB schema
 
 ```text
-DB: assmud-vault-keys
+DB: mudgate-vault-keys
 version: 1
 store: keys
   keyPath: id
@@ -230,7 +230,7 @@ kinds = lock | clear | unlock | create | remember-on | remember-off | restore
 let vaultOpTail: Promise<unknown> = Promise.resolve()
 
 // B) cross-tab exclusive Web Lock (origin-wide)
-const VAULT_LOCK_NAME = "assmud-vault-lifecycle"
+const VAULT_LOCK_NAME = "mudgate-vault-lifecycle"
 
 // C) tab epoch ticket for RAM session install cancel
 let opEpoch = 0
@@ -456,7 +456,7 @@ clearVault() = enqueueVaultOp("clear", async (ticket) => {
 **Helpers（non-secret）**：
 
 ```text
-getRestoreAllowed(): boolean     // localStorage assmud.vault.restoreAllowed === "1"
+getRestoreAllowed(): boolean     // localStorage mudgate.vault.restoreAllowed === "1"
 setDurableRestoreAllowed(v: 0|1) // sync localStorage write
 getRememberUnlock(): boolean
 setDurableRememberUnlock(v: 0|1)
@@ -469,7 +469,7 @@ setDurableRememberUnlock(v: 0|1)
 | 刪 IDB **不能**撤銷 tab B 已在 RAM 的 session / CryptoKey | **不宣稱**跨 tab 即時吊銷 **RAM** |
 | tab A lock | A: RAM 清 + durable revoke + Web Lock 內刪 IDB；B: **仍可**用既有 RAM 讀密直到 B 自己 lock/refresh |
 | tab B refresh after A deleted IDB | B restore fail → 需主密碼 |
-| lifecycle op 跨 tab | **Web Locks** `assmud-vault-lifecycle` exclusive（§4.5）；無 API 時降級為 tab-local serial + 文件化殘餘 race |
+| lifecycle op 跨 tab | **Web Locks** `mudgate-vault-lifecycle` exclusive（§4.5）；無 API 時降級為 tab-local serial + 文件化殘餘 race |
 | BroadcastChannel | **P1 不做**（不做即時 RAM 吊銷） |
 | 敏感 API | `getVaultSecret` 只看 **本 tab RAM session**；不每 call 重讀 IDB（避免假安全感） |
 
@@ -480,7 +480,7 @@ setDurableRememberUnlock(v: 0|1)
 - restore 失敗 + remember ON 但無 key：不 spam toast；僅 log
 ---
 
-## 5. API surface（`@assmud/profiles`）
+## 5. API surface（`@mudgate/profiles`）
 
 | API | 行為 |
 |-----|------|

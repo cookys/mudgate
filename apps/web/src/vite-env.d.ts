@@ -6,12 +6,12 @@ interface ImportMetaEnv {
   readonly VITE_DEFAULT_LOCALE?: string;
 }
 
-interface AssmudSiteConfig {
+interface MudgateSiteConfig {
   defaultLocale?: string;
 }
 
 interface Window {
-  __ASSMUD_SITE__?: AssmudSiteConfig;
+  __MUDGATE_SITE__?: MudgateSiteConfig;
 }
 
 interface ImportMeta {

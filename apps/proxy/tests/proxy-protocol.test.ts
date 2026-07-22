@@ -56,7 +56,7 @@ function waitMs(ms: number) {
 
 beforeEach(() => {
   sockets.length = 0;
-  delete process.env.ASSMUD_PROXY_PROTOCOL;
+  delete process.env.MUDGATE_PROXY_PROTOCOL;
 });
 
 describe("formatProxyV1Header", () => {

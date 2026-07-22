@@ -1,5 +1,5 @@
 {
-  "name": "@assmud/rw-pack",
+  "name": "@mudgate/rw-pack",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -12,6 +12,6 @@
     }
   },
   "dependencies": {
-    "@assmud/script-engine": "0.1.0"
+    "@mudgate/script-engine": "0.1.0"
   }
 }

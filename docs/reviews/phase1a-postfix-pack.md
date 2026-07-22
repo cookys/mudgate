@@ -23,7 +23,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       mode,
       bindHost: "127.0.0.1",
       bindPort: 7788,
-      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+      authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
       allowlist: [
         { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
         { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
@@ -36,10 +36,10 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     mode,
     bindHost: "0.0.0.0",
     bindPort: Number(process.env.PORT ?? 7788),
-    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+    authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
     allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
     relaxAllowlist: false,
-    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
+    originAllowlist: (process.env.MUDGATE_ORIGIN_ALLOWLIST ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
@@ -126,7 +126,7 @@ export function checkAuth(
   }
 
   if (cookieHeader) {
-    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
+    const m = /(?:^|;\s*)mudgate_session=([^;]+)/.exec(cookieHeader);
     if (m) {
       try {
         if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
@@ -278,7 +278,7 @@ import {
   ttypeIs,
   naws,
   OPT,
-} from "@assmud/protocol";
+} from "@mudgate/protocol";
 
 export type BridgeOptions = {
   host: string;
@@ -799,7 +799,7 @@ export function visibleText(input: string): string {
 
 ===== FILE: packages/terminal/src/buffer.ts =====
 
-import { Attrs, defaultAttrs, tokenizeAnsi } from "@assmud/vt";
+import { Attrs, defaultAttrs, tokenizeAnsi } from "@mudgate/vt";
 
 export type Cell = { ch: string; attrs: Attrs };
 
@@ -887,8 +887,8 @@ export class ScreenBuffer {
 ===== FILE: apps/web/src/TerminalHost.tsx =====
 
 import { useEffect, useRef } from "react";
-import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { ScreenBuffer, Canvas2DRenderer } from "@mudgate/terminal";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
 
 type Props = {
   wsUrl: string | null;
@@ -1007,7 +1007,7 @@ const DEFAULT_WS =
 
 export function App() {
   const [token, setToken] = useState(
-    () => localStorage.getItem("assmud_token") ?? "",
+    () => localStorage.getItem("mudgate_token") ?? "",
   );
   const [host, setHost] = useState("mud.revivalworld.org");
   const [port, setPort] = useState("4000");
@@ -1027,7 +1027,7 @@ export function App() {
     <div className="mx-auto max-w-5xl p-4 h-full flex flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">assmud</h1>
+          <h1 className="text-xl font-semibold tracking-tight">mudgate</h1>
           <p className="text-sm text-zinc-400">
             Web MUD client · Phase 1a · status: {status}
           </p>
@@ -1060,7 +1060,7 @@ export function App() {
             value={token}
             onChange={(e) => {
               setToken(e.target.value);
-              localStorage.setItem("assmud_token", e.target.value);
+              localStorage.setItem("mudgate_token", e.target.value);
             }}
             disabled={connected}
           />

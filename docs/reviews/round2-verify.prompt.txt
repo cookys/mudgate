@@ -1,4 +1,4 @@
-You reviewed assmud plan pack earlier (or act as if you did). Below is the MUST-FIX list from Round 1 and the UPDATED key docs.
+You reviewed mudgate plan pack earlier (or act as if you did). Below is the MUST-FIX list from Round 1 and the UPDATED key docs.
 
 For each must-fix item, answer: FIXED | PARTIAL | STILL OPEN with one-line evidence (section name).
 
@@ -117,7 +117,7 @@ Players need a **modern web client** that:
 - **UI stack (locked)**: **React + Vite + TypeScript** shell; **Tailwind** for chrome; **no heavy UI kit** v1. See [ADR-001](../adr/ADR-001-stack.md).
 - **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
 - **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
-- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
+- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `mudgate` is a WASM wink, not day-1 whole-client AssemblyScript.
 - **Script engine v1**: **declarative** triggers/aliases/variables first; **no** arbitrary network/`fetch`, **no** reading cookies/`localStorage` secrets. User JS sandbox later/optional. Personal zMUD import optional.
 - **Proxy product default**: **remote authenticated WSS↔TCP** (official or self-host). **Localhost bind** is dev/advanced only.
 - **Reconnect**: client must survive WSS drop → re-auth/ticket → re-IAC negotiate; screen buffer retained client-side (Phase 1a acceptance).

@@ -13,7 +13,7 @@
 
 ### 0.1 Modern terminal / IDE shells
 
-| Source pattern | Takeaway for assmud |
+| Source pattern | Takeaway for mudgate |
 |----------------|---------------------|
 | **VS Code / Cursor / Warp / Hyper** | Near-black canvas (`#0d0d0f`–`#12141a`)；單一 accent（藍/青/琥珀）；chrome 極薄；等寬字優先 |
 | **Dark mode as default (2025)** | 長時間閱讀以「低對比噪音 + 高對比語意色」為準，不是全灰糊成一團 |
@@ -25,7 +25,7 @@
 
 Mudlet 與傳統 zMUD 生態的 **實際使用布局**（非行銷話術）：
 
-| Zone | Role | assmud 映射 |
+| Zone | Role | mudgate 映射 |
 |------|------|-------------|
 | **Main output** | 最大、等寬、可捲、ANSI 色彩 | `TerminalHost` canvas — 必須佔主視覺 ≥60% 高度 |
 | **Input bar** | 底欄固定、單行/可長、Enter 送出 | sticky bottom command bar |
@@ -95,7 +95,7 @@ Mudlet 哲學重點：**主畫面 = 文字世界**；工具是週邊，不是搶
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ [logo] assmud    [session tabs ……]     [● connected] [⚙] [?] │  40–48px topbar
+│ [logo] mudgate    [session tabs ……]     [● connected] [⚙] [?] │  40–48px topbar
 ├──────────────────────────────────────────────┬──────────────┤
 │                                              │ Map / tools  │
 │           TERMINAL CANVAS                    │ (collapsible │
@@ -119,7 +119,7 @@ Mudlet 哲學重點：**主畫面 = 文字世界**；工具是週邊，不是搶
 
 ```
 ┌──────────────────────┐
-│ assmud    ●   ⚙  ☰  │  compact top
+│ mudgate    ●   ⚙  ☰  │  compact top
 ├──────────────────────┤
 │                      │
 │   TERMINAL           │  ~55–65vh

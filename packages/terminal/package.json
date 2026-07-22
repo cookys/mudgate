@@ -1,5 +1,5 @@
 {
-  "name": "@assmud/terminal",
+  "name": "@mudgate/terminal",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -15,6 +15,6 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@assmud/vt": "0.1.0"
+    "@mudgate/vt": "0.1.0"
   }
 }

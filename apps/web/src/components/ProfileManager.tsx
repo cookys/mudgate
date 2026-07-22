@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import type { MudProfile } from "@assmud/profiles";
-import { isVaultUnlocked, vaultExists } from "@assmud/profiles";
+import type { MudProfile } from "@mudgate/profiles";
+import { isVaultUnlocked, vaultExists } from "@mudgate/profiles";
 import { ProfileEditor } from "./ProfileEditor";
 import { VaultPanel } from "./VaultPanel";
 

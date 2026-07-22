@@ -8,7 +8,7 @@ import {
   naws,
   OPT,
   type TelnetEvent,
-} from "@assmud/protocol";
+} from "@mudgate/protocol";
 import {
   envProxyProtocolEnabled,
   formatProxyV1Header,
@@ -32,7 +32,7 @@ export type BridgeOptions = {
   checkInboundBytes?: (n: number) => boolean;
   checkOutboundBytes?: (n: number) => boolean;
   /**
-   * Experimental PROXY protocol v1 (ASSMUD_PROXY_PROTOCOL=1).
+   * Experimental PROXY protocol v1 (MUDGATE_PROXY_PROTOCOL=1).
    * Written once after TCP connect succeeds, before any telnet bytes.
    */
   proxyProtocol?: boolean;
@@ -86,20 +86,20 @@ export function bridgeWsToMud(ws: WebSocket, opts: BridgeOptions): void {
   const mccpEnabled =
     opts.mccp ??
     (() => {
-      const v = (process.env.ASSMUD_MCCP ?? "1").toLowerCase();
+      const v = (process.env.MUDGATE_MCCP ?? "1").toLowerCase();
       return !["0", "false", "off", "no"].includes(v);
     })();
 
-  const WINDOW_MS = opts.windowMs ?? envInt("ASSMUD_MCCP_WINDOW_MS", 60_000);
+  const WINDOW_MS = opts.windowMs ?? envInt("MUDGATE_MCCP_WINDOW_MS", 60_000);
   const MAX_INFLATED_PER_WINDOW =
     opts.maxInflatedPerWindow ??
-    envInt("ASSMUD_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
+    envInt("MUDGATE_MCCP_MAX_WINDOW_BYTES", 16 * 1024 * 1024);
   const MAX_INFLATED_SESSION =
     opts.maxInflatedSession ??
-    envInt("ASSMUD_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
+    envInt("MUDGATE_MCCP_MAX_SESSION_BYTES", 256 * 1024 * 1024);
   const MAX_WIRE_SESSION =
     opts.maxCompressedWireSession ??
-    envInt("ASSMUD_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
+    envInt("MUDGATE_MCCP_MAX_WIRE_BYTES", 128 * 1024 * 1024);
 
   let compressedMode = false;
   let inflate: zlib.Inflate | null = null;

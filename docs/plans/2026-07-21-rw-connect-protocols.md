@@ -40,7 +40,7 @@
 
 Charset：**BIG5**（可切 GB）；地圖靠 **完整 VT**（CUP / SAVEC / REST / scroll region），見 `docs/research/rw-ansi-and-map-controls.md`。
 
-### 0.3 assmud **現況**
+### 0.3 mudgate **現況**
 
 | 能力 | 狀態 |
 |------|------|
@@ -124,8 +124,8 @@ server: IAC SB MCCP2 IAC SE   // 其後 payload 為 zlib
 ### 2.3 Feature flag
 
 ```
-ASSMUD_MCCP=1   // default on for localhost-dev after ship
-ASSMUD_MCCP=0   // force DONT（除錯）
+MUDGATE_MCCP=1   // default on for localhost-dev after ship
+MUDGATE_MCCP=0   // force DONT（除錯）
 ```
 
 ### 2.4 Tests
@@ -153,7 +153,7 @@ ASSMUD_MCCP=0   // force DONT（除錯）
 
 1. 連 `mud.revivalworld.org:4000`，協商 **DO MCCP2** 成功（log／debug 可證）。  
 2. 進遊戲後 map_d / 長輸出 **仍正確 Big5 + VT**（與 DONT 模式視覺一致）。  
-3. `ASSMUD_MCCP=0` 可退回 DONT。  
+3. `MUDGATE_MCCP=0` 可退回 DONT。  
 4. inflate 錯誤不拖垮 proxy 進程。  
 5. 既有 unit tests 綠 + 新增 MCCP 串流測試。  
 
@@ -179,4 +179,4 @@ ASSMUD_MCCP=0   // force DONT（除錯）
 
 ## 7. Review log
 
-- R0 2026-07-21 — web research (zMUD/Mudlet/TinTin protocols) + RW probe 對照 + assmud code audit  
+- R0 2026-07-21 — web research (zMUD/Mudlet/TinTin protocols) + RW probe 對照 + mudgate code audit  

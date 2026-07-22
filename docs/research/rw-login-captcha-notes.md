@@ -16,4 +16,4 @@
 
 1. Redacted capture of captcha prompt **bytes** (no answers)
 2. Document manual solve path in web UI
-3. No auto-solve in assmud core
+3. No auto-solve in mudgate core

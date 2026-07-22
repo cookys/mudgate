@@ -1,0 +1,502 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f87cd-4069-7ed1-9910-c247fbca00bc
+--------
+user
+R2 fold added: CryptoKey-only persistSession encrypt path after restore; unified opEpoch beginMutation for lock/clear/unlock/remember/restore; restore installs cryptoKey without keyBytes.
+
+Re-review FULL plan. BLOCKERS only.
+
+=== PLAN ===
+# Plan — Vault「記住解鎖」（non-extractable CryptoKey + IndexedDB）
+
+> **Status**: **draft · R1 fold in progress** · awaiting plan-hetero ALL_CLEAR  
+
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Extends**: [`2026-07-22-profile-secrets-vault.md`](./2026-07-22-profile-secrets-vault.md)（SHIP；V2 原寫「重載需 unlock」）  
+> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）
+
+---
+
+## 0. Problem
+
+| 現況 | 痛點 |
+|------|------|
+| 解鎖 key 只在 RAM | **F5 / 硬重新整理** → 一定再問主密碼；autologin 斷 |
+| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+| 使用者要 | 「同一瀏覽器好用」+「不要改出安全問題」 |
+
+### 0.1 與既有 plan 關係
+
+| 原 V2 | 本 plan |
+|-------|---------|
+| 重載後需 unlock | **改為可選**：「記住解鎖」開啟且環境允許時，重載可免主密碼 |
+| 金鑰不落盤 | **維持**：不落 **exportable raw key**；允許落 **non-extractable CryptoKey**（瀏覽器保管） |
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+| ID | Goal |
+|----|------|
+| **R1** | 可選「記住解鎖」：解鎖成功後 F5 **不必**再輸主密碼（環境允許時） |
+| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+| **R3** | 使用 WebCrypto **`extractable: false`** CryptoKey + **IndexedDB** 持久化 |
+| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+| **R5** | 手動鎖定 / 清除 vault → 刪 IDB key；下次必問主密碼 |
+| **R6** | 威脅模型 + UI 同意文案更新；單元測試 + 安全負向測試 |
+| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 把主密碼存任何 storage | 直接洩密 |
+| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+| Anti-XSS password manager | vault 本來就不是 |
+| WebAuthn / 硬體綁定 | 可列 P3 |
+| 跨裝置同步記住解鎖 | 非本機 |
+| noble-only 路徑「假裝」non-extractable | 假安全 |
+
+---
+
+## 2. Threat model（誠實 · 必寫進 UI · R1 fold）
+
+| 威脅 | 記住解鎖 **OFF** | 記住解鎖 **ON**（IDB 有 CryptoKey） |
+|------|------------------|-------------------------------------|
+| 靜態 dump localStorage vault 密文 alone | **擋** | **擋**（仍無 plaintext） |
+| XSS 拿走 raw key 字串（export） | n/a（無持久 key） | **擋** non-extractable |
+| XSS 開 `indexedDB` 取 CryptoKey 並 `subtle.decrypt` | 無 IDB key | **不擋** — **任何時刻**（不必等使用者「當下解鎖」） |
+| XSS 呼叫 app `getVaultSecret`（RAM 已 unlock） | **不擋** | **不擋** |
+| 本機瀏覽器 profile / 惡意擴充 | **不擋** | **不擋** |
+| 關瀏覽器再開 | 要主密碼 | **可免主密碼**（S-manual）直到手動鎖定 |
+
+**R1 fold（Codex + Gemini MUST_FIX）**：  
+開啟「記住解鎖」= 在 origin 上留下**持久解密能力**。同源腳本**不必**等 session 已 unlock 即可從 IDB 取 key handle 解密 vault。  
+non-extractable **只**防 raw bytes 外帶離站，**不**防 on-origin 使用。
+
+**一句話**：比 sessionStorage raw key 好；**延長**同源攻擊窗口到「IDB 有 key 的整段期間」。
+
+**禁止宣稱**：「端到端」「XSS 也偷不到」「比 1Password 還硬」「僅已解鎖時才有 XSS 風險」。
+
+---
+
+## 3. Product / UX
+
+### 3.1 開關（預設）
+
+| 項 | 預設 | 說明 |
+|----|------|------|
+| **記住解鎖** | **OFF** | 使用者明確打開才寫 IDB |
+| 位置 | 密碼庫面板（解鎖區旁） | 勾選 + 短威脅文案 |
+| 無 subtle | 開關 disabled + 說明 | 不可開 |
+
+### 3.2 壽命策略（鎖定寫死 · 可再 hetero）
+
+| 策略 ID | 行為 | 本 plan 預設 |
+|---------|------|--------------|
+| **S-manual** | 記住直到使用者按「鎖定」或清 vault | **預設採用** |
+| S-browser | 關閉瀏覽器後失效 | 可選 P2（需 visibility/session 啟發式，不可靠處要寫） |
+| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+
+**R1 鎖定**：先做 **S-manual** only。S-browser / S-tab 列 backlog，不挡 R1 ship。
+
+### 3.3 文案（zh-TW 草案 · R1 fold）
+
+**開關：**
+
+> 記住解鎖（本機）  
+> 重新整理後不必再輸主密碼。金鑰由瀏覽器保管（**無法匯出**原始金鑰位元組）。  
+> **警告：開啟後，同源惡意腳本可隨時從本機 IndexedDB 取得金鑰並解密密碼庫，不必等你在當下輸入主密碼。**  
+> 這比「只把密文放 localStorage」方便，但**不是**防 XSS。  
+> 按「鎖定」或清除密碼庫會嘗試刪除本機金鑰（刪除失敗會明確提示，不會假裝已忘記）。
+
+**無 capability：**
+
+> 此環境無法啟用記住解鎖（需要 WebCrypto SubtleCrypto + IndexedDB + 可 clone 的 non-extractable 金鑰）。  
+> 重新整理後請再解鎖。
+
+---
+
+## 4. 技術設計
+
+### 4.1 存儲分工
+
+| 存什麼 | 哪裡 | extractable |
+|--------|------|-------------|
+| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+| 解鎖用 AES key | **IndexedDB** `assmud-vault-keys` | **false** |
+| 記住解鎖偏好 | `localStorage` `assmud.vault.rememberUnlock=0\|1` | n/a（非 secret） |
+| 主密碼 | **永不**持久化 | — |
+| raw key bytes in sessionStorage | **禁止** | — |
+
+### 4.2 IndexedDB schema
+
+```text
+DB: assmud-vault-keys
+version: 1
+store: keys
+  keyPath: id
+  record: {
+    id: "default",           // 單 vault 本機一份
+    cryptoKey: CryptoKey,    // structured-cloneable, extractable:false
+    gen: number,             // must match envelope.gen
+    rev: number,             // last known rev (hint only)
+    createdAt: number,
+  }
+```
+
+### 4.3 Capability detection（R1 fold · 非僅 `!!subtle`）
+
+```text
+canRememberUnlock() → boolean  // sync best-effort cache after probe
+
+async probeRememberUnlock(): Promise<boolean>
+  require:
+    - globalThis.crypto?.subtle
+    - typeof indexedDB !== "undefined"
+    - probe: importKey(random 32B AES-GCM, extractable:false, [encrypt,decrypt])
+    - probe: structured-clone / IDB put+get round-trip of that CryptoKey
+    - restored key: type secret, algorithm AES-GCM 256, extractable===false,
+      usages includes encrypt+decrypt
+  on any failure → false; leave no garbage keys (delete probe records)
+```
+
+UI 開關 enable 前必須 `await probeRememberUnlock()`。
+
+### 4.4 Session shape after unlock / restore（R2 fold · CryptoKey write path）
+
+| 狀態 | RAM 持有 | `persistSession` / setVaultSecret |
+|------|----------|-----------------------------------|
+| 傳統 unlock（remember OFF 或無 subtle） | `keyBytes: Uint8Array` | 今日 path（subtle 或 noble） |
+| unlock + remember ON 成功寫 IDB | `cryptoKey` **+** 可選暫留 `keyBytes` 僅 RAM | **必須**能用 `cryptoKey` 做 AES-GCM encrypt 寫 envelope（**禁止** exportKey） |
+| **restore 成功** | **`cryptoKey` only**（無 raw keyBytes） | **同一** CryptoKey encrypt path |
+
+**R2 鎖定（Codex MUST_FIX）**：
+
+1. 抽出 `encryptEnvelope(cryptoKey | keyBytes, payload) → raw`  
+2. restore 後 `session.cryptoKey` 必有 `usages` 含 `encrypt`+`decrypt`  
+3. 單測：restore → `setVaultSecret` → 重讀 envelope 成功（mock subtle）  
+4. **禁止** restore 後因缺 encrypt path 而 silent no-op 寫入  
+
+### 4.5 Unlock path（有 capability）
+
+```text
+unlockVault(masterPassword):
+  op = beginMutation("unlock")   // see §4.8 epoch
+  1. PBKDF2 → keyBytes
+  2. decrypt envelope → payload
+  3. cryptoKey = importKey(keyBytes, extractable:false, [encrypt,decrypt])  // if subtle
+  4. session = { keyBytes?, cryptoKey?, payload, gen, rev, raw, salt, iter }
+  5. if getRememberUnlock() && probe ok:
+       try await idb.put(...); on success restoreAllowed=1
+       catch: fail-soft memory-only (unlock still ok); restoreAllowed stays 0
+  6. if op.stillOwner(): notifyVaultListeners()
+```
+
+**禁止**：IDB put 失敗導致 unlock throw。
+
+### 4.6 `setRememberUnlock(on)` 排序
+
+```text
+setRememberUnlock(true):  // session must already be unlocked
+  beginMutation("remember-on")
+  1. !session → error
+  2. !probe → error; preference OFF
+  3. ensure session.cryptoKey or importKey from session.keyBytes
+  4. await idb.put; on fail → preference OFF; error
+  5. preference=1; restoreAllowed=1
+
+setRememberUnlock(false):
+  beginMutation("remember-off")
+  1. preference=0; restoreAllowed=0  FIRST
+  2. await idb.delete; on fail → UI warn residual IDB may still decrypt for XSS;
+     ordinary app restore remains blocked by restoreAllowed=0
+```
+
+### 4.7 Restore + boot（single-flight）
+
+```text
+tryRestoreVaultSession():
+  if session → true
+  return singleFlight(async () => {
+    const ticket = beginMutation("restore")
+    if !rememberUnlock or !restoreAllowed → return false
+    if !await probeRememberUnlock() → return false
+    rec = await idb.get; validate key
+    raw = envelope; gen match or delete+false
+    if !ticket.stillOwner() → return false
+    plain = decrypt(rec.cryptoKey) catch → delete idb; return false
+    if !ticket.stillOwner() → return false   // lock won the race
+    session = { cryptoKey: rec.cryptoKey, payload, ... }  // no keyBytes
+    notifyVaultListeners(); return true
+  })
+```
+
+Boot：**await** restore settle 後才允許 autologin 決策。
+
+### 4.8 全域 mutation epoch（R2 fold · 統一命名）
+
+```text
+let opEpoch = 0
+let restoreInFlight: Promise<boolean> | null = null
+
+beginMutation(kind): { id: number, stillOwner(): boolean }
+  // lock | clear | unlock | remember-on | remember-off | restore
+  opEpoch += 1
+  return { id: opEpoch, stillOwner: () => id === opEpoch }
+
+規則:
+- 任何 lock/clear/unlock/setRemember 成功路徑先 beginMutation（使 in-flight restore 失效）
+- restore 在 install session / 寫 preference / IDB put|delete 前檢查 stillOwner()
+- 過期 mutation 不得覆寫較新狀態
+```
+
+### 4.9 Lock / clear（async）
+
+```text
+async lockVault():
+  beginMutation("lock")
+  1. restoreAllowed = 0     // 先禁 restore
+  2. session = null         // 清 RAM
+  3. notifyVaultListeners()
+  4. await idb.delete("default")
+  5. if delete ok → return {ok:true}
+     else → return {ok:false, reason:"idb_delete_failed"}
+        UI: 本頁已鎖；本機 IDB 金鑰可能仍在（同源腳本仍可能用）；
+            一般 F5 因 restoreAllowed=0 不會 auto-restore；請重試清除
+
+clearVault: beginMutation → restoreAllowed=0 → session=null → delete idb → delete envelope
+```
+
+**restore 條件**（全 true）：rememberUnlock=1 ∧ restoreAllowed=1 ∧ valid IDB key ∧ gen match ∧ stillOwner at install  
+
+### 4.10 多 tab（誠實語意）
+
+| 事實 | 契約 |
+|------|------|
+| 刪 IDB **不能**撤銷 tab B 已在 RAM 的 session / CryptoKey | **不宣稱**跨 tab 即時吊銷 |
+| tab A lock | A: RAM 清 + revoke restore + 嘗試刪 IDB；B: **仍可**用既有 RAM 讀密直到 B 自己 lock/refresh |
+| tab B refresh after A deleted IDB | B restore fail → 需主密碼 |
+| BroadcastChannel | **P1 不做**；文件寫明 tab-local RAM 語意 |
+| 敏感 API | `getVaultSecret` 只看 **本 tab RAM session**；不每 call 重讀 IDB（避免假安全感） |
+
+### 4.11 與 autologin
+
+- Boot: await restore settle → then existing autologin effects  
+- `subscribeVault` on successful restore/unlock  
+- restore 失敗 + remember ON 但無 key：不 spam toast；僅 log
+---
+
+## 5. API surface（`@assmud/profiles`）
+
+| API | 行為 |
+|-----|------|
+| `getRememberUnlock(): boolean` | 讀 preference bit |
+| `setRememberUnlock(on: boolean): Promise<void>` | §4.5 排序；ON 需先 put key |
+| `probeRememberUnlock(): Promise<boolean>` | §4.3 完整 capability |
+| `canRememberUnlock(): boolean` | 上次 probe 快取（boot 先 probe） |
+| `tryRestoreVaultSession(): Promise<boolean>` | §4.6 single-flight + epoch |
+| `unlockVault` / `createVault` | remember ON → put IDB fail-soft |
+| `lockVault(): Promise<LockResult>` | **async** §4.7 |
+| `clearVault(): Promise<...>` | 含 IDB 清除 |
+
+---
+
+## 6. Testing
+
+| 層 | 內容 |
+|----|------|
+| Unit | remember OFF → restore false |
+| Unit | **禁止** key bytes 寫入 sessionStorage/localStorage（grep / invariant） |
+| Unit | setRememberUnlock(true) without successful put → preference stays OFF |
+| Unit | lock: restoreAllowed=0 before delete；delete fail → restore still blocked |
+| Unit | restore decrypt fail → IDB key deleted |
+| Unit | unlock + IDB put fail → still unlocked memory-only |
+| Unit | single-flight / epoch：lock during restore → session not installed |
+| Unit | gen mismatch → wipe IDB |
+| Manual / real browser | CryptoKey survives reload（**mock 不能代替**此條 · Codex nit → ship gate） |
+| Manual | 無 subtle：開關 disabled |
+| Manual | 鎖定後 F5 → 需主密碼 |
+
+**CSPRNG**：LAN/noble 路徑 **禁止** `Math.random` 產生 vault salt/IV（沿用既有 vault 要求；本 plan 不放寬）。
+
+---
+
+## 7. Phased delivery
+
+| Phase | 交付 | 驗收 |
+|-------|------|------|
+| **P0** | Plan + hetero ALL_CLEAR | 本文件 |
+| **P1** | `canRememberUnlock` + preference + UI 開關（disabled 路徑） | 無 subtle 不能開 |
+| **P2** | IDB put/get/delete CryptoKey；unlock/create 寫入 | 單測 |
+| **P3** | `tryRestoreVaultSession` + App boot | F5 免主密碼（有 subtle） |
+| **P4** | lock/clear 清 IDB；autologin 還原後可送 | 手動 + log |
+| **P5** | 威脅文案 i18n；docs 一小節 | 無「XSS 也安全」 |
+
+**不做進 P1–P5**：S-browser 壽命、BroadcastChannel、WebAuthn。
+
+---
+
+## 8. Open questions（預設若 owner 不回）
+
+| # | 問題 | 預設 |
+|---|------|------|
+| Q1 | 預設 remember ON 還 OFF？ | **OFF** |
+| Q2 | 關瀏覽器是否自動鎖？ | **否**（S-manual）；P2 可加 |
+| Q3 | 無 subtle 是否允許任何 fallback 記住？ | **否** |
+| Q4 | restore 後 session 是否允許 RAM 持有 keyBytes 複本？ | **允許僅 RAM**（與今日 unlock 相同）；**禁止**再寫 storage |
+
+---
+
+## 9. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| 實作偷懶又寫回 sessionStorage | 測試 grep + code review 紅線 |
+| IDB 在隱私模式失敗 | unlock fail-soft；setRemember ON fail-closed preference |
+| 使用者以為「記住＝絕對安全」 | UI 寫明 **隨時** XSS 可從 IDB 取 key |
+| 假跨 tab 吊銷 | §4.8 誠實 tab-local RAM |
+| lock async 漏改 caller | 全庫改 await lockVault；型別強制 |
+| IDB onblocked / hang | open timeout + onblocked handler |
+
+---
+
+## 10. Success metrics
+
+| 指標 | 目標 |
+|------|------|
+| 有 subtle + remember ON | F5 後 `isVaultUnlocked()` true 無需主密碼 |
+| 安全 | storage 無 raw key；無主密碼 persistence |
+| 無 subtle | 行為與今日相同，無假 remember |
+| Autologin | restore 後 connected 可送帳密 |
+
+---
+
+## 11. References
+
+- Parent vault plan + threat：`2026-07-22-profile-secrets-vault.md`  
+- 撤回 commit：`e9788b4` security(vault): revert sessionStorage unlock-key  
+- WebCrypto: `importKey` extractable false；IndexedDB structured clone of CryptoKey  
+
+---
+
+## 12. Status transitions
+
+| Status | When |
+|--------|------|
+| **draft** | now |
+| **approved** | plan-hetero ALL_CLEAR（≥2 families，無 MUST_FIX） |
+| **impl P1–P5** | after approved |
+| **SHIP** | tests + manual F5 smoke |
+=== END ===
+
+VERDICT: APPROVED | APPROVE_WITH_NITS | CHANGES_REQUIRED | BLOCK
+MUST_FIX: (empty if none)
+NITS:
+SECURITY_NOTES:
+C0_SHIP_OK: yes|no
+ONE_LINE:
+
+codex
+I’m using the `autopilot:audit` workflow to re-check the full plan for internal contract gaps and race/security blockers only.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+
+codex
+VERDICT: CHANGES_REQUIRED
+
+MUST_FIX:
+- `restoreAllowed` is not assigned durable storage, yet must survive F5 and also remain `0` after a failed lock deletion. Define a persisted allow/revocation marker and atomic ordering; deriving it from `rememberUnlock` breaks lock-failure safety.
+- `opEpoch` alone cannot prevent stale IndexedDB side effects. In-flight `put/delete` operations can complete after a newer lock/unlock/remember operation, recreating or deleting the wrong key. Serialize mutations or use transactionally checked operation tokens/record generations plus safe compensation.
+- `unlockVault` installs `session` before checking `stillOwner()`. A lock during PBKDF/decrypt/import can therefore be followed by stale unlock resurrecting the RAM session. Check ownership immediately before every RAM/persistent state mutation. Apply the same contract to `createVault`, which is absent from the mutation-epoch list.
+
+NITS: (empty)
+
+SECURITY_NOTES:
+- Stale restore failure cleanup (`delete idb`) must not delete a key written by a newer unlock/remember operation; this is covered by the mutation-side-effect blocker above.
+
+C0_SHIP_OK: no
+
+ONE_LINE: CryptoKey-only restore writes are covered, but durable restore authorization and async mutation ordering remain security-critical race blockers.
+tokens used
+20,256

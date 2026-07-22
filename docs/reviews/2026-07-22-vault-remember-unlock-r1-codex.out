@@ -1,0 +1,16 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- Multi-tab lock claim is false: deleting IDB does not revoke a `CryptoKey` or plaintext already held by tab B, and current secret APIs do not re-check IDB. Define explicit tab-local semantics or add a shared revocation epoch plus `storage`/BroadcastChannel handling and fail-closed checks before every sensitive read/write/autologin.
+- Lock/disable is not fail-closed or implementable as written. IDB deletion is asynchronous and can fail; a failed delete permits F5 restore. Specify ordering: disable restore preference first, clear RAM immediately, await deletion, surface failure, and never report “forgotten” unless durable revocation succeeds. Resolve `lockVault()` becoming async and update all callers.
+- Enabling remember while already unlocked stores only the preference, not a key. `setRememberUnlock(true)` must atomically persist the current non-extractable key before committing preference=ON, or require re-authentication. IDB failure/DataCloneError must leave preference OFF and remove partial state.
+- Boot restore needs a mandatory state machine/single-flight gate, not an optional “還原中” UI. A late restore can currently race with unlock, lock, clear, preference changes, or vault mutation and resurrect a session. Require operation epochs/cancellation and revalidate preference, envelope snapshot/gen, and revocation state immediately before installing the session.
+- Threat claims understate same-origin XSS: malicious script can open IndexedDB, obtain the stored non-extractable `CryptoKey`, and use it directly without waiting for the app to restore. Non-extractability prevents raw-key export, not offline use or secret exfiltration. Fold this into the threat table and consent text.
+- `canRememberUnlock()` cannot be only `!!crypto.subtle`. Require safe feature detection for `globalThis.crypto?.subtle`, IndexedDB availability, and successful non-extractable CryptoKey structured-clone round-trip. Validate restored keys (`type=secret`, AES-GCM-256, `extractable=false`, required usages) and fail closed on malformed records, IDB errors, blocked upgrades, or unsupported cloning.
+NITS:
+- Add real-browser tests for CryptoKey persistence across reload; mocks/fake-indexeddb cannot prove browser structured-clone behavior.
+- Specify IDB open timeout, `onblocked`, `versionchange`, transaction abort, quota/private-mode behavior, and database cleanup ownership.
+- Test crash points and ordering for enable, disable, lock, clear, and concurrent restore.
+- Preserve the existing CSPRNG requirement on LAN paths; never allow the current `Math.random()` fallback to generate vault salt/IV.
+SECURITY_NOTES: IndexedDB persistence converts “remember unlock” into a durable same-origin decryption capability. It protects against a localStorage-only dump and raw-key export, but not same-origin script, extensions, an unlocked browser profile, or cooperative multi-tab sessions already holding the key.
+C0_SHIP_OK: no — P1–P5 can proceed only after the revocation, async lock, enable ordering, and boot-race protocols are concretely folded into the plan.
+ONE_LINE: The core CryptoKey approach is viable, but the current plan can silently resurrect unlock state and falsely promises cross-tab revocation.

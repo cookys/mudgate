@@ -52,7 +52,7 @@ Proxy → browser JSON control（text frame）:
 2. Bridge test: WILL → DO + JSON `{type:echo,mask:true}`；WONT → DONT + `mask:false`；反轉 DO ECHO → WILL + mask true。  
 3. MudSocket：`type:echo` 走 `onEchoMask`，**不**改寫 `StatusEvent` 連線 code。  
 4. Web：`echoMask` 控制 `input type` password↔text。  
-5. `npm test` + `npm run build -w @assmud/web` 綠。  
+5. `npm test` + `npm run build -w @mudgate/web` 綠。  
 6. matrix W05 → `done`（RW 實機 checklist 可 residual）。  
 
 ## Residual (ok to ship)

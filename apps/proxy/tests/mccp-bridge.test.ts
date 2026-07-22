@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import zlib from "node:zlib";
 import { EventEmitter } from "node:events";
-import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT, naws } from "@assmud/protocol";
+import { IAC, WILL, WONT, SB, SE, OPT, DO, DONT, naws } from "@mudgate/protocol";
 
 const sockets: FakeSock[] = [];
 

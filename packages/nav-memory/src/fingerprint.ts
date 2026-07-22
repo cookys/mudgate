@@ -1,4 +1,4 @@
-import type { MapFrameCell } from "@assmud/terminal";
+import type { MapFrameCell } from "@mudgate/terminal";
 import type { MapFrame, MapPin } from "./types.js";
 
 /**

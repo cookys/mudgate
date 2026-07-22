@@ -8,7 +8,7 @@
 - Exportable “settings” text with `#TRIGGER` / `#ALIAS` style commands.
 - Binary `.mud` packages not a public open standard; reverse-engineering cost high.
 
-## assmud subset recommendation
+## mudgate subset recommendation
 
 | Import | Priority | Notes |
 |--------|----------|-------|

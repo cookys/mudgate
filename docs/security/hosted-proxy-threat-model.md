@@ -33,7 +33,7 @@
 | Mode | Audience | Auth | Destinations | Bind |
 |------|----------|------|--------------|------|
 | **Official / self-host prod** | Desktop + phone browsers | Required | Allowlist (or approved custom) | Public WSS |
-| **Site mode (T1-site)** | MUD 站方 gateway；多玩家共用 | **Shared site token**（非 per-player） | **僅** `ASSMUD_ALLOWLIST`；空則 startup fail | 建議 loopback + reverse-proxy |
+| **Site mode (T1-site)** | MUD 站方 gateway；多玩家共用 | **Shared site token**（非 per-player） | **僅** `MUDGATE_ALLOWLIST`；空則 startup fail | 建議 loopback + reverse-proxy |
 | **Dev localhost** | Developers | Optional (token/dev header OK) | May skip public allowlist **only** for non-private destinations; **always** block private/metadata IPs | `127.0.0.1` |
 | **User-run remote / player mode** | Power users（自跑 daemon） | Their choice | Their policy | Their VPS |
 
@@ -41,10 +41,10 @@
 
 | Threat | Control |
 |--------|---------|
-| 誤開 open relay | `ASSMUD_SITE_MODE=1` 要求 `remote-prod` + **非空** allowlist；hello dest ∉ list → 拒 |
+| 誤開 open relay | `MUDGATE_SITE_MODE=1` 要求 `remote-prod` + **非空** allowlist；hello dest ∉ list → 拒 |
 | 站方見密碼 | **接受**（= 遊戲營運）；文件禁止「E2E 站方也看不到」 |
 | mud 只見 127.0.0.1 | 預期；限流／audit 用 **effectiveClientAddr**（trusted hop + CF/X-Real-IP，**不解析 XFF**） |
-| 偽造 X-Real-IP | peer 不在 `ASSMUD_TRUSTED_HOP` → 忽略 header；trusted 缺 header → **403** |
+| 偽造 X-Real-IP | peer 不在 `MUDGATE_TRUSTED_HOP` → 忽略 header；trusted 缺 header → **403** |
 | CDN edge ban | effective IP 可能是 edge — **禁止**當唯一 ban；S1 無 SSO 時只能關 token／降 concurrent／人工 |
 | Audit 洩密 | JSON 行：token **HMAC 截斷**、addr、dest、ok/fail；**禁** payload／密碼／完整 token |
 

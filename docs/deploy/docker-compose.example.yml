@@ -5,11 +5,11 @@ services:
     working_dir: /app
     volumes:
       - ../..:/app
-    command: sh -c "npm ci && npm run dev -w @assmud/proxy"
+    command: sh -c "npm ci && npm run dev -w @mudgate/proxy"
     environment:
-      ASSMUD_PROXY_MODE: remote-prod
-      ASSMUD_AUTH_TOKEN: change-me
-      ASSMUD_ORIGIN_ALLOWLIST: https://mud.example.com
+      MUDGATE_PROXY_MODE: remote-prod
+      MUDGATE_AUTH_TOKEN: change-me
+      MUDGATE_ORIGIN_ALLOWLIST: https://mud.example.com
       PORT: "7788"
     ports:
       - "7788:7788"

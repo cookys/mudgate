@@ -1,0 +1,9 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- The serial queue and `opEpoch` are tab-local, but IndexedDB/localStorage are origin-wide. A lock/restore/compensation in tab A can race a newer put in tab B. Specify cross-tab serialization—e.g. one exclusive Web Lock covering each lifecycle transaction—or equivalent durable coordination.
+- `compensateDeleteIfOpId` must perform compare-and-delete atomically in one IndexedDB read-write transaction, using a globally unique operation token. A separate `get` then `delete`, or tab-local numeric `opId`, can delete another tab’s newer record. Restore cleanup after gen mismatch/decrypt failure needs the same record-identity-checked atomic deletion; `stillOwner()` alone is insufficient.
+NITS:
+- §8 Q4 contradicts §4.4: restored sessions cannot contain `keyBytes` without exporting the non-extractable key; state `cryptoKey`-only explicitly.
+SECURITY_NOTES: The durable restore gate, revoke-before-delete ordering, pre-install ownership checks, create parity, and fail-closed delete-failure behavior correctly address the stated single-tab R3 cases; origin-wide races remain.
+C0_SHIP_OK: no
+ONE_LINE: R3 fixes the in-tab races, but its supposedly global mutation protocol does not safely serialize or conditionally delete shared IndexedDB state across tabs.

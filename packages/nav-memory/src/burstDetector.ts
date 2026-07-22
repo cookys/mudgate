@@ -1,4 +1,4 @@
-import type { VtCaptureEvent } from "@assmud/terminal";
+import type { VtCaptureEvent } from "@mudgate/terminal";
 
 export type BurstDetectorOpts = {
   windowMs?: number;

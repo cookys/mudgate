@@ -38,9 +38,9 @@
 ## 本機（localhost-dev）
 
 ```bash
-ASSMUD_PROXY_MODE=localhost-dev \
-ASSMUD_BIND_HOST=0.0.0.0 \
-ASSMUD_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173" \
+MUDGATE_PROXY_MODE=localhost-dev \
+MUDGATE_BIND_HOST=0.0.0.0 \
+MUDGATE_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173" \
 npm run dev:proxy
 
 VITE_HOST=0.0.0.0 \
@@ -52,7 +52,7 @@ npm run dev:web
 
 ## 自架 VPS（概要）
 
-1. 在 VPS 跑 `@assmud/proxy`（prod 模式 + auth + Origin allowlist）。  
+1. 在 VPS 跑 `@mudgate/proxy`（prod 模式 + auth + Origin allowlist）。  
 2. 瀏覽器 `VITE_PROXY_WS=wss://your.domain/ws`。  
 3. MUD 看到 **VPS IP**（只有你的使用者走這台時，多開=你的帳號策略）。  
 4. 目的地仍受 allowlist／政策約束 — **不是** open relay。

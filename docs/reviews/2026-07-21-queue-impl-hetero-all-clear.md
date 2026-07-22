@@ -45,7 +45,7 @@ Multi-family implementation review of ship queue on `develop`.
 |-------|--------|
 | `npm test` | 105 passed (19 files) |
 | `npm run test:e2e` | 4 passed |
-| `npm run build -w @assmud/web` | ok |
+| `npm run build -w @mudgate/web` | ok |
 | `npm run secret-scan` | ok (fallback) |
 
 Scratch: `/tmp/grok-goal-7a2b7e3470de/implementer/final-*-r3.log`

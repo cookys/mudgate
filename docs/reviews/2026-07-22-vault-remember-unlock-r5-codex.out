@@ -1,0 +1,7 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- Clarify whether Web Lock request rejection fails the operation or uses the documented degraded path; the current fallback explicitly covers only API absence.
+SECURITY_NOTES: R4 correctly specifies cross-tab exclusive lifecycle locking, globally unique opToken identity, single-transaction conditional deletion, honest lock-API degradation, and cryptoKey-only restore with no raw keyBytes.
+C0_SHIP_OK: yes
+ONE_LINE: The plan now closes the previously identified cross-tab cleanup races and restore-key exposure blocker without requiring scope expansion.

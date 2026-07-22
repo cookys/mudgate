@@ -1,7 +1,7 @@
 # FULL LAND pack (key sources)
 
 ===== packages/terminal/src/buffer.ts =====
-import { Attrs, defaultAttrs, tokenizeAnsi } from "@assmud/vt";
+import { Attrs, defaultAttrs, tokenizeAnsi } from "@mudgate/vt";
 
 export type Cell = { ch: string; attrs: Attrs };
 
@@ -566,7 +566,7 @@ export type MudProfile = {
   notes?: string;
 };
 
-const KEY = "assmud.profiles.v1";
+const KEY = "mudgate.profiles.v1";
 
 export const DEFAULT_PROFILES: MudProfile[] = [
   {
@@ -613,7 +613,7 @@ export function importProfilesJson(json: string): MudProfile[] {
 }
 
 ===== packages/rw-pack/src/index.ts =====
-import type { Package } from "@assmud/script-engine";
+import type { Package } from "@mudgate/script-engine";
 
 /** Declarative RW convenience pack — human-validated later; safe defaults. */
 export const RW_STARTER_PACK: Package = {
@@ -983,7 +983,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       mode,
       bindHost: "127.0.0.1",
       bindPort: 7788,
-      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+      authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
       allowlist: [
         { host: "mud.revivalworld.org", ports: [4000, 5000, 6000] },
         { host: "127.0.0.1", ports: [4000, 2323] }, // local mock mud in tests only — still validated
@@ -996,10 +996,10 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     mode,
     bindHost: "0.0.0.0",
     bindPort: Number(process.env.PORT ?? 7788),
-    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+    authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
     allowlist: [{ host: "mud.revivalworld.org", ports: [4000, 5000, 6000] }],
     relaxAllowlist: false,
-    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
+    originAllowlist: (process.env.MUDGATE_ORIGIN_ALLOWLIST ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
@@ -1093,7 +1093,7 @@ export function checkAuth(
   }
 
   if (cookieHeader) {
-    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
+    const m = /(?:^|;\s*)mudgate_session=([^;]+)/.exec(cookieHeader);
     if (m) {
       try {
         if (safeEqual(decodeURIComponent(m[1]!), token)) return true;
@@ -1172,7 +1172,7 @@ import {
   ttypeIs,
   naws,
   OPT,
-} from "@assmud/protocol";
+} from "@mudgate/protocol";
 
 export type BridgeOptions = {
   host: string;
@@ -1270,10 +1270,10 @@ import {
   type MudProfile,
   exportProfilesJson,
   importProfilesJson,
-} from "@assmud/profiles";
-import { ScriptEngine } from "@assmud/script-engine";
-import { RW_STARTER_PACK } from "@assmud/rw-pack";
-import { ClientMap } from "@assmud/mapper";
+} from "@mudgate/profiles";
+import { ScriptEngine } from "@mudgate/script-engine";
+import { RW_STARTER_PACK } from "@mudgate/rw-pack";
+import { ClientMap } from "@mudgate/mapper";
 
 const DEFAULT_WS =
   import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
@@ -1297,7 +1297,7 @@ const clientMap = new ClientMap();
 export function App() {
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
   const [token, setToken] = useState(
-    () => localStorage.getItem("assmud_token") ?? "",
+    () => localStorage.getItem("mudgate_token") ?? "",
   );
   const [activeProfile, setActiveProfile] = useState(profiles[0]?.id ?? "rw-4000");
   const [tabs, setTabs] = useState<Tab[]>([
@@ -1356,7 +1356,7 @@ export function App() {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `assmud-session-${tab.id}.log`;
+    a.download = `mudgate-session-${tab.id}.log`;
     a.click();
   };
 
@@ -1364,7 +1364,7 @@ export function App() {
     <div className="mx-auto max-w-6xl p-3 sm:p-4 h-full flex flex-col gap-3">
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">assmud</h1>
+          <h1 className="text-xl font-semibold tracking-tight">mudgate</h1>
           <p className="text-xs sm:text-sm text-zinc-400">
             multi-MUD · {profile.name} · {tab.status}
           </p>
@@ -1437,7 +1437,7 @@ export function App() {
             disabled={tab.connected}
             onChange={(e) => {
               setToken(e.target.value);
-              localStorage.setItem("assmud_token", e.target.value);
+              localStorage.setItem("mudgate_token", e.target.value);
             }}
           />
         </label>
@@ -1510,7 +1510,7 @@ export function App() {
               });
               const a = document.createElement("a");
               a.href = URL.createObjectURL(blob);
-              a.download = "assmud-profiles.json";
+              a.download = "mudgate-profiles.json";
               a.click();
             }}
           >
@@ -1577,8 +1577,8 @@ export function App() {
 
 ===== apps/web/src/TerminalHost.tsx =====
 import { useEffect, useRef } from "react";
-import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { ScreenBuffer, Canvas2DRenderer } from "@mudgate/terminal";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
 
 export type HelloMsg = {
   type: "hello";

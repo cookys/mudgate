@@ -25,8 +25,8 @@ inflate: zlib.Inflate | null = null
 // inflated_session_bytes: number  // lifetime of this bridge connection
 // inflated_window_bytes: number   // reset every WINDOW_MS
 // WINDOW_MS = 60_000
-// MAX_INFLATED_PER_WINDOW = env ASSMUD_MCCP_MAX_WINDOW_BYTES default 16*1024*1024
-// MAX_INFLATED_SESSION = env ASSMUD_MCCP_MAX_SESSION_BYTES default 256*1024*1024  // NOT 64MiB hard kill for long play
+// MAX_INFLATED_PER_WINDOW = env MUDGATE_MCCP_MAX_WINDOW_BYTES default 16*1024*1024
+// MAX_INFLATED_SESSION = env MUDGATE_MCCP_MAX_SESSION_BYTES default 256*1024*1024  // NOT 64MiB hard kill for long play
 // MAX_COMPRESSED_WIRE_SESSION = env default 128*1024*1024  // wire-side flood guard
 // MAX_PARSER_FEED_CHUNK = 60_000  // < TelnetParser.MAX_BUF 65536
 ```
@@ -40,7 +40,7 @@ if (!compressed_mode):
   // { events, mccpStarted, residual }
   for data in events: forward to ws
   if mccpStarted:
-    if !ASSMUD_MCCP_enabled:
+    if !MUDGATE_MCCP_enabled:
       // rogue server — do NOT enter compressed_mode
       destroy("mccp se while disabled")
     else:
@@ -95,7 +95,7 @@ pushUntilMccpStart(chunk): {
 
 ### Flag
 
-- `ASSMUD_MCCP` default **1**
+- `MUDGATE_MCCP` default **1**
 - Read in **bridge/cli only**; pass `{ mccp: boolean }` into `replyToNegotiation(kind, option, opts)` — **no process.env in pure protocol package**
 - flag 0 → DONT on WILL MCCP2; if server still sends SB MCCP2 SE → **destroy** (protocol violation)
 

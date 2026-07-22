@@ -1,5 +1,5 @@
 {
-  "name": "assmud",
+  "name": "mudgate",
   "private": true,
   "version": "0.1.0",
   "description": "Web zMUD-class multi-MUD client (RW depth benchmark)",
@@ -8,13 +8,13 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @assmud/protocol -w @assmud/codec-big5 -w @assmud/vt -w @assmud/terminal -w @assmud/proxy -w @assmud/web",
+    "build": "npm run build -w @mudgate/protocol -w @mudgate/codec-big5 -w @mudgate/vt -w @mudgate/terminal -w @mudgate/proxy -w @mudgate/web",
     "test": "vitest run",
     "test:e2e": "vitest run tests/e2e",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
-    "dev:proxy": "npm run dev -w @assmud/proxy",
-    "dev:web": "npm run dev -w @assmud/web",
+    "dev:proxy": "npm run dev -w @mudgate/proxy",
+    "dev:web": "npm run dev -w @mudgate/web",
     "qc": "npm test && npm run test:e2e",
     "secret-scan": "bash scripts/secret-scan.sh",
     "lint": "echo 'lint: no-op until eslint lands'"

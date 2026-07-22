@@ -12,7 +12,7 @@ Schema + UI + RW seeds + safe optional auto-login.
 
 ## Security
 
-- Secrets in `assmud.profileSecrets` separate from exportable profiles  
+- Secrets in `mudgate.profileSecrets` separate from exportable profiles  
 - Export **omits** secrets by default  
 - Never log secrets; opt-in + plaintext warning  
 - Custom host still subject to proxy allowlist  

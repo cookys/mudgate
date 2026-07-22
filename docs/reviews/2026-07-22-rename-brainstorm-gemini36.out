@@ -1,0 +1,22 @@
+VERDICT_TOP3:
+1. mudgate — MUD + Gateway — Direct, professional, and captures both site mode (operator gateway proxy) and player mode as a portal into MUD worlds; ideal npm scope/slug (`@mudgate/core`).
+2. mudnexus — MUD + Central Hub — Evokes zMUD-class power (multi-MUD hub, mapping companion, vault, scripting) with a sleek architectural feel.
+3. mudsmith — MUD + Toolsmith/Craft — Emphasizes rich power-user capabilities (automation, maps, autologin) inspired by classic zMUD heritage.
+
+ALSO_GOOD:
+- mudwire — MUD + Wire protocol (highlights the Node WebSocket↔telnet proxy and live streaming wire).
+- zmud-web — Explicit nod to zMUD lineage; instantly recognizable to veteran MUD players.
+- mudloom — MUD + Loom (weaving terminal session, map companion, and scripts into one client).
+- realmgate — Realm + Gate (evocative gateway metaphor that avoids sounding like "mud" if preferred).
+- mudvault — MUD + Vault (highlights security transparency, session persistence, and local secret vault).
+
+AVOID:
+- assmud / assMud — Reads as "ass" + MUD in English; unprofessional for public repos and production deployments.
+- mudclient / webmud — Flat, generic, and unmemorable with poor searchability/branding value.
+- mudslinger — English idiom for personal attacks/slander ("throwing mud"); negative connotation.
+- mudpie / mudbutt — Accidental English vulgarity/slang.
+- mudpuppy — Sounds like a toy or small salamander rather than a zMUD-class power client & gateway platform.
+
+CHINESE_PRODUCT_TITLE: 靈境 MUD ｜ Web 泥巴網頁終端與玩家工作站
+
+ONE_LINE: Recommendation: **mudgate** (Confidence: High)

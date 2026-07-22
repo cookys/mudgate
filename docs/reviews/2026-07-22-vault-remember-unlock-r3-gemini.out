@@ -1,0 +1,24 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+1. **`restoreAllowed` boot initialization bug breaks Goal R1 on F5**:
+   - **Problem**: §4.7 specifies `tryRestoreVaultSession` checks `if (!rememberUnlock || !restoreAllowed) return false`. §4.5/§4.6 set `restoreAllowed = 1` in RAM upon unlock/remember-on, and §4.9 sets `restoreAllowed = 0` on lock. However, upon F5 / page reload, module memory is reset. If `restoreAllowed` defaults to `0` on module load, `tryRestoreVaultSession()` will **unconditionally fail on every page reload**, completely violating Goal R1.
+   - **Fix**: Explicitly define that on module boot, `restoreAllowed` must be initialized to match the persisted preference (`restoreAllowed = getRememberUnlock() ? 1 : 0`), and is only set to `0` in RAM when `lockVault()`, `clearVault()`, or `setRememberUnlock(false)` is invoked during that session.
+
+2. **Race condition: in-flight `idb.put` in `unlockVault` / `setRememberUnlock` overwrites `lockVault`**:
+   - **Problem**: In §4.5 (`unlockVault`) and §4.6 (`setRememberUnlock`), `await idb.put(...)` is asynchronous. If `lockVault()` is called while `idb.put(...)` is in-flight, `lockVault()` executes `beginMutation("lock")`, sets `restoreAllowed = 0`, and deletes the IDB key. When the in-flight `idb.put(...)` resolves later, `unlockVault` / `setRememberUnlock` unconditionally sets `restoreAllowed = 1` and leaves the key written to IDB, leaving the vault auto-restorable after lock.
+   - **Fix**: After `await idb.put(...)` resolves in `unlockVault` or `setRememberUnlock`, explicitly check `if (!op.stillOwner()) { /* optional: cleanup orphan IDB key */; return; }` BEFORE setting `restoreAllowed = 1`.
+
+3. **Race condition: stale `tryRestoreVaultSession` decrypt failure wipes newly unlocked key**:
+   - **Problem**: In §4.7, if `decrypt(rec.cryptoKey)` fails, the `catch` block unconditionally calls `delete idb`. If a concurrent `unlockVault()` or `createVault()` completed while `tryRestoreVaultSession()` was in-flight, `unlockVault()` will have written a fresh valid key to IDB. The stale restore's `catch` block will delete the newly written valid key.
+   - **Fix**: In §4.7 `catch` block, check `if (ticket.stillOwner()) await idb.delete("default")` before deleting from IDB.
+
+NITS:
+- **`createVault` Path Explicit Spec**: §5 lists `createVault` as using the same IDB put path, but §4.5 only details `unlockVault`. Add an explicit line stating `createVault` MUST execute the same `beginMutation` + IDB put + `stillOwner()` check sequence when `rememberUnlock` is active.
+- **Type signature for `encryptEnvelope`**: Ensure `encryptEnvelope(key: CryptoKey | Uint8Array, payload: VaultPayload)` handling both WebCrypto `CryptoKey` and `Uint8Array` is formally typed so `setVaultSecret` operates cleanly after a CryptoKey-only restore.
+
+SECURITY_NOTES:
+- The threat model in §2 correctly and honestly identifies that `extractable: false` CryptoKey in IndexedDB protects against raw key byte exfiltration, but permits any script executing on the same origin to retrieve the CryptoKey handle and decrypt the vault.
+- UI warning language (§3.3) accurately conveys the extended attack window without false claims.
+
+C0_SHIP_OK: no
+ONE_LINE: Fix `restoreAllowed` boot initialization and async `idb.put`/`idb.delete` epoch race checks before approving for implementation.

@@ -59,7 +59,7 @@ promptLength=39, model="gemini-3.6-flash-high"
 |------|---------|
 | Auth | Silent auth works (`cookys@gmail.com`); “not logged in” noise is pre-silent-auth poll |
 | settings.json model | Default `Gemini 3.6 Flash (High)` is fine when `--model` is actually applied |
-| cwd /tmp vs trusted | Not the cause; broken arg order failed from assmud cwd too |
+| cwd /tmp vs trusted | Not the cause; broken arg order failed from mudgate cwd too |
 | Other models on agy | Same bug when `-p --model …` order used — all looked “broken” |
 
 ## Harness rule (for future hetero)

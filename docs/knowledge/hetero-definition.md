@@ -5,9 +5,9 @@
 **Date**: 2026-07-21 | **Context**: cookys correction after roadmap review  
 **Problem**: Orchestrator treated "hetero review" as one agent with Architect/Ops/Skeptic hats.  
 **Solution**: **hetero / heto / 異質 = 多家不同 LLM 引擎各自獨立審核**. Multi-role single-model is **not** hetero.  
-**Related**: `/ship` skill (global + assmud overlay); `docs/reviews/*`; never claim "hetero OK" with only one family.
+**Related**: `/ship` skill (global + mudgate overlay); `docs/reviews/*`; never claim "hetero OK" with only one family.
 
-## assmud heto engine matrix（owner pin 2026-07-22）
+## mudgate heto engine matrix（owner pin 2026-07-22）
 
 | Seat | Model id | Invoke |
 |------|----------|--------|
@@ -43,4 +43,4 @@ hetero → fold MUST_FIX/adopted NITS into plan/code → hetero again
 | **ALL_CLEAR** | ≥2 families APPROVE*; no BLOCK; MUST_FIX []; NITS [] or explicitly deferred |
 | **Forbidden** | Fold then APPROVED/expand/ship without a new multi-family round |
 
-Pinned in `~/.grok/skills/ship/SKILL.md` §1b and assmud `.grok/skills/ship/SKILL.md`.
+Pinned in `~/.grok/skills/ship/SKILL.md` §1b and mudgate `.grok/skills/ship/SKILL.md`.

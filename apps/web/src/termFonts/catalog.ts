@@ -152,7 +152,7 @@ export const DEFAULT_TERM_FONT: TermFontConfig = {
   ligatures: false,
 };
 
-const STORAGE_KEY = "assmud.termFont";
+const STORAGE_KEY = "mudgate.termFont";
 
 export function loadTermFont(): TermFontConfig {
   try {

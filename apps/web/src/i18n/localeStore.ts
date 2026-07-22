@@ -2,7 +2,7 @@ import type { Locale } from "./types";
 
 export const LOCALES = ["zh-TW", "zh-CN", "en"] as const satisfies readonly Locale[];
 
-const STORAGE_KEY = "assmud.locale";
+const STORAGE_KEY = "mudgate.locale";
 const FALLBACK: Locale = "zh-TW";
 
 export function isLocale(v: unknown): v is Locale {
@@ -77,13 +77,13 @@ export function saveLocale(locale: Locale): void {
   }
 }
 
-type AssmudSite = { defaultLocale?: string };
+type MudgateSite = { defaultLocale?: string };
 
 function readSiteDefault(): Locale | null {
   try {
     if (typeof window !== "undefined") {
-      const w = (window as unknown as { __ASSMUD_SITE__?: AssmudSite })
-        .__ASSMUD_SITE__;
+      const w = (window as unknown as { __MUDGATE_SITE__?: MudgateSite })
+        .__MUDGATE_SITE__;
       if (isLocale(w?.defaultLocale)) return w.defaultLocale;
     }
   } catch {

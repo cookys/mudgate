@@ -1,7 +1,7 @@
 import type { MessageKey } from "../types";
 
 export const en = {
-  "app.name": "assmud",
+  "app.name": "mudgate",
   "connect.title": "Enter the wire",
   "connect.profile": "World / profile",
   "connect.token": "Auth token",
@@ -18,7 +18,7 @@ export const en = {
   "trust.mode.label": "Connection trust mode",
   "trust.mode.local": "Local / LAN (T0)",
   "trust.mode.selfhost": "My self-host (T1)",
-  "trust.mode.official": "assmud official (T2)",
+  "trust.mode.official": "mudgate official (T2)",
   "trust.mode.custom": "Other server (T3)",
   "trust.ws": "WebSocket URL",
   "trust.ws.placeholder": "wss://your-host/ws",
@@ -26,7 +26,7 @@ export const en = {
     "The operator of this server can see your MUD account and password (game telnet is often cleartext). WSS only encrypts the browser→proxy hop — it does not hide passwords from the proxy. Continue only if you fully trust the operator.",
   "trust.warn.ack": "I understand the risk",
   "trust.warn.official":
-    "Passwords pass through the official assmud proxy; we do not log password strings by policy. This is not end-to-end encryption.",
+    "Passwords pass through the official mudgate proxy; we do not log password strings by policy. This is not end-to-end encryption.",
   "trust.selfhost.cta": "Self-host docs (Oracle/Docker)",
   "trust.home.cf": "Home Cloudflare Tunnel",
   "trust.token.secret": "Treat as a password — never exported",

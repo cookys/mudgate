@@ -6,7 +6,7 @@ No code. No generic “just use Mudlet” fluff — be concrete and ranked.
 
 ## Context (facts)
 
-**assmud** = browser zMUD-class client (React/TS + WSS auth proxy).  
+**mudgate** = browser zMUD-class client (React/TS + WSS auth proxy).  
 Depth benchmark: **Revival World (重生的世界)** — Big5, full VT, **server `map_d`**.
 
 ### Two different “maps”
@@ -47,7 +47,7 @@ Depth benchmark: **Revival World (重生的世界)** — Big5, full VT, **server
 
 5. **When full room-graph automap becomes worth it** (labyrinth / no map_d zones / multi-mud) — gating criteria.
 
-6. **One recommended 2-sprint roadmap** (P0/P1/P2 bullets) for assmud given current Nav Shell.
+6. **One recommended 2-sprint roadmap** (P0/P1/P2 bullets) for mudgate given current Nav Shell.
 
 ## Output format (required)
 

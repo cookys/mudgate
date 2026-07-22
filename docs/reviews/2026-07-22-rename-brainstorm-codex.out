@@ -1,0 +1,23 @@
+VERDICT_TOP3:
+1. realmwire — a wire into many realms — memorable, technical, and fits both gateway and player modes
+2. mudweaver — weaves sessions, maps, scripts, and worlds together — clearly MUD-focused without sounding generic
+3. waygate — a navigational gateway between player and world — short, approachable, and strong for site deployment
+
+ALSO_GOOD:
+- realmbridge — a bridge between browsers and virtual worlds
+- worldwire — the network path into persistent worlds
+- mudrelay — an honest description of the WebSocket-to-telnet role
+- wayfinder — emphasizes maps, navigation, and cross-world journeys
+- emberlink — a memorable connection that keeps old worlds alive
+
+AVOID:
+- assmud / assMud — immediately parses as “ass” + “MUD”
+- mudhub — generic, crowded-sounding, and weakly differentiated
+- webmud — accurate but flat and tied too tightly to the browser
+- zWeb / zMUD.js — derivative, dated, and potentially confusing around zMUD lineage
+- RevivalWire — attractive, but locks the project too closely to Revival World
+- MUDdy — looks playful but invokes “muddy” and can feel unserious
+
+CHINESE_PRODUCT_TITLE: 萬界連線
+
+ONE_LINE: `realmwire` is my single best recommendation: distinctive, engineering-friendly, extensible beyond Revival World, and suitable for `@realmwire/*` — confidence high.

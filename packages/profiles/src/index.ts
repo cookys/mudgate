@@ -112,7 +112,7 @@ export function validateProfile(p: unknown): MudProfile {
   } as MudProfile & Record<string, unknown>);
 }
 
-const KEY = "assmud.profiles.v1";
+const KEY = "mudgate.profiles.v1";
 
 /** Built-in seeds. Users can always add custom host:port via ProfileManager. */
 export const DEFAULT_PROFILES: MudProfile[] = [
@@ -194,7 +194,7 @@ export function saveProfiles(list: MudProfile[]): void {
 
 const SECRET_KEYS = new Set([
   "proxyToken",
-  "assmud_token",
+  "mudgate_token",
   "password",
   "token",
   "secret",

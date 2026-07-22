@@ -1,0 +1,15 @@
+VERDICT: CHANGES_REQUIRED
+
+MUST_FIX:
+- `restoreAllowed` is not assigned durable storage, yet must survive F5 and also remain `0` after a failed lock deletion. Define a persisted allow/revocation marker and atomic ordering; deriving it from `rememberUnlock` breaks lock-failure safety.
+- `opEpoch` alone cannot prevent stale IndexedDB side effects. In-flight `put/delete` operations can complete after a newer lock/unlock/remember operation, recreating or deleting the wrong key. Serialize mutations or use transactionally checked operation tokens/record generations plus safe compensation.
+- `unlockVault` installs `session` before checking `stillOwner()`. A lock during PBKDF/decrypt/import can therefore be followed by stale unlock resurrecting the RAM session. Check ownership immediately before every RAM/persistent state mutation. Apply the same contract to `createVault`, which is absent from the mutation-epoch list.
+
+NITS: (empty)
+
+SECURITY_NOTES:
+- Stale restore failure cleanup (`delete idb`) must not delete a key written by a newer unlock/remember operation; this is covered by the mutation-side-effect blocker above.
+
+C0_SHIP_OK: no
+
+ONE_LINE: CryptoKey-only restore writes are covered, but durable restore authorization and async mutation ordering remain security-critical race blockers.

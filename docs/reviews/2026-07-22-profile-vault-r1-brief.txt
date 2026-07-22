@@ -1,4 +1,4 @@
-Review assmud PLAN (not code) for ship readiness:
+Review mudgate PLAN (not code) for ship readiness:
 
 docs/plans/2026-07-22-profile-secrets-vault.md
 

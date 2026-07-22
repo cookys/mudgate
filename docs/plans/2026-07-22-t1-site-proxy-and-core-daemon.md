@@ -107,16 +107,16 @@ player: 玩家 --wss--> [player daemon] --tcp--> mud    → mud 見 VPS/家
 
 ```text
                     ┌─ static web (optional, same origin)
-Internet ─ wss ──► │  assmud-proxy (site)
+Internet ─ wss ──► │  mudgate-proxy (site)
                     └─ tcp 127.0.0.1:4000 ─► mud
 ```
 
 | 旋鈕 | 預設 |
 |------|------|
-| `ASSMUD_PROXY_MODE` | `remote-prod`（**底層模式**；fail-closed auth/origin 仍適用） |
-| `ASSMUD_SITE_MODE` | `0`；**`1` = T1-site 疊加**（見 S1.1）— **不是** `remote-prod` 別名 |
+| `MUDGATE_PROXY_MODE` | `remote-prod`（**底層模式**；fail-closed auth/origin 仍適用） |
+| `MUDGATE_SITE_MODE` | `0`；**`1` = T1-site 疊加**（見 S1.1）— **不是** `remote-prod` 別名 |
 | bind | **建議 `127.0.0.1`**（僅本機 reverse-proxy／caddy 可連）；禁止文件暗示裸 `0.0.0.0` 無防火牆 |
-| allowlist | **僅** 本站 mud host:port（`ASSMUD_ALLOWLIST`） |
+| allowlist | **僅** 本站 mud host:port（`MUDGATE_ALLOWLIST`） |
 | auth S1 | **shared site token**（閘道密）；**不**宣稱 per-player 身份 |
 | Origin | 站方 web origin fail-closed |
 | payload log | off |
@@ -128,7 +128,7 @@ Internet ─ wss ──► │  assmud-proxy (site)
 | 作用 | 生產 fail-closed：token、origin、limits | **額外**：hello dest **必須** ∈ allowlist；拒絕「任意 host」 |
 | 可組合 | 是 | **`SITE_MODE=1` 的唯一合法 base = `remote-prod`** |
 | 非法 | — | `SITE_MODE=1` + 任何非 `remote-prod` → **startup exit(1)** + log |
-| 空 allowlist | — | `SITE_MODE=1` ∧ `ASSMUD_ALLOWLIST` 空 → **startup exit(1)**（防誤開 open relay） |
+| 空 allowlist | — | `SITE_MODE=1` ∧ `MUDGATE_ALLOWLIST` 空 → **startup exit(1)**（防誤開 open relay） |
 
 ### 2.3 UX 文案（zh-TW 草案）
 
@@ -186,8 +186,8 @@ Internet ─ wss ──► │  assmud-proxy (site)
 | 條件 | 行為 |
 |------|------|
 | 預設 | `effectiveClientAddr = transportPeer` |
-| `ASSMUD_TRUSTED_HOP` | CIDR 列表 **和／或** `unix`（UDS peer）；peer 必須命中才信 header |
-| 可信 peer 是誰 | = **連到 assmud-proxy 的那一跳**（若 caddy 在同機 UDS→proxy，配 `unix`；若 caddy 以 TCP 127.0.0.1 連 proxy，trusted = `127.0.0.1/32`，**不是** caddy 對外 public IP） |
+| `MUDGATE_TRUSTED_HOP` | CIDR 列表 **和／或** `unix`（UDS peer）；peer 必須命中才信 header |
+| 可信 peer 是誰 | = **連到 mudgate-proxy 的那一跳**（若 caddy 在同機 UDS→proxy，配 `unix`；若 caddy 以 TCP 127.0.0.1 連 proxy，trusted = `127.0.0.1/32`，**不是** caddy 對外 public IP） |
 | Header | 預設序：`CF-Connecting-IP`（**僅 CF 慣例**）→ 否則 `X-Real-IP`；可 env 鎖「唯一 header 名」。**不解析 XFF**。兩者皆在且不一致 → 用 CF（若有）+ audit warn |
 | trusted 已開但 header 缺／非法 | **fail-closed**：  
   - 若在 **HTTP upgrade 前**可判 → **HTTP 403**（無 WS）  
@@ -207,7 +207,7 @@ PROXY TCP4 <src.ip> <dst.ip> <src.port> <dst.port>\r\n
 
 | 項 | 契約 |
 |----|------|
-| Env | `ASSMUD_PROXY_PROTOCOL=0\|1` 預設 **0** |
+| Env | `MUDGATE_PROXY_PROTOCOL=0\|1` 預設 **0** |
 | 何時寫 | **僅** allowlisted dest **且 TCP connect 成功之後**、任何 telnet 位元組之前；**每個連線一次** |
 | src | `effectiveClientAddr`（§3.3.1）；非 IPv4 → 可 `PROXY UNKNOWN\r\n` 或關協議（文件二選一：**C0 實作 UNKNOWN**） |
 | dst | 實際 connect 的 mud IP:port（解析後） |
@@ -235,7 +235,7 @@ PROXY TCP4 <src.ip> <dst.ip> <src.port> <dst.port>\r\n
 
 ## 4. 架構討論：Thin proxy + fat web  vs  TinTin 式 daemon + thin display
 
-### 4.1 今日 assmud（已落地）
+### 4.1 今日 mudgate（已落地）
 
 ```text
 [Browser React]
@@ -343,7 +343,7 @@ SITE MODE (目標形態 = 今日強化)
 
 | ID | 交付 |
 |----|------|
-| **S1.1** | `ASSMUD_SITE_MODE=1` 契約（§2.2）：與 `remote-prod` 組合；非法組合 fail-fast；hello dest ∈ allowlist |
+| **S1.1** | `MUDGATE_SITE_MODE=1` 契約（§2.2）：與 `remote-prod` 組合；非法組合 fail-fast；hello dest ∈ allowlist |
 | **S1.2** | Audit（§3.4）：HMAC token、effective+transport addr、JSON 行、禁 payload |
 | **S1.3** | 限流：upgrade/auth/dial **前** per-IP；concurrent 全域；**S1 不宣稱 per-player token 限連** |
 | **S1.4** | 測試：allowlist 拒連；偽造 X-Real-IP 自非 trusted peer **無效**；trusted hop 缺 header **拒連**；audit 抽樣無密碼 |
@@ -353,7 +353,7 @@ SITE MODE (目標形態 = 今日強化)
 
 | ID | 交付 |
 |----|------|
-| **S2.1** | `ASSMUD_PROXY_PROTOCOL=1` 時 TCP 連上後先寫 PROXY v1 |
+| **S2.1** | `MUDGATE_PROXY_PROTOCOL=1` 時 TCP 連上後先寫 PROXY v1 |
 | **S2.2** | mock server 測試；預設 0 |
 | **S2.3** | 文件：僅當 mud/shim 支援；RW 未驗證則標 experimental |
 
@@ -394,7 +394,7 @@ SITE MODE (目標形態 = 今日強化)
 1. T1-site 是否要 **強制** 站方提供「非 localhost 的 public mud IP allowlist」備援（雙機部署）？  
 2. PROXY v1 是否進 S1 還是嚴格 S2 experimental？  
 3. Session Protocol v0 是否與 mapd Companion 並行（display 幀從 daemon 來）？  
-4. 站方模式 auth：沿用 `ASSMUD_AUTH_TOKEN` 共用密，還是要 per-player 站方 SSO（更大）？  
+4. 站方模式 auth：沿用 `MUDGATE_AUTH_TOKEN` 共用密，還是要 per-player 站方 SSO（更大）？  
 
 **預設若 Board 不回：**
 
@@ -427,6 +427,6 @@ SITE MODE (目標形態 = 今日強化)
 | draft | done |
 | approved | plan-hetero ALL_CLEAR R2 |
 | S0–S1 impl / SHIP | **done** 2026-07-22 — SITE_MODE fail-fast、effectiveClientAddr、audit、docs |
-| S2 PROXY v1 | **done** 2026-07-22 — `ASSMUD_PROXY_PROTOCOL` 預設 0；=1 連上後寫 v1 首行 |
+| S2 PROXY v1 | **done** 2026-07-22 — `MUDGATE_PROXY_PROTOCOL` 預設 0；=1 連上後寫 v1 首行 |
 | S3 | **done** 2026-07-22 — ADR-003 + `docs/design/session-protocol-v0.md`（daemon 本體 deferred） |
 

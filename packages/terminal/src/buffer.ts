@@ -3,7 +3,7 @@ import {
   defaultAttrs,
   sgrDelta,
   tokenizeAnsi,
-} from "@assmud/vt";
+} from "@mudgate/vt";
 import { isWide, type WidthMode } from "./width.js";
 
 export type Cell = { ch: string; attrs: Attrs };

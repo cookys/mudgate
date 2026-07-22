@@ -1,4 +1,4 @@
-import type { Package } from "@assmud/script-engine";
+import type { Package } from "@mudgate/script-engine";
 
 /** Declarative RW convenience pack — human-validated later; safe defaults. */
 export const RW_STARTER_PACK: Package = {

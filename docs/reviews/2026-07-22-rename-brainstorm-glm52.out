@@ -1,0 +1,27 @@
+VERDICT_TOP3:
+1. mudgate — gateway into MUD worlds; "gate" = the operator-run site-gateway (WS↔telnet proxy) and the portal each MUD's rooms/passages offer. Hits the one metaphor that's truly distinctive to this product, short, npm-friendly, not vulgar, doesn't lock to RW.
+2. mudwright — "wright" = a maker (shipwright/playwright); honors the zMUD-class craft ethos (scripts, autologin, vault, map) where power users build and tune. Distinctive and brandable where mudgate is plain.
+3. mudport — "port" doubles: a harbor/gateway (site as port-of-call) and a TCP port (telnet connects to ports). Clean, honest, telnet-literal, no pun-tax.
+
+ALSO_GOOD:
+- telport — telnet+port+teleport; the cleverest coin and most memorable, but risks reading as a typo of "teleport" (hurts search/discoverability).
+- relaymud — names the proxy's actual job (relay); honest and descriptive; "mudrelay" reads cleaner if you prefer that word order.
+- mudwire — wire/session; short, honest, slightly flat.
+- mudsock — socket+mud; cute and technical, though "sock" feels lightweight for a gateway product.
+- mudsmith — smith=crafter; the script-builder alt if "wright" feels too archaic.
+
+AVOID:
+- assmud (current) — reads as "ass"+MUD; the problem itself.
+- ashmud / mudash — "ash" ≈ "ass" phonetically; same vulgarity trap, different letter.
+- mudder — tempting (it's the real MUD-community term for a player) but sounds like "mother" drawled and flirts with mud-wrestling crassness; awkward for a professional gateway.
+- mudlock — "stuck in mud"/locked; negative momentum, and overweights the secondary vault feature.
+- muck / muckmud — "muck"=filth/manure to outsiders, despite MUCK being a legit MUD-variant acronym.
+- mudzilla — -zilla silliness undercuts the honest-threat-model / professional-operator positioning.
+- revivalmud / rebornmud — over-indexes on Revival World; fails "don't lock ONLY to RW."
+- zmud (or zmud-*) — zMUD is Zuggsoft's trademark; direct homage invites takedown.
+- neomud / worldmud — flat/generic ("neo" overused, "world" leans RW); no hook.
+- mudtether — "Tether"=USDT stablecoin; derails brand search toward crypto.
+
+CHINESE_PRODUCT_TITLE: 泥巴驛站 — 泥巴 is the affectionate Chinese-MUD-community word for MUDs; 驛站 (relay/post station) honestly captures the gateway-proxy role (a station that handles messages between browser and MUD world — it sees what passes through, matching your honest threat model) without locking to 重生的世界.
+
+ONE_LINE: mudgate — confidence: high (mudwright is the brandable runner-up if you'd trade a little clarity for distinctiveness).

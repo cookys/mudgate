@@ -1,6 +1,6 @@
 ## 目標
 
-assmud：中文優先 web MUD 客端。**Companion C0+C1**、**site S0–S3** 已 SHIP。Wishlist BACKLOG 已 triage deferred（見 `docs/OPEN-WORK-INVENTORY.md`）。
+mudgate：中文優先 web MUD 客端。**Companion C0+C1**、**site S0–S3** 已 SHIP。Wishlist BACKLOG 已 triage deferred（見 `docs/OPEN-WORK-INVENTORY.md`）。
 
 ## 現況
 
@@ -41,5 +41,5 @@ assmud：中文優先 web MUD 客端。**Companion C0+C1**、**site S0–S3** �
 ## 接續
 
 ```text
-read /home/cookys/projects/assmud/docs/HANDOFF.md 接續
+read /home/cookys/projects/mudgate/docs/HANDOFF.md 接續
 ```

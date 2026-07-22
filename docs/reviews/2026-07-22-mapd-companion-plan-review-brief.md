@@ -4,16 +4,16 @@ You are a **plan reviewer** (not implementer). Review **only** this plan text fo
 
 ## Plan under review
 
-Path: `/home/cookys/projects/assmud/docs/plans/2026-07-22-mapd-nav-companion.md`
+Path: `/home/cookys/projects/mudgate/docs/plans/2026-07-22-mapd-nav-companion.md`
 
 Related (context only, do not re-litigate shipped Nav Shell unless plan contradicts it):
 
-- `/home/cookys/projects/assmud/docs/plans/2026-07-22-automap-nav-shell.md` (SHIP P1)
-- `/home/cookys/projects/assmud/docs/reviews/2026-07-22-mapd-automap-hetero-brainstorm.md`
+- `/home/cookys/projects/mudgate/docs/plans/2026-07-22-automap-nav-shell.md` (SHIP P1)
+- `/home/cookys/projects/mudgate/docs/reviews/2026-07-22-mapd-automap-hetero-brainstorm.md`
 
 ## Product facts (do not invent opposite)
 
-- assmud: browser MUD client; VT `ScreenBuffer` already renders RW **map_d** correctly.
+- mudgate: browser MUD client; VT `ScreenBuffer` already renders RW **map_d** correctly.
 - Stance locked: client = **nav co-pilot**, not second world map; no Mudlet full-city graph for RW cities.
 - Phase C0 = Companion (snapshot, freeze, pins); C1 = journey + stitch proto; C2 = expedition gates.
 - ANTI: OCR, default auto-speedwalk, GMCP-as-backbone, regressing map_d.

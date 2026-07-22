@@ -60,7 +60,7 @@
 | **T0b** | 開發用 localhost-dev | 同上 | 僅本機 | 僅開發文件；**勿暗示**拿來當唯一正式路徑文案 |
 | **T1a** | **我的 VPS**（Oracle／Docker 一鍵） | 該 VPS IP | 有 root 者；**共用 VPS≈T3 風險** | 進階；需 **域名 + 公開 TLS**（見 §3.4） |
 | **T1b** | **我家 + Cloudflare Tunnel／Zero Trust** | **家用 ISP IP**（多開友善） | 本機 root | 外出連自己的家；**不必開埠** |
-| **T2** | 官方 hosted | 官方出口 | **官方營運** | 明示信任 assmud；多開風險；**不**說「技術上看不到密碼」 |
+| **T2** | 官方 hosted | 官方出口 | **官方營運** | 明示信任 mudgate；多開風險；**不**說「技術上看不到密碼」 |
 | **T3** | 自訂 `wss://` | 未知 | **該 URL 控制者** | 預設折疊；模態 + 勾選後才連 |
 
 **禁止**：內建「隨機公共節點列表」。
@@ -76,7 +76,7 @@
 
 ### T2 官方
 
-- 「密碼會經過 assmud 官方 proxy；**政策上不記錄密碼字串**（見威脅模型）。」  
+- 「密碼會經過 mudgate 官方 proxy；**政策上不記錄密碼字串**（見威脅模型）。」  
 - **禁止**：「端到端加密」「官方也看不到」。  
 
 ---
@@ -100,11 +100,11 @@
 | 綁定 | **`127.0.0.1:7788` only**（compose / install **不得**預設 `0.0.0.0:7788`） |
 | 對外 | **僅** Caddy／nginx／**cloudflared**  terminat TLS 後轉 loopback |
 | Mode | `remote-prod`（自架對外）或本機日常模式（另名，見 T0a） |
-| Token | `openssl rand -hex 24` → 檔案 **`0600` root-owned**（如 `/etc/assmud/auth_token`） |
+| Token | `openssl rand -hex 24` → 檔案 **`0600` root-owned**（如 `/etc/mudgate/auth_token`） |
 | Token 顯示 | **互動 install**：先 `set +o history`（**必須**）→ 終端顯示 **一次** → 提示勿複製進聊天 |
 | cloud-init | **禁止**把 token echo 到 console log；只寫 0600 檔；文件寫 **SSH 後 `sudo cat` 安全取回** |
 | Token 禁出現 | **URL query、cloud-init userdata 明文、CI log、install 持久 log 檔** |
-| Origin | **空 → fail closed 拒啟動 prod**；cloud-init 非互動：必須用 user-data 注入 `ASSMUD_ORIGIN_ALLOWLIST`（如 `https://mud.example.com`），缺則服務 **不 start** |
+| Origin | **空 → fail closed 拒啟動 prod**；cloud-init 非互動：必須用 user-data 注入 `MUDGATE_ORIGIN_ALLOWLIST`（如 `https://mud.example.com`），缺則服務 **不 start** |
 | Origin 語意 | **只限制瀏覽器 Origin，不取代 token**（文件雙寫） |
 | 目的地 | allowlist（種子 RW；taiwanmud 可選 draft；**文件維護者更新 seed，玩家可自填**）；與 proxy `policy.ts` 對齊或抽出檔案（D1 寫明） |
 | 日誌 | metadata only |
@@ -123,7 +123,7 @@
    sudo bash install-proxy.sh
 
 3. installer 內部：
-   docker pull ghcr.io/OWNER/assmud-proxy@sha256:DEADBEEF...   # 同 release 鎖定
+   docker pull ghcr.io/OWNER/mudgate-proxy@sha256:DEADBEEF...   # 同 release 鎖定
    # 禁止 :latest 當 prod 預設
 ```
 
@@ -144,7 +144,7 @@
 | 事件 | 行為 |
 |------|------|
 | 安裝 | 生成 → 0600 檔；互動可顯示一次 |
-| 輪替 | `assmud-proxy-rotate-token` 或文件步驟：重生、重啟、更新 web |
+| 輪替 | `mudgate-proxy-rotate-token` 或文件步驟：重生、重啟、更新 web |
 | 遺失 | SSH 讀檔或 rotate；**無「email 找回」** |
 | 撤銷 | 等同輪替；舊 token 立即失效 |
 
@@ -162,7 +162,7 @@
 手機/外網 ──WSS──► Cloudflare Edge (Access 政策)
                       │ Tunnel
                       ▼
-              家裡 cloudflared ──► 127.0.0.1:7788 assmud-proxy
+              家裡 cloudflared ──► 127.0.0.1:7788 mudgate-proxy
                       │
                       ▼ Telnet（出口 = 家用 ISP IP）
                     台灣 MUD
@@ -174,7 +174,7 @@
 | **出口** | 家用 ISP | MUD 看到 **你家 IP**（多開友善）；**不是** CF 出口 IP |
 | **密碼** | 本機 proxy | 信任自己；CF 終止 TLS 屬 Cloudflare 信任域（文件一句帶過） |
 | **Origin allowlist** | `https://你的域名` | 與 Access 應用 hostname 一致 |
-| **Token** | 仍要 | Access ≠ 取代 ASSMUD_AUTH_TOKEN |
+| **Token** | 仍要 | Access ≠ 取代 MUDGATE_AUTH_TOKEN |
 
 **文件產物**：`docs/deploy/HOME-CLOUDFLARE-TUNNEL.md`（cloudflared 安裝、Public Hostname → `localhost:7788`、Access 政策、Web 選 T1b）。
 
@@ -196,7 +196,7 @@
 ```
 ○ 本機（T0a）              預設桌面
 ○ 我的自架（T1）           子選：VPS 文件 | 家用 Cloudflare 文件
-○ assmud 官方（T2）        僅當 site config 有 officialProxyUrl，否則隱藏
+○ mudgate 官方（T2）        僅當 site config 有 officialProxyUrl，否則隱藏
 ○ 其他伺服器（T3）         警告後解鎖
 ```
 
@@ -208,7 +208,7 @@
 
 | 規則 | |
 |------|--|
-| 與連線設定分開儲存 | 如 `assmud_proxy_token`（既有可沿用） |
+| 與連線設定分開儲存 | 如 `mudgate_proxy_token`（既有可沿用） |
 | **禁止**進 profile export JSON | 與 profile-library secrets 同原則；profile-library 未完成前先 **硬排除 token 欄** |
 | UI 標示 | 「視同密碼」 |
 

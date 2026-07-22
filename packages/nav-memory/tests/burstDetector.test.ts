@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ScreenBuffer } from "@assmud/terminal";
+import { ScreenBuffer } from "@mudgate/terminal";
 import { BurstDetector } from "../src/burstDetector.js";
 import { MemoryNavStore } from "../src/memoryStore.js";
 

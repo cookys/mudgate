@@ -19,7 +19,7 @@
 
 ### 0.1 產品矛盾
 
-| 玩家以為「地圖」 | assmud 側欄曾給的 |
+| 玩家以為「地圖」 | mudgate 側欄曾給的 |
 |------------------|-------------------|
 | RW **map_d** 城圖（server VT 全螢幕） | `oooo@oooo` / 假 room-graph |
 | 迷宮才需要 client 記路 | 用 client 跟城圖搶「地圖」權威 |
@@ -33,7 +33,7 @@ Server map_d = spatial ground truth；client 做 **記憶、標註、旅程、�
 |------|------|------|
 | 側欄模式：附近 / 足跡 / 城圖 | done | `MapNavPanel` |
 | 附近 HUD + 八向 pad + `moveDialect` | done | mapper + Profile |
-| 出口／房名 text trigger + move-fail undo | done | `@assmud/mapper` |
+| 出口／房名 text trigger + move-fail undo | done | `@mudgate/mapper` |
 | Dead-reckon session trail | done | `RoomTracker.noteOutbound` |
 | 城圖 tab 僅 backlog 文案 | done | i18n `map.mirror.backlog` |
 | 終端 VT buffer（CUP/SAVEC/REST）map_d 可畫 | done | `ScreenBuffer` |
@@ -268,7 +268,7 @@ type Journey = {
 
 | 項目 | C0 鎖定 |
 |------|---------|
-| Backend | **IndexedDB** DB name `assmud-nav` v1；thin wrapper |
+| Backend | **IndexedDB** DB name `mudgate-nav` v1；thin wrapper |
 | Object stores created in C0 | `frames` · `pins` · `meta`（meta 可空；journeys 寫入 C1） |
 | `MAX_FRAMES_PER_PROFILE` | **30** 含 protected（protected 佔名額但不被 LRU 刪） |
 | Key paths | `frames`: keyPath `id`；index `byProfile`=`profileKey`；index `byProfileTime`=`[profileKey, capturedAt]` |
@@ -543,8 +543,8 @@ C2 expedition + diff alert
 | # | 決議 |
 |---|------|
 | Q1 偵測 | C0 = BurstDetector v0 + 手動 capture；**不**等 SAVEC 狀態機 |
-| Q2 儲存 | IndexedDB `assmud-nav`；thin wrapper；MAX 30；protected 免疫 LRU |
-| Q3 stitch | C1 預設 **關**；`assmud.nav.stitch=1` 才啟用 |
+| Q2 儲存 | IndexedDB `mudgate-nav`；thin wrapper；MAX 30；protected 免疫 LRU |
+| Q3 stitch | C1 預設 **關**；`mudgate.nav.stitch=1` 才啟用 |
 | profileKey | **profile.id only** |
 | C0 縮放 | 僅 1×/2× + pan |
 

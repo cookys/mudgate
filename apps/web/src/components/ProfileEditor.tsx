@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { MudProfile } from "@assmud/profiles";
+import type { MudProfile } from "@mudgate/profiles";
 import {
   getProfilePassword,
   getProfileAccount,
@@ -9,7 +9,7 @@ import {
   clearProfileSecret,
   validateProfile,
   isVaultUnlocked,
-} from "@assmud/profiles";
+} from "@mudgate/profiles";
 
 type Props = {
   profiles: MudProfile[];
@@ -353,7 +353,7 @@ export function ProfileEditor({
             setAccount(e.target.value);
           }}
           autoComplete="off"
-          name="assmud-profile-account"
+          name="mudgate-profile-account"
           placeholder={secretsEnabled ? "連線後送出" : "先解鎖密碼庫"}
         />
       </label>
@@ -375,7 +375,7 @@ export function ProfileEditor({
           }}
           // Deter browser/password-manager hijack that clears/jumps focus
           autoComplete="new-password"
-          name="assmud-profile-secret"
+          name="mudgate-profile-secret"
           data-lpignore="true"
           data-1p-ignore="true"
           data-form-type="other"

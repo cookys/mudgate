@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ScreenBuffer } from "../src/buffer.js";
 import { isWide } from "../src/width.js";
-import { visibleText } from "@assmud/vt";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { visibleText } from "@mudgate/vt";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 

@@ -1,4 +1,4 @@
-# assmud — Projects Index
+# mudgate — Projects Index
 
 > 專案執行追蹤索引。每個 L-size 工作建立 `docs/projects/YYYY-MM-DD-<name>/`，
 > 搭配 `docs/plans/` 的計劃文件。本索引是 `/next` 與 session 接續的 SSOT。

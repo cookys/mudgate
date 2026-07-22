@@ -1,4 +1,4 @@
-# zMUD feature matrix — 對照表（assmud / RW）
+# zMUD feature matrix — 對照表（mudgate / RW）
 
 > **SSOT**：之後要比「zMUD 有什麼、RW 要不要、我們做到哪」看這份。  
 > **更新日期**: 2026-07-21（W05 ECHO survey 補注）  
@@ -11,11 +11,11 @@
 |----|------|
 | **zMUD** | 經典 zMUD（含常見後繼 CMUD 玩家預期）是否具備 |
 | **RW 相關** | 對 Revival World 實際影響：`必須` / `高` / `中` / `低` / `無` |
-| **assmud** | `done` / `partial` / `todo` / `wont` / `n/a` |
+| **mudgate** | `done` / `partial` / `todo` / `wont` / `n/a` |
 | **優先** | 產品節奏：`P0` 連線正確 · `P1` 順暢 · `P2` 可玩深度 · `P3` 遠期 · `—` 不做 |
 | **筆記** | 實作位置或決策理由 |
 
-**assmud 圖例**
+**mudgate 圖例**
 
 - `done` — 主路徑可用  
 - `partial` — 有骨架／util／故意簡化  
@@ -27,7 +27,7 @@
 
 ## 1. Wire / Telnet / 編碼
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | W01 | Raw TCP / Telnet NVT | ✅ | **必須** | done | P0 | proxy `bridge` → MUD |
 | W02 | IAC 協商（通用） | ✅ | **必須** | done | P0 | `packages/protocol` TelnetParser |
@@ -70,7 +70,7 @@
 - `WILL ECHO`：伺服器宣稱「echo 由我負責」→ 客端 **不要本地回顯明文**；密碼時伺服器 **故意不 echo 任何字** → 畫面無明文。  
 - 伺服器若忘記 `WONT`，客端會一直 mask（Mudlet 文件明列；並提供 user override 關 password masking）。
 
-部分 MUD / 舊實作會把 DO/WILL 搞反；zMUD changelog 曾加 **同時處理 `WILL ECHO` 與 `DO ECHO`**。assmud 應以 **server-initiated WILL/WONT** 為主，並對反轉 DO 做防禦性相容。
+部分 MUD / 舊實作會把 DO/WILL 搞反；zMUD changelog 曾加 **同時處理 `WILL ECHO` 與 `DO ECHO`**。mudgate 應以 **server-initiated WILL/WONT** 為主，並對反轉 DO 做防禦性相容。
 
 #### 三層「echo」（勿混為一談）
 
@@ -92,7 +92,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 用 trigger 對「Password:」再 `#send` 是 **玩家腳本捷徑**，不穩，也不是內建遮罩實作。
 
-#### assmud 現況（W05 shipped）
+#### mudgate 現況（W05 shipped）
 
 | 層 | 狀態 |
 |----|------|
@@ -105,7 +105,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 2. 終端 / 顯示 / VT
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | T01 | ANSI SGR 16 色 | ✅ | **必須** | done | P0 | soft palette canvas |
 | T02 | xterm 256 色 | 後期 | 低 | todo | P3 | RW 宏多為 16 色 |
@@ -131,7 +131,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 3. 腳本 / 自動化（zMUD 招牌）
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | S01 | Alias（指令縮寫） | ✅ | **高** | done | P0 | script-engine |
 | S02 | Trigger（收字觸發） | ✅ | **高** | done | P0 | |
@@ -152,7 +152,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 4. Mapper / 世界
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | M01 | 自動建圖（走一步記一間） | ✅ | 高 | partial | P1 | `ClientMap` 簡化 |
 | M02 | 地圖 UI 可編輯 | ✅ | 中 | todo | P2 | |
@@ -165,7 +165,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 5. 連線 / Session / 設定
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | C01 | 多主機 profile | ✅ | **高** | done | P0 | profiles 套件 |
 | C02 | 自動登入字串 | ✅ | 高 | done | P1 | account+password+autoLogin；ECHO mask 送密；見 input-ux |
@@ -183,7 +183,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 6. 平台 / 發行（zMUD 無、我們有）
 
-| ID | 功能 | zMUD | RW 相關 | assmud | 優先 | 筆記 |
+| ID | 功能 | zMUD | RW 相關 | mudgate | 優先 | 筆記 |
 |----|------|------|---------|--------|------|------|
 | P01 | 瀏覽器免安裝 | ❌ | 高 | done | P0 | |
 | P02 | 手機 RWD | ❌ | 高 | partial | P1 | thumb pad；PWA backlog |
@@ -196,7 +196,7 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 7. 匯總儀表板（快速掃）
 
-### 依 assmud 狀態計數（約）
+### 依 mudgate 狀態計數（約）
 
 | 狀態 | 約略數 | 含義 |
 |------|--------|------|
@@ -228,8 +228,8 @@ zMUD / Mudlet 是 **獨立輸入列 + 輸出窗**，不是純 NVT 鍵盤直連�
 
 ## 8. 怎麼維護這張表
 
-1. 新功能 PR：改對應列 **assmud** + 筆記一行。  
-2. 新 probe（他服）：加「該服」欄或另表 `matrix-<mud>.md`，本表保持 **zMUD × RW × assmud**。  
+1. 新功能 PR：改對應列 **mudgate** + 筆記一行。  
+2. 新 probe（他服）：加「該服」欄或另表 `matrix-<mud>.md`，本表保持 **zMUD × RW × mudgate**。  
 3. 成案時：從 **優先 P1+todo** 勾到 `docs/plans/`。  
 4. **不要**追求 100% zMUD 相容；以 **RW 必須 + multi-MUD 擴充** 為準。
 

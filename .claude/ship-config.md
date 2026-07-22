@@ -1,4 +1,4 @@
-# ship-config — assmud pins for /ship skill
+# ship-config — mudgate pins for /ship skill
 
 - impl_model: grok-4.5
 - impl_tier: medium

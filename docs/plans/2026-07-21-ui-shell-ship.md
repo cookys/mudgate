@@ -69,7 +69,7 @@
 | Check | Result |
 |-------|--------|
 | `npm test` | **30** passed |
-| `npm run build -w @assmud/web` | OK |
+| `npm run build -w @mudgate/web` | OK |
 | Proxy/WS | localhost-dev LAN 可用（環境視情況重啟） |
 
 ## Acceptance (ship gate)

@@ -13,8 +13,8 @@ import {
   type SelectionRange,
   type VtCaptureEvent,
   type WidthMode,
-} from "@assmud/terminal";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
+} from "@mudgate/terminal";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
 import { fitTermSize, TERM_FIT } from "./lib/termFit";

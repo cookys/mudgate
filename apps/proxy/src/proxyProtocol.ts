@@ -1,7 +1,7 @@
 import { normalizeIp } from "./limits.js";
 
 /**
- * HAProxy PROXY protocol v1 (text) — experimental (ASSMUD_PROXY_PROTOCOL=1).
+ * HAProxy PROXY protocol v1 (text) — experimental (MUDGATE_PROXY_PROTOCOL=1).
  * @see docs/plans/2026-07-22-t1-site-proxy-and-core-daemon.md §3.3.2
  *
  * Uses regex (not node:net isIP) so unit tests can mock net.connect without
@@ -12,7 +12,7 @@ const IPV4_RE =
   /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 
 export function envProxyProtocolEnabled(
-  raw: string | undefined = process.env.ASSMUD_PROXY_PROTOCOL,
+  raw: string | undefined = process.env.MUDGATE_PROXY_PROTOCOL,
 ): boolean {
   return ["1", "true", "yes", "on"].includes((raw ?? "0").trim().toLowerCase());
 }

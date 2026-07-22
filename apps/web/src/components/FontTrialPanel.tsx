@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas2DRenderer } from "@assmud/terminal";
+import { Canvas2DRenderer } from "@mudgate/terminal";
 import {
   STATIC_CATALOG,
   applyPreset,

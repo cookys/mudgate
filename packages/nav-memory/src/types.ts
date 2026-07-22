@@ -1,4 +1,4 @@
-import type { MapFrameCell, WidthMode } from "@assmud/terminal";
+import type { MapFrameCell, WidthMode } from "@mudgate/terminal";
 
 export type FrameConfidence = "inferred" | "user" | "official-hint";
 
@@ -59,6 +59,6 @@ export type PersistResult =
   | { ok: false; reason: "storageFull" | "quota" | "error"; message?: string };
 
 export const MAX_FRAMES_PER_PROFILE = 30;
-export const NAV_DB_NAME = "assmud-nav";
+export const NAV_DB_NAME = "mudgate-nav";
 /** v2 adds journeys object store (C1) */
 export const NAV_DB_VERSION = 2;

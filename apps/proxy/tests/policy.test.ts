@@ -64,15 +64,15 @@ describe("policy", () => {
     }
   });
 
-  it("parses ASSMUD_ALLOWLIST extra destinations", async () => {
+  it("parses MUDGATE_ALLOWLIST extra destinations", async () => {
     const { parseAllowlistEnv, defaultConfig: dc } = await import(
       "../src/policy.js"
     );
     expect(parseAllowlistEnv("other.mud:9999,other.mud:10000")).toEqual([
       { host: "other.mud", ports: [9999, 10000] },
     ]);
-    const prev = process.env.ASSMUD_ALLOWLIST;
-    process.env.ASSMUD_ALLOWLIST = "mud.example.org:1234";
+    const prev = process.env.MUDGATE_ALLOWLIST;
+    process.env.MUDGATE_ALLOWLIST = "mud.example.org:1234";
     try {
       const cfg = dc("remote-prod");
       expect(
@@ -82,8 +82,8 @@ describe("policy", () => {
         ),
       ).toBe(true);
     } finally {
-      if (prev === undefined) delete process.env.ASSMUD_ALLOWLIST;
-      else process.env.ASSMUD_ALLOWLIST = prev;
+      if (prev === undefined) delete process.env.MUDGATE_ALLOWLIST;
+      else process.env.MUDGATE_ALLOWLIST = prev;
     }
   });
 

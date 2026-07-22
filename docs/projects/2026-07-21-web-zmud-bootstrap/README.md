@@ -25,6 +25,6 @@
 
 ```bash
 npm test
-ASSMUD_PROXY_MODE=localhost-dev npm run dev:proxy
+MUDGATE_PROXY_MODE=localhost-dev npm run dev:proxy
 npm run dev:web
 ```

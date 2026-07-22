@@ -1,4 +1,4 @@
-import type { MapFrameCell } from "@assmud/terminal";
+import type { MapFrameCell } from "@mudgate/terminal";
 
 export type StitchDir = "n" | "s" | "e" | "w";
 

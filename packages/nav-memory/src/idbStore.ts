@@ -1,4 +1,4 @@
-import type { MapFrameCells } from "@assmud/terminal";
+import type { MapFrameCells } from "@mudgate/terminal";
 import {
   MAX_FRAMES_PER_PROFILE,
   NAV_DB_NAME,
@@ -62,7 +62,7 @@ function txDone(tx: IDBTransaction): Promise<void> {
 }
 
 /**
- * IndexedDB nav store (`assmud-nav` v1) — C0 production backend.
+ * IndexedDB nav store (`mudgate-nav` v1) — C0 production backend.
  * Policy: §2.3.2 one-txn count→evict1→put; cascade pins; soft MAX 30.
  */
 export class IdNavStore {

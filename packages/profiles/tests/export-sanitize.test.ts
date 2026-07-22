@@ -15,13 +15,13 @@ describe("exportProfilesJson sanitizes secrets", () => {
         port: 4000,
         charset: "big5hkscs",
         proxyToken: "secret",
-        assmud_token: "also",
+        mudgate_token: "also",
       },
     ] as unknown as MudProfile[];
     const out = exportProfilesJson(dirty);
     expect(out).not.toContain("secret");
     expect(out).not.toContain("proxyToken");
-    expect(out).not.toContain("assmud_token");
+    expect(out).not.toContain("mudgate_token");
 
     const round = importProfilesJson(
       JSON.stringify([

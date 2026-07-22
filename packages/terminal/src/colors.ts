@@ -1,4 +1,4 @@
-import type { Attrs } from "@assmud/vt";
+import type { Attrs } from "@mudgate/vt";
 
 /** Soft ANSI 16 — less 90s VGA, more ink terminal (shared by terminal + companion). */
 export const ANSI_FG: string[] = [

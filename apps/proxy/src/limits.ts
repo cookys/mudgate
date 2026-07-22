@@ -13,19 +13,19 @@ export function defaultLimits(
 ): LimitConfig {
   if (mode === "localhost-dev") {
     return {
-      concurrentWsPerIp: envInt("ASSMUD_LIMIT_WS_IP", 64),
-      concurrentWsPerToken: envInt("ASSMUD_LIMIT_WS_TOKEN", 32),
-      upgradesPerIpPerMin: envInt("ASSMUD_LIMIT_UPGRADE_IP", 120),
-      hellosPerConnPerMin: envInt("ASSMUD_LIMIT_HELLO", 60),
-      helloTimeoutMs: envInt("ASSMUD_HELLO_TIMEOUT_MS", 30_000),
+      concurrentWsPerIp: envInt("MUDGATE_LIMIT_WS_IP", 64),
+      concurrentWsPerToken: envInt("MUDGATE_LIMIT_WS_TOKEN", 32),
+      upgradesPerIpPerMin: envInt("MUDGATE_LIMIT_UPGRADE_IP", 120),
+      hellosPerConnPerMin: envInt("MUDGATE_LIMIT_HELLO", 60),
+      helloTimeoutMs: envInt("MUDGATE_HELLO_TIMEOUT_MS", 30_000),
     };
   }
   return {
-    concurrentWsPerIp: envInt("ASSMUD_LIMIT_WS_IP", 8),
-    concurrentWsPerToken: envInt("ASSMUD_LIMIT_WS_TOKEN", 4),
-    upgradesPerIpPerMin: envInt("ASSMUD_LIMIT_UPGRADE_IP", 30),
-    hellosPerConnPerMin: envInt("ASSMUD_LIMIT_HELLO", 20),
-    helloTimeoutMs: envInt("ASSMUD_HELLO_TIMEOUT_MS", 10_000),
+    concurrentWsPerIp: envInt("MUDGATE_LIMIT_WS_IP", 8),
+    concurrentWsPerToken: envInt("MUDGATE_LIMIT_WS_TOKEN", 4),
+    upgradesPerIpPerMin: envInt("MUDGATE_LIMIT_UPGRADE_IP", 30),
+    hellosPerConnPerMin: envInt("MUDGATE_LIMIT_HELLO", 20),
+    helloTimeoutMs: envInt("MUDGATE_HELLO_TIMEOUT_MS", 10_000),
   };
 }
 
@@ -149,13 +149,13 @@ export class AbuseLimiter {
   }
 
   inboundBudget(mode: "remote-prod" | "localhost-dev"): number {
-    const env = process.env.ASSMUD_LIMIT_IN_BYTES;
+    const env = process.env.MUDGATE_LIMIT_IN_BYTES;
     if (env && Number(env) > 0) return Number(env);
     return mode === "remote-prod" ? 2 * 1024 * 1024 : 16 * 1024 * 1024;
   }
 
   outboundBudget(mode: "remote-prod" | "localhost-dev"): number {
-    const env = process.env.ASSMUD_LIMIT_OUT_BYTES;
+    const env = process.env.MUDGATE_LIMIT_OUT_BYTES;
     if (env && Number(env) > 0) return Number(env);
     return mode === "remote-prod" ? 16 * 1024 * 1024 : 64 * 1024 * 1024;
   }

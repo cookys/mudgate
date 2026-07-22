@@ -51,8 +51,8 @@ export function ConfirmModal({
       <div
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="assmud-confirm-title"
-        aria-describedby="assmud-confirm-body"
+        aria-labelledby="mudgate-confirm-title"
+        aria-describedby="mudgate-confirm-body"
         className="relative w-full max-w-sm rounded-[var(--radius)] border p-5 shadow-[var(--shadow)]"
         style={{
           background: "var(--bg-panel)",
@@ -60,14 +60,14 @@ export function ConfirmModal({
         }}
       >
         <h2
-          id="assmud-confirm-title"
+          id="mudgate-confirm-title"
           className="text-base font-semibold mb-2"
           style={{ color: "var(--text)" }}
         >
           {title}
         </h2>
         <p
-          id="assmud-confirm-body"
+          id="mudgate-confirm-body"
           className="text-sm leading-relaxed mb-5"
           style={{ color: "var(--text-dim)" }}
         >

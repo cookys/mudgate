@@ -77,8 +77,8 @@ describe("t()", () => {
   });
 
   it("falls back to raw key when missing everywhere", () => {
-    expect(t("en", "app.name")).toBe("assmud");
-    expect(t("zh-TW", "app.name")).toBe("assmud");
+    expect(t("en", "app.name")).toBe("mudgate");
+    expect(t("zh-TW", "app.name")).toBe("mudgate");
     // unknown key → key string (never blank)
     expect(t("en", "not.a.real.key" as MessageKey)).toBe("not.a.real.key");
     expect(t("zh-CN", "not.a.real.key" as MessageKey)).toBe("not.a.real.key");
@@ -188,7 +188,7 @@ describe("statusEventsEqual", () => {
 });
 
 describe("locale storage garbage", () => {
-  const KEY = "assmud.locale";
+  const KEY = "mudgate.locale";
   let store: Record<string, string>;
 
   beforeEach(() => {

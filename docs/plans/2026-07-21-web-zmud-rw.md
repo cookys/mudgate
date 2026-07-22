@@ -99,7 +99,7 @@ Players need a **modern web client** that:
 - **UI stack (locked)**: **React + Vite + TypeScript** shell; **Tailwind** for chrome; **no heavy UI kit** v1. See [ADR-001](../adr/ADR-001-stack.md).
 - **Terminal is framework-free**: React only mounts a thin host (`<TerminalHost />`). **Forbidden**: one React node per map/terminal cell; GPU/WASM init inside React render.
 - **Renderer plug-in**: default **Canvas2D**; optional **WebGPU** behind `Renderer` interface with feature detect + Canvas2D fallback. Paint loop lives in `packages/terminal` (rAF), not React state-per-frame.
-- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `assmud` is a WASM wink, not day-1 whole-client AssemblyScript.
+- **Compute plug-in**: default **TypeScript** codecs/matchers; optional **WASM** behind stable interfaces (**hot path only**, after profiling). Repo name `mudgate` is a WASM wink, not day-1 whole-client AssemblyScript.
 - **Script engine v1**: **declarative** triggers/aliases/variables first; **no** arbitrary network/`fetch`, **no** reading cookies/`localStorage` secrets. User JS sandbox later/optional. Personal zMUD import optional.
 - **Proxy product default**: **remote authenticated WSS↔TCP** (official or self-host). **Localhost bind** is dev/advanced only.
 - **Reconnect**: client must survive WSS drop → re-auth/ticket → re-IAC negotiate; screen buffer retained client-side (Phase 1a acceptance).
@@ -250,7 +250,7 @@ Players need a **modern web client** that:
 9. Persist packages in IndexedDB  
 10. Basic cooldown / rate-limit on a trigger (anti-spam)
 
-## 9. WASM + WebGPU note (`assmud`)
+## 9. WASM + WebGPU note (`mudgate`)
 
 | Layer | Day-1 | Later |
 |-------|-------|--------|

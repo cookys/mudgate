@@ -4,7 +4,7 @@ import { lookup } from "node:dns/promises";
 export type ProxyConfig = {
   mode: "remote-prod" | "localhost-dev";
   /**
-   * T1-site overlay (ASSMUD_SITE_MODE=1). Only legal with remote-prod.
+   * T1-site overlay (MUDGATE_SITE_MODE=1). Only legal with remote-prod.
    * Forces hello dest ∈ allowlist; empty allowlist fails startup.
    */
   siteMode: boolean;
@@ -26,12 +26,12 @@ export type ProxyConfig = {
   clientIpHeader: string | null;
 };
 
-/** Parse ASSMUD_SITE_MODE=1|true|yes */
+/** Parse MUDGATE_SITE_MODE=1|true|yes */
 export function envTruthy(raw: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes((raw ?? "").trim().toLowerCase());
 }
 
-/** Parse ASSMUD_TRUSTED_HOP=127.0.0.1/32,10.0.0.0/8 or unix */
+/** Parse MUDGATE_TRUSTED_HOP=127.0.0.1/32,10.0.0.0/8 or unix */
 export function parseTrustedHops(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
   return raw
@@ -40,11 +40,11 @@ export function parseTrustedHops(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Default RW host ports (player + wiz). Extra destinations: ASSMUD_ALLOWLIST. */
+/** Default RW host ports (player + wiz). Extra destinations: MUDGATE_ALLOWLIST. */
 export const RW_DEFAULT_PORTS = [4000, 4001, 5000, 6000] as const;
 
 /**
- * Parse ASSMUD_ALLOWLIST=host:port,host:port2
+ * Parse MUDGATE_ALLOWLIST=host:port,host:port2
  * Multiple ports for same host are merged.
  */
 export function parseAllowlistEnv(
@@ -94,16 +94,16 @@ function mergeAllowlist(
 }
 
 export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfig {
-  const siteMode = envTruthy(process.env.ASSMUD_SITE_MODE);
-  const envExtra = parseAllowlistEnv(process.env.ASSMUD_ALLOWLIST);
+  const siteMode = envTruthy(process.env.MUDGATE_SITE_MODE);
+  const envExtra = parseAllowlistEnv(process.env.MUDGATE_ALLOWLIST);
   const rwBase = [
     {
       host: "mud.revivalworld.org",
       ports: [...RW_DEFAULT_PORTS],
     },
   ];
-  const trustedHops = parseTrustedHops(process.env.ASSMUD_TRUSTED_HOP);
-  const clientIpHeader = process.env.ASSMUD_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
+  const trustedHops = parseTrustedHops(process.env.MUDGATE_TRUSTED_HOP);
+  const clientIpHeader = process.env.MUDGATE_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
 
   if (mode === "localhost-dev") {
     return {
@@ -111,7 +111,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       siteMode,
       bindHost: "127.0.0.1",
       bindPort: 7788,
-      authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+      authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
       allowlist: mergeAllowlist(
         [
           ...rwBase,
@@ -127,19 +127,19 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     };
   }
 
-  // Site mode: allowlist is ONLY ASSMUD_ALLOWLIST (本站 mud), no RW defaults.
+  // Site mode: allowlist is ONLY MUDGATE_ALLOWLIST (本站 mud), no RW defaults.
   const allowlist = siteMode ? envExtra : mergeAllowlist(rwBase, envExtra);
 
   return {
     mode,
     siteMode,
     // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
-    bindHost: process.env.ASSMUD_BIND_HOST ?? "127.0.0.1",
+    bindHost: process.env.MUDGATE_BIND_HOST ?? "127.0.0.1",
     bindPort: Number(process.env.PORT ?? 7788),
-    authToken: process.env.ASSMUD_AUTH_TOKEN ?? null,
+    authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
     allowlist,
     relaxAllowlist: false,
-    originAllowlist: (process.env.ASSMUD_ORIGIN_ALLOWLIST ?? "")
+    originAllowlist: (process.env.MUDGATE_ORIGIN_ALLOWLIST ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
@@ -156,18 +156,18 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
 export function assertProdConfig(cfg: ProxyConfig): string | null {
   if (cfg.siteMode) {
     if (cfg.mode !== "remote-prod") {
-      return "ASSMUD_SITE_MODE=1 requires ASSMUD_PROXY_MODE=remote-prod (got " +
+      return "MUDGATE_SITE_MODE=1 requires MUDGATE_PROXY_MODE=remote-prod (got " +
         cfg.mode +
         ")";
     }
     if (!cfg.allowlist.length) {
-      return "ASSMUD_SITE_MODE=1 requires non-empty ASSMUD_ALLOWLIST (host:port,...)";
+      return "MUDGATE_SITE_MODE=1 requires non-empty MUDGATE_ALLOWLIST (host:port,...)";
     }
   }
   if (cfg.mode !== "remote-prod") return null;
-  if (!cfg.authToken) return "ASSMUD_AUTH_TOKEN required for remote-prod";
+  if (!cfg.authToken) return "MUDGATE_AUTH_TOKEN required for remote-prod";
   if (!cfg.originAllowlist.length)
-    return "ASSMUD_ORIGIN_ALLOWLIST required for remote-prod (empty fail-closed)";
+    return "MUDGATE_ORIGIN_ALLOWLIST required for remote-prod (empty fail-closed)";
   return null;
 }
 
@@ -258,7 +258,7 @@ export function checkAuth(
   }
 
   if (cookieHeader) {
-    const m = /(?:^|;\s*)assmud_session=([^;]+)/.exec(cookieHeader);
+    const m = /(?:^|;\s*)mudgate_session=([^;]+)/.exec(cookieHeader);
     if (m) {
       try {
         if (safeEqual(decodeURIComponent(m[1]!), token)) return true;

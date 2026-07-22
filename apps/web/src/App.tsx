@@ -15,7 +15,7 @@ import {
   isVaultUnlocked,
   subscribeVault,
   tryRestoreVaultSession,
-} from "@assmud/profiles";
+} from "@mudgate/profiles";
 import {
   BurstDetector,
   getNavStore,
@@ -24,17 +24,17 @@ import {
   stitchToAscii,
   type StitchDir,
   type StitchState,
-} from "@assmud/nav-memory";
-import type { VtCaptureEvent } from "@assmud/terminal";
+} from "@mudgate/nav-memory";
+import type { VtCaptureEvent } from "@mudgate/terminal";
 import { ProfileManager } from "./components/ProfileManager";
-import { ScriptEngine } from "@assmud/script-engine";
-import { RW_STARTER_PACK } from "@assmud/rw-pack";
+import { ScriptEngine } from "@mudgate/script-engine";
+import { RW_STARTER_PACK } from "@mudgate/rw-pack";
 import {
   RoomTracker,
   parseMoveCommand,
   verdictOnServerLine,
   verdictOnSettle,
-} from "@assmud/mapper";
+} from "@mudgate/mapper";
 import { MapNavPanel, type MapPanelMode } from "./components/MapNavPanel";
 import { MapCompanion } from "./components/MapCompanion";
 import {
@@ -428,7 +428,7 @@ export function App() {
         e.code === "disconnected"
       ) {
         autoLoginRef.current = { accountSent: false, passwordSent: false };
-        console.info("[assmud autologin] flags reset on", e.code);
+        console.info("[mudgate autologin] flags reset on", e.code);
       }
     },
     [setTabStatus],
@@ -596,7 +596,7 @@ export function App() {
     const blob = new Blob([tab.log.join("\n")], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `assmud-session-${tab.id}.log`;
+    a.download = `mudgate-session-${tab.id}.log`;
     a.click();
   };
 
@@ -606,7 +606,7 @@ export function App() {
     });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "assmud-profiles.json";
+    a.download = "mudgate-profiles.json";
     a.click();
   };
 
@@ -716,7 +716,7 @@ export function App() {
     if (!vaultBootReady) return;
     if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
-      console.info("[assmud autologin] skip account: vault locked — unlock vault first");
+      console.info("[mudgate autologin] skip account: vault locked — unlock vault first");
       const now = Date.now();
       if (
         getProfileAutoLogin(profile.id) &&
@@ -728,12 +728,12 @@ export function App() {
       return;
     }
     if (!getProfileAutoLogin(profile.id)) {
-      console.info("[assmud autologin] skip account: autoLogin off", profile.id);
+      console.info("[mudgate autologin] skip account: autoLogin off", profile.id);
       return;
     }
     const account = getProfileAccount(profile.id);
     if (!account) {
-      console.info("[assmud autologin] skip account: no account in vault");
+      console.info("[mudgate autologin] skip account: no account in vault");
       return;
     }
     if (autoLoginRef.current.accountSent) return;
@@ -742,7 +742,7 @@ export function App() {
       if (!isVaultUnlocked()) return;
       if (tabIdRef.current !== tab.id) return;
       autoLoginRef.current.accountSent = true;
-      console.info("[assmud autologin] send account", {
+      console.info("[mudgate autologin] send account", {
         profileId: profile.id,
         len: account.length,
       });
@@ -764,13 +764,13 @@ export function App() {
     if (!echoMask) return;
     if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
-      console.info("[assmud autologin] skip password: vault locked");
+      console.info("[mudgate autologin] skip password: vault locked");
       return;
     }
     if (!getProfileAutoLogin(profile.id)) return;
     const pw = getProfilePassword(profile.id);
     if (!pw) {
-      console.info("[assmud autologin] skip password: no password in vault");
+      console.info("[mudgate autologin] skip password: no password in vault");
       return;
     }
     if (autoLoginRef.current.passwordSent) return;
@@ -778,7 +778,7 @@ export function App() {
       if (autoLoginRef.current.passwordSent) return;
       if (!isVaultUnlocked()) return;
       autoLoginRef.current.passwordSent = true;
-      console.info("[assmud autologin] send password", {
+      console.info("[mudgate autologin] send password", {
         profileId: profile.id,
         len: pw.length,
       });

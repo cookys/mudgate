@@ -15,18 +15,18 @@
 ## 最小 env
 
 ```bash
-export ASSMUD_PROXY_MODE=remote-prod
-export ASSMUD_SITE_MODE=1
-export ASSMUD_AUTH_TOKEN="$(openssl rand -hex 24)"   # shared site token
-export ASSMUD_ORIGIN_ALLOWLIST="https://mud.example.com"
+export MUDGATE_PROXY_MODE=remote-prod
+export MUDGATE_SITE_MODE=1
+export MUDGATE_AUTH_TOKEN="$(openssl rand -hex 24)"   # shared site token
+export MUDGATE_ORIGIN_ALLOWLIST="https://mud.example.com"
 # 僅本站 mud — 空 allowlist 會 startup exit(1)
-export ASSMUD_ALLOWLIST="127.0.0.1:4000"
-export ASSMUD_BIND_HOST=127.0.0.1
+export MUDGATE_ALLOWLIST="127.0.0.1:4000"
+export MUDGATE_BIND_HOST=127.0.0.1
 export PORT=7788
 # 可選：Caddy 以 loopback TCP 連 proxy 時信任 client IP header
-export ASSMUD_TRUSTED_HOP="127.0.0.1/32"
+export MUDGATE_TRUSTED_HOP="127.0.0.1/32"
 # 可選：結構化 audit 追加檔（預設 stderr JSON 行）
-# export ASSMUD_AUDIT_LOG=/var/log/assmud/proxy-audit.jsonl
+# export MUDGATE_AUDIT_LOG=/var/log/mudgate/proxy-audit.jsonl
 ```
 
 Fail-fast：
@@ -34,7 +34,7 @@ Fail-fast：
 | 條件 | 結果 |
 |------|------|
 | `SITE_MODE=1` + 非 `remote-prod` | exit ≠ 0 |
-| `SITE_MODE=1` + 空 `ASSMUD_ALLOWLIST` | exit ≠ 0 |
+| `SITE_MODE=1` + 空 `MUDGATE_ALLOWLIST` | exit ≠ 0 |
 | `remote-prod` 無 token / origin | exit ≠ 0 |
 
 ## docker-compose 例（proxy + 可選 caddy）
@@ -42,19 +42,19 @@ Fail-fast：
 ```yaml
 # 示意 — 站方自行接 mud 映像 / 本機 binary
 services:
-  assmud-proxy:
+  mudgate-proxy:
     image: node:22-bookworm-slim
     working_dir: /app
     volumes:
       - ../..:/app
     environment:
-      ASSMUD_PROXY_MODE: remote-prod
-      ASSMUD_SITE_MODE: "1"
-      ASSMUD_AUTH_TOKEN: ${ASSMUD_AUTH_TOKEN}
-      ASSMUD_ORIGIN_ALLOWLIST: https://mud.example.com
-      ASSMUD_ALLOWLIST: "127.0.0.1:4000"
-      ASSMUD_BIND_HOST: "0.0.0.0"   # 僅容器網；主機防火牆仍應擋公網直連
-      ASSMUD_TRUSTED_HOP: "172.16.0.0/12"  # caddy 網段示意
+      MUDGATE_PROXY_MODE: remote-prod
+      MUDGATE_SITE_MODE: "1"
+      MUDGATE_AUTH_TOKEN: ${MUDGATE_AUTH_TOKEN}
+      MUDGATE_ORIGIN_ALLOWLIST: https://mud.example.com
+      MUDGATE_ALLOWLIST: "127.0.0.1:4000"
+      MUDGATE_BIND_HOST: "0.0.0.0"   # 僅容器網；主機防火牆仍應擋公網直連
+      MUDGATE_TRUSTED_HOP: "172.16.0.0/12"  # caddy 網段示意
       PORT: "7788"
     command: ["npx", "tsx", "apps/proxy/src/cli.ts"]
     # network_mode: host   # 若 mud 只聽 127.0.0.1 常需 host 或 sidecar
@@ -64,7 +64,7 @@ Caddy（TLS 終止 + 轉 `/ws`）應：
 
 1. 設 `X-Real-IP`（或 CF 前的 `CF-Connecting-IP`）為**真實客戶端**  
 2. **不要**把未剝離的客戶端可控 header 原樣轉給 proxy  
-3. 僅 peer 在 `ASSMUD_TRUSTED_HOP` 時 proxy 才信 header；缺 header → **403**
+3. 僅 peer 在 `MUDGATE_TRUSTED_HOP` 時 proxy 才信 header；缺 header → **403**
 
 ## Token 輪替
 
@@ -81,17 +81,17 @@ Caddy（TLS 終止 + 轉 `/ws`）應：
 ## Web 設定
 
 - `VITE_PROXY_WS=wss://mud.example.com/ws`  
-- 玩家填 **shared site token**（與 `ASSMUD_AUTH_TOKEN` 相同）  
+- 玩家填 **shared site token**（與 `MUDGATE_AUTH_TOKEN` 相同）  
 - UI 應使用 site mode 文案（本站 Web 閘道；禁止「站方也看不到密碼」）
 
 ## PROXY protocol v1（S2 · experimental）
 
 ```bash
 # 預設 0 — 不寫前綴（byte-for-byte 無 PROXY）
-export ASSMUD_PROXY_PROTOCOL=0
+export MUDGATE_PROXY_PROTOCOL=0
 
 # 僅當 mud / tcp shim **支援** HAProxy PROXY v1 時再開：
-export ASSMUD_PROXY_PROTOCOL=1
+export MUDGATE_PROXY_PROTOCOL=1
 ```
 
 | 項 | 契約 |
@@ -105,10 +105,10 @@ export ASSMUD_PROXY_PROTOCOL=1
 
 ```bash
 # 空 allowlist 必須失敗
-ASSMUD_PROXY_MODE=remote-prod ASSMUD_SITE_MODE=1 \
-  ASSMUD_AUTH_TOKEN=x ASSMUD_ORIGIN_ALLOWLIST=https://x.example \
+MUDGATE_PROXY_MODE=remote-prod MUDGATE_SITE_MODE=1 \
+  MUDGATE_AUTH_TOKEN=x MUDGATE_ORIGIN_ALLOWLIST=https://x.example \
   npx tsx apps/proxy/src/cli.ts
-# → exit 1, ASSMUD_ALLOWLIST required
+# → exit 1, MUDGATE_ALLOWLIST required
 
 # health
 curl -s http://127.0.0.1:7788/health

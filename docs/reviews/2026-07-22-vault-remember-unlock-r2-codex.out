@@ -1,0 +1,6 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX: ["Restored sessions possess only a non-extractable CryptoKey, but existing vault writes require raw keyBytes. Specify and test a CryptoKey-capable encrypt/persist path; otherwise auto-restored vaults cannot safely update secrets.", "Define one coherent operation epoch/mutation protocol: the pseudocode declares restoreEpoch but uses opEpoch, and lock/clear/setRemember/unlock do not explicitly increment or validate it. Concurrent late restore or stale IDB delete/put can override newer state. Serialize mutations or require epoch ownership checks before session installation and IDB/preference commits."]
+NITS: ["Deletion-failure UI should emphasize that the residual IDB key remains usable by same-origin scripts; preference/restoreAllowed=0 means ordinary refresh should not auto-restore."]
+SECURITY_NOTES: Threat model and fail-closed restore gate are sound, but revocation correctness still depends on the unresolved operation-race protocol.
+C0_SHIP_OK: no
+ONE_LINE: R1 fixes landed, but restored-session writes and cross-operation epoch ownership remain blockers.

@@ -28,8 +28,8 @@ Earlier full-land round found double-expand alias bug → fixed → re-verified.
 |-------|-----------|
 | 1a | proxy hello-auth, Big5, SGR, XSS sanitize, IP pin |
 | 1b | CUP/save/restore/ED/EL/DECSTBM, synthetic map + dual-color tests |
-| 2 | `@assmud/script-engine` KR3 declarative + exfil deny |
-| 3 | `@assmud/rw-pack`, MCCP inflate helper, reconnect UI |
+| 2 | `@mudgate/script-engine` KR3 declarative + exfil deny |
+| 3 | `@mudgate/rw-pack`, MCCP inflate helper, reconnect UI |
 | 4 | profiles import/export, deploy docs, mobile-friendly chrome |
 | 5 | multi-tab, buttons, session log save, client mapper spike |
 

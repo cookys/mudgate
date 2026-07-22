@@ -65,5 +65,5 @@ Not WebGL glitter. **Display matches walkable truth; else mark unknown/guessed.*
 - https://wiki.mudlet.org/w/Manual:Mapper  
 - https://wiki.mudlet.org/w/Generic_mapper_tutorial  
 - https://tintin.mudhalla.net/manual/mapping.php  
-- assmud `docs/research/rw-ansi-and-map-controls.md`  
-- assmud `docs/research/rw-probe-2026-07-21.md`  
+- mudgate `docs/research/rw-ansi-and-map-controls.md`  
+- mudgate `docs/research/rw-probe-2026-07-21.md`  

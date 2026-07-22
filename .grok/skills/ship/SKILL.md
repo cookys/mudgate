@@ -1,16 +1,16 @@
 ---
 name: ship
 description: >
-  assmud /ship overlay — after hetero, expand ready plans, implement with
+  mudgate /ship overlay — after hetero, expand ready plans, implement with
   grok-4.5 medium (overridable), loop review to green, then depth-0 qc-gate
   + develop merge + LAN servers.
 ---
 
-# /ship (assmud project overlay)
+# /ship (mudgate project overlay)
 
 Follow **user-global** `~/.grok/skills/ship/SKILL.md` with these pins.
 
-## Hetero engines (assmud) — owner pin 2026-07-22
+## Hetero engines (mudgate) — owner pin 2026-07-22
 
 **hetero = 異質 = 多家不同 LLM**，不是單引擎多角色。
 
@@ -29,7 +29,7 @@ Grok（本 session）可當 orchestrator；**claim hetero** 仍要上表 **≥2 
 
 Ship / expand claims require **≥2 families** APPROVE* (no BLOCK) **on the latest round**, with **ALL_CLEAR**.
 
-### ALL_CLEAR + fold loop (assmud pin — do not skip)
+### ALL_CLEAR + fold loop (mudgate pin — do not skip)
 
 ```
 hetero → MUST_FIX or BLOCK? → fold into plan/code → hetero again
@@ -70,7 +70,7 @@ On full `/ship` (no `only-qc` / `no-expand`):
 2. **Expand** i18n (and fonts if capacity) into `implementing` + feature branch.  
 3. Impl **grok-4.5 medium** (or session model if dispatch cannot set).  
 4. Loop review until StatusEvent + locales / font acceptance green.  
-5. **depth-0** `npm test` + `npm run build -w @assmud/web`.  
+5. **depth-0** `npm test` + `npm run build -w @mudgate/web`.  
 6. Merge develop + LAN servers.
 
 Do **not** depth-0-qc-only and call i18n/fonts shipped.
@@ -79,7 +79,7 @@ Do **not** depth-0-qc-only and call i18n/fonts shipped.
 
 ```bash
 npm test
-npm run build -w @assmud/web
+npm run build -w @mudgate/web
 ```
 
 ## Pre-smoke self-check (mandatory before “請你驗證”)
@@ -95,7 +95,7 @@ bash scripts/pre-smoke-check.sh
 | Check | Why |
 |-------|-----|
 | `npm test` | logic regressions |
-| `npm run build -w @assmud/web` | tsc + bundle |
+| `npm run build -w @mudgate/web` | tsc + bundle |
 | web :5173 + proxy `/health` | LAN servers actually up |
 | **curl Vite-served modules** | catch **stale HMR** (e.g. ConnectGate still referencing removed `ProfileEditor`) |
 | key component HTTP 200 | missing files / wrong paths |
@@ -107,9 +107,9 @@ If Vite is stale: kill :5173, `rm -rf apps/web/node_modules/.vite`, restart `dev
 ## LAN servers (after land)
 
 ```bash
-ASSMUD_PROXY_MODE=localhost-dev \
-ASSMUD_BIND_HOST=0.0.0.0 \
-ASSMUD_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173,http://192.168.101.20:5173" \
+MUDGATE_PROXY_MODE=localhost-dev \
+MUDGATE_BIND_HOST=0.0.0.0 \
+MUDGATE_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173,http://192.168.101.20:5173" \
 npm run dev:proxy
 
 VITE_HOST=0.0.0.0 \

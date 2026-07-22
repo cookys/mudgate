@@ -1,6 +1,6 @@
-# Code review brief — Phase 1a (assmud)
+# Code review brief — Phase 1a (mudgate)
 
-You are reviewing a **git unified diff** implementing Phase 1a of the approved plan for assmud (web multi-MUD client).
+You are reviewing a **git unified diff** implementing Phase 1a of the approved plan for mudgate (web multi-MUD client).
 
 ## Implementer
 grok-4.5 medium on branch feat/phase-1a-connect

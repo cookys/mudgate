@@ -93,7 +93,7 @@ Cell 佔 2 格後，`fillText` 仍可能畫成半形 glyph（字型問題）。
 
 ### 2.1 產品目標（措辭約束）
 
-- **方向**：讓 [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）**最終**都能用 assmud 玩。  
+- **方向**：讓 [台灣泥巴列表](https://www.revivalworld.org/mud/taiwanmudlist)（~23 站）**最終**都能用 mudgate 玩。  
 - **本 plan ship（W1–W4）不得宣稱**「已支援全部 23 站」。  
 - 全表相容 = **T1 probe 完成 + 逐站驗證 + allowlist 審核** 之後的產品狀態。  
 - 未知 charset：**western + 人工 override**，不瞎猜 cjk。
@@ -194,7 +194,7 @@ Web 客戶端經 **單一 hosted proxy** 出口時：
 
 **白名單（A）誠實邊界**：站方放寬「同 IP 連線數」≠ 能識別每個真人；仍須 proxy **token 認證、每用戶限流、稽核**（abuse plan）。
 
-### 4.3 assmud 建議策略（分階段）
+### 4.3 mudgate 建議策略（分階段）
 
 | 階段 | 策略 | 說明 |
 |------|------|------|

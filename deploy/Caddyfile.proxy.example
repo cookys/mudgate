@@ -1,8 +1,8 @@
-# Public HTTPS → loopback assmud-proxy (WSS).
+# Public HTTPS → loopback mudgate-proxy (WSS).
 # Replace mud.example.com with your hostname.
 mud.example.com {
   reverse_proxy /ws* 127.0.0.1:7788
   # Optional: serve static web build
-  # root * /var/www/assmud-web
+  # root * /var/www/mudgate-web
   # file_server
 }

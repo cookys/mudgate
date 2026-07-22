@@ -1,4 +1,4 @@
-You are reviewing an assmud plan (Chinese MUD web client).
+You are reviewing an mudgate plan (Chinese MUD web client).
 
 Plan path: docs/plans/2026-07-21-cjk-cell-width-taiwanmud.md
 

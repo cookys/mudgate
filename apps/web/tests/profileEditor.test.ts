@@ -24,7 +24,7 @@ import {
   lockVault,
   vaultTestResetStorage,
   isVaultUnlocked,
-} from "@assmud/profiles";
+} from "@mudgate/profiles";
 
 describe("profile secrets via vault", () => {
   beforeEach(async () => {

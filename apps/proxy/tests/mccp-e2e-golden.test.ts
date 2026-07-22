@@ -5,9 +5,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import zlib from "node:zlib";
 import { EventEmitter } from "node:events";
-import { IAC, WILL, SB, SE, OPT, DO } from "@assmud/protocol";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
-import { ScreenBuffer } from "@assmud/terminal";
+import { IAC, WILL, SB, SE, OPT, DO } from "@mudgate/protocol";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
+import { ScreenBuffer } from "@mudgate/terminal";
 
 const sockets: FakeSock[] = [];
 

@@ -10,7 +10,7 @@ if command -v gitleaks >/dev/null 2>&1; then
 fi
 
 # Fallback: ripgrep-style patterns on tracked-ish paths (no node_modules)
-PATTERN='(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]\s*['\''"][^'\''"]{16,}|ASSMUD_AUTH_TOKEN\s*=\s*["'\''][a-f0-9]{20,})'
+PATTERN='(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH )?PRIVATE KEY-----|api[_-]?key\s*[:=]\s*['\''"][^'\''"]{16,}|MUDGATE_AUTH_TOKEN\s*=\s*["'\''][a-f0-9]{20,})'
 if command -v rg >/dev/null 2>&1; then
   # Scan tracked sources; still skip node_modules / .git / lockfile
   if rg -n --hidden -g '!node_modules' -g '!.git' -g '!package-lock.json' "$PATTERN" . ; then

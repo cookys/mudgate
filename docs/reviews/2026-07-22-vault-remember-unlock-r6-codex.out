@@ -1,0 +1,10 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- The `try/catch` around `navigator.locks.request()` also catches exceptions from `runBody()`, then calls `runBody()` again. This can duplicate unlock/create/clear operations. Wrap callback results/errors in a tagged value so only lock-acquisition rejection triggers degradation; rethrow body errors without rerunning.
+- `lockVault`/`clearVault` must clear the tab-local RAM session and attempt IDB deletion even if the first `localStorage` revoke write throws. Use independent best-effort cleanup with an explicit failure result/UI warning; never leave the current tab apparently unlocked because durable revocation failed.
+NITS:
+- Add tests proving a throwing Web Lock callback executes exactly once and its original error propagates.
+- Add tests for `localStorage.setItem` failure during lock/clear, verifying RAM is cleared and IDB deletion is still attempted.
+SECURITY_NOTES: The persistent-key threat model and atomic IDB identity checks are sound, but the current Web Lock fallback can replay mutations and the revoke sequence can fail before clearing RAM.
+C0_SHIP_OK: no
+ONE_LINE: Fix callback-error replay and make lock/clear cleanup resilient to durable-storage write failures before implementation.

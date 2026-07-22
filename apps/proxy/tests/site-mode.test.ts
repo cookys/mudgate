@@ -14,13 +14,13 @@ import {
 import { tokenHmac, writeAudit, type AuditEvent } from "../src/audit.js";
 
 const envKeys = [
-  "ASSMUD_SITE_MODE",
-  "ASSMUD_ALLOWLIST",
-  "ASSMUD_AUTH_TOKEN",
-  "ASSMUD_ORIGIN_ALLOWLIST",
-  "ASSMUD_TRUSTED_HOP",
-  "ASSMUD_CLIENT_IP_HEADER",
-  "ASSMUD_PROXY_MODE",
+  "MUDGATE_SITE_MODE",
+  "MUDGATE_ALLOWLIST",
+  "MUDGATE_AUTH_TOKEN",
+  "MUDGATE_ORIGIN_ALLOWLIST",
+  "MUDGATE_TRUSTED_HOP",
+  "MUDGATE_CLIENT_IP_HEADER",
+  "MUDGATE_PROXY_MODE",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};
@@ -56,7 +56,7 @@ function baseSiteCfg(over: Partial<ProxyConfig> = {}): ProxyConfig {
 }
 
 describe("site mode config", () => {
-  it("envTruthy parses ASSMUD_SITE_MODE", () => {
+  it("envTruthy parses MUDGATE_SITE_MODE", () => {
     expect(envTruthy("1")).toBe(true);
     expect(envTruthy("true")).toBe(true);
     expect(envTruthy("0")).toBe(false);
@@ -65,8 +65,8 @@ describe("site mode config", () => {
 
   it("SITE_MODE=1 + localhost-dev fails assertProdConfig", () => {
     stashEnv();
-    process.env.ASSMUD_SITE_MODE = "1";
-    process.env.ASSMUD_ALLOWLIST = "127.0.0.1:4000";
+    process.env.MUDGATE_SITE_MODE = "1";
+    process.env.MUDGATE_ALLOWLIST = "127.0.0.1:4000";
     const cfg = defaultConfig("localhost-dev");
     expect(cfg.siteMode).toBe(true);
     expect(assertProdConfig(cfg)).toMatch(/remote-prod/);
@@ -74,22 +74,22 @@ describe("site mode config", () => {
 
   it("SITE_MODE=1 + empty allowlist fails startup gate", () => {
     stashEnv();
-    process.env.ASSMUD_SITE_MODE = "1";
-    delete process.env.ASSMUD_ALLOWLIST;
-    process.env.ASSMUD_AUTH_TOKEN = "secret";
-    process.env.ASSMUD_ORIGIN_ALLOWLIST = "https://mud.example.com";
+    process.env.MUDGATE_SITE_MODE = "1";
+    delete process.env.MUDGATE_ALLOWLIST;
+    process.env.MUDGATE_AUTH_TOKEN = "secret";
+    process.env.MUDGATE_ORIGIN_ALLOWLIST = "https://mud.example.com";
     const cfg = defaultConfig("remote-prod");
     expect(cfg.siteMode).toBe(true);
     expect(cfg.allowlist).toEqual([]);
-    expect(assertProdConfig(cfg)).toMatch(/ASSMUD_ALLOWLIST/);
+    expect(assertProdConfig(cfg)).toMatch(/MUDGATE_ALLOWLIST/);
   });
 
   it("SITE_MODE=1 + allowlist + remote-prod passes gate", () => {
     stashEnv();
-    process.env.ASSMUD_SITE_MODE = "1";
-    process.env.ASSMUD_ALLOWLIST = "127.0.0.1:4000";
-    process.env.ASSMUD_AUTH_TOKEN = "secret";
-    process.env.ASSMUD_ORIGIN_ALLOWLIST = "https://mud.example.com";
+    process.env.MUDGATE_SITE_MODE = "1";
+    process.env.MUDGATE_ALLOWLIST = "127.0.0.1:4000";
+    process.env.MUDGATE_AUTH_TOKEN = "secret";
+    process.env.MUDGATE_ORIGIN_ALLOWLIST = "https://mud.example.com";
     const cfg = defaultConfig("remote-prod");
     expect(cfg.siteMode).toBe(true);
     expect(cfg.allowlist).toEqual([{ host: "127.0.0.1", ports: [4000] }]);

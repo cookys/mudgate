@@ -9,18 +9,18 @@
  * - Optional remember-unlock: non-extractable CryptoKey in IndexedDB (never raw key in storage)
  */
 
-export const VAULT_KEY = "assmud.vault.v1";
-export const VAULT_META_KEY = "assmud.vault.meta.v1";
-export const LEGACY_SECRETS_KEY = "assmud.profileSecrets";
-export const REMEMBER_UNLOCK_KEY = "assmud.vault.rememberUnlock";
-export const RESTORE_ALLOWED_KEY = "assmud.vault.restoreAllowed";
+export const VAULT_KEY = "mudgate.vault.v1";
+export const VAULT_META_KEY = "mudgate.vault.meta.v1";
+export const LEGACY_SECRETS_KEY = "mudgate.profileSecrets";
+export const REMEMBER_UNLOCK_KEY = "mudgate.vault.rememberUnlock";
+export const RESTORE_ALLOWED_KEY = "mudgate.vault.restoreAllowed";
 
-const IDB_NAME = "assmud-vault-keys";
+const IDB_NAME = "mudgate-vault-keys";
 const IDB_VERSION = 1;
 const IDB_STORE = "keys";
 const IDB_DEFAULT_ID = "default";
 const IDB_PROBE_ID = "__probe__";
-const VAULT_LOCK_NAME = "assmud-vault-lifecycle";
+const VAULT_LOCK_NAME = "mudgate-vault-lifecycle";
 
 export const VAULT_DEFAULT_ITER = 600_000;
 export const VAULT_MAX_ITER = 2_000_000;
@@ -357,7 +357,7 @@ export function vaultTestResetStorage(): void {
   }
   try {
     if (typeof sessionStorage !== "undefined") {
-      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+      sessionStorage.removeItem("mudgate.vault.tabSession.v1");
     }
   } catch {
     /* ignore */
@@ -1143,7 +1143,7 @@ export async function lockVault(): Promise<LockResult> {
     session = null;
     try {
       if (typeof sessionStorage !== "undefined") {
-        sessionStorage.removeItem("assmud.vault.tabSession.v1");
+        sessionStorage.removeItem("mudgate.vault.tabSession.v1");
       }
     } catch {
       /* ignore */

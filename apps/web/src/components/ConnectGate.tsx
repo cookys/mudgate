@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { MudProfile } from "@assmud/profiles";
+import type { MudProfile } from "@mudgate/profiles";
 import type { AccentId } from "../lib/theme";
 import { pickTagline, useLocale, useT } from "../i18n";
 import { LocaleSwitch } from "./LocaleSwitch";
@@ -168,7 +168,7 @@ export function ConnectGate({
                   onClick={(e) => {
                     e.preventDefault();
                     window.open(
-                      "https://github.com/search?q=assmud+ORACLE-ALWAYS-FREE",
+                      "https://github.com/search?q=mudgate+ORACLE-ALWAYS-FREE",
                       "_blank",
                     );
                   }}

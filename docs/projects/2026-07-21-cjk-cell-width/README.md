@@ -6,7 +6,7 @@
 
 ## Scope (W1–W4 + I1)
 
-- `resolveWidthMode` / charset aliases (`@assmud/profiles`)  
+- `resolveWidthMode` / charset aliases (`@mudgate/profiles`)  
 - `isWide(ch, cjk|western)` + ScreenBuffer widthMode  
 - Web: profile → TerminalHost  
 - RW MOTD golden test  

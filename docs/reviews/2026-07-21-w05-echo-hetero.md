@@ -27,4 +27,4 @@ Codex plan BLOCK folded into plan acceptance + implementation before loop.
 ## Ship gate
 
 - Loop green (≥2 families APPROVE*, no open MUST_FIX)
-- depth-0: `npm test` 64 pass; `npm run build -w @assmud/web` ok
+- depth-0: `npm test` 64 pass; `npm run build -w @mudgate/web` ok

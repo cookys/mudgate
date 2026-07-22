@@ -1,6 +1,6 @@
 export type AccentId = "mint" | "blue";
 
-const KEY = "assmud.accent";
+const KEY = "mudgate.accent";
 
 export function loadAccent(): AccentId {
   try {

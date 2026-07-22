@@ -1,4 +1,4 @@
-# Plan review brief — assmud R6 (docs only)
+# Plan review brief — mudgate R6 (docs only)
 
 You are a **design / plan reviewer**, not an implementer. Review the attached plan pack (product docs for a web zMUD-class multi-MUD client deep-tuned for Revival World).
 

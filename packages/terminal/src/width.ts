@@ -1,6 +1,6 @@
 /**
  * Cell width for dual-width terminals.
- * mode is always effective ("cjk" | "western") — resolve via @assmud/profiles first.
+ * mode is always effective ("cjk" | "western") — resolve via @mudgate/profiles first.
  *
  * western: pragmatic Fullwidth/Wide ranges (Ambiguous box-drawing = 1).
  * cjk: F/W + pragmatic Ambiguous ranges (box drawing / common banner symbols) = 2.

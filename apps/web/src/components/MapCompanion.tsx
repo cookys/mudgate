@@ -9,7 +9,7 @@ import {
 import {
   colorForAttrs,
   type MapFrameCells,
-} from "@assmud/terminal";
+} from "@mudgate/terminal";
 import {
   computeFingerprint,
   rankFingerprintMatches,
@@ -18,7 +18,7 @@ import {
   type MapPin,
   type NavStore,
   type SearchHit,
-} from "@assmud/nav-memory";
+} from "@mudgate/nav-memory";
 import type { TerminalCaptureApi } from "../TerminalHost";
 
 export type CompanionLabels = {

@@ -40,4 +40,4 @@
 ## /ship skill
 
 - User: `~/.grok/skills/ship/SKILL.md`  
-- Project: `assmud/.grok/skills/ship/SKILL.md`  
+- Project: `mudgate/.grok/skills/ship/SKILL.md`  

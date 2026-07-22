@@ -60,7 +60,7 @@ export class CommandHistory {
   }
 }
 
-const ECHO_KEY = "assmud.echoCommands";
+const ECHO_KEY = "mudgate.echoCommands";
 
 /** zMUD "Echo commands" preference — default on. */
 export function loadEchoCommands(): boolean {

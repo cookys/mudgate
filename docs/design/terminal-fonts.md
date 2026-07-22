@@ -47,7 +47,7 @@ Acceptance（試掘）：
 1. 切 catalog 任一列 → sample **&lt;100ms** 重繪（已載入字）或顯示 loading 再繪。  
 2. 每列顯示 **alignScore** = `measureText('中')/measureText('M')`（綠 ≈2.0、黃、紅）。  
 3. 可 **A/B 釘選** 兩個 preset 並排。  
-4. 「套用」才寫 `localStorage.assmud.termFont`；取消不污染。  
+4. 「套用」才寫 `localStorage.mudgate.termFont`；取消不污染。  
 5. 未安裝 / 未 bundle 的 webfont：列上標 **需載入**，點選才 fetch。
 
 ## 1. 為什麼一般「等寬英文字」不夠
@@ -58,7 +58,7 @@ Acceptance（試掘）：
 | 系統「等寬」混搭 | 半形與全形 advance 不整除 → 地圖裂縫 |
 | 只調 CSS `letter-spacing` | 無法修正「全形應佔兩格 cell」的 buffer 模型 |
 
-assmud 的 `ScreenBuffer` 是 **cell grid**（一中文常佔 2 columns）。Renderer 的 `cellW` 必須讓：
+mudgate 的 `ScreenBuffer` 是 **cell grid**（一中文常佔 2 columns）。Renderer 的 `cellW` 必須讓：
 
 ```
 width(ASCII) ≈ cellW
@@ -112,7 +112,7 @@ fontStack = [
 | **自訂 primary** | ✅ 輸入任意 CSS `font-family` 名（本機已安裝即可） |
 | **自訂整段 stack** | ✅ 進階：逗號分隔 family 列表，覆寫／插在 tcChain 前 |
 | **關閉內建 tcChain** | ✅ 進階開關「僅用我指定的字」（警告：缺中文會豆腐／歪 map） |
-| 持久化 | `assmud.termFont.primary` + `extras[]` + `useDefaultTcChain: boolean` + metrics sliders |
+| 持久化 | `mudgate.termFont.primary` + `extras[]` + `useDefaultTcChain: boolean` + metrics sliders |
 | 試掘 | 自訂也可進 A/B；套用前必跑 coverage + alignScore |
 
 **最小設定模型（實作）：**
@@ -201,7 +201,7 @@ sort =
 
 ## 4. 字體切換 + 字寬字距（產品能力）
 
-### 4.1 設定項（localStorage `assmud.termFont`）
+### 4.1 設定項（localStorage `mudgate.termFont`）
 
 | Key | 型別 | 說明 |
 |-----|------|------|

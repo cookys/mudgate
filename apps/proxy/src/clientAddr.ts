@@ -4,7 +4,7 @@ import type { ProxyConfig } from "./policy.js";
 import { normalizeIp } from "./limits.js";
 
 /**
- * Whether transport peer is a trusted reverse-proxy hop (ASSMUD_TRUSTED_HOP).
+ * Whether transport peer is a trusted reverse-proxy hop (MUDGATE_TRUSTED_HOP).
  * Supports exact IP and simple IPv4 CIDR (/8 /16 /24 /32).
  */
 export function isTrustedPeer(peer: string, hops: string[]): boolean {
@@ -161,7 +161,7 @@ export function resolveEffectiveClientAddr(
 /**
  * Legacy helper kept for tests that still import clientIpFromRequest.
  * Prefer resolveEffectiveClientAddr with ProxyConfig.
- * ASSMUD_TRUST_PROXY=1 alone no longer trusts XFF (removed per T1 plan).
+ * MUDGATE_TRUST_PROXY=1 alone no longer trusts XFF (removed per T1 plan).
  */
 export function clientIpFromRequest(req: {
   socket: { remoteAddress?: string };

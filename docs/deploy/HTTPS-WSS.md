@@ -6,11 +6,11 @@ Aligns with `apps/proxy` `policy.ts` / remote-prod.
 
 | Env | Rule |
 |-----|------|
-| `ASSMUD_PROXY_MODE=remote-prod` | fail-closed |
-| `ASSMUD_AUTH_TOKEN` | required; Bearer/cookie only (no query in prod) |
-| `ASSMUD_ORIGIN_ALLOWLIST` | comma HTTPS origins; **empty refuses start** |
-| `ASSMUD_BIND_HOST` | default **127.0.0.1** — TLS terminator fronts 443 |
-| `ASSMUD_MCCP=1` | optional; inflate caps via `ASSMUD_MCCP_MAX_*` |
+| `MUDGATE_PROXY_MODE=remote-prod` | fail-closed |
+| `MUDGATE_AUTH_TOKEN` | required; Bearer/cookie only (no query in prod) |
+| `MUDGATE_ORIGIN_ALLOWLIST` | comma HTTPS origins; **empty refuses start** |
+| `MUDGATE_BIND_HOST` | default **127.0.0.1** — TLS terminator fronts 443 |
+| `MUDGATE_MCCP=1` | optional; inflate caps via `MUDGATE_MCCP_MAX_*` |
 
 ## Topology
 
@@ -24,8 +24,8 @@ See `deploy/Caddyfile.proxy.example`, `deploy/docker-compose.proxy.yml`.
 
 | Env | Default role |
 |-----|----------------|
-| `ASSMUD_MCCP_MAX_WINDOW_BYTES` | per-window inflate |
-| `ASSMUD_MCCP_MAX_SESSION_BYTES` | session inflate |
-| `ASSMUD_MCCP_MAX_WIRE_BYTES` | compressed wire |
+| `MUDGATE_MCCP_MAX_WINDOW_BYTES` | per-window inflate |
+| `MUDGATE_MCCP_MAX_SESSION_BYTES` | session inflate |
+| `MUDGATE_MCCP_MAX_WIRE_BYTES` | compressed wire |
 
 Never log telnet payloads / passwords.

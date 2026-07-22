@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { MapFrameCells } from "@assmud/terminal";
+import type { MapFrameCells } from "@mudgate/terminal";
 import { MemoryNavStore } from "../src/memoryStore.js";
 import {
   computeFingerprint,

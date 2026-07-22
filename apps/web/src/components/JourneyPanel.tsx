@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Journey, NavStore } from "@assmud/nav-memory";
+import type { Journey, NavStore } from "@mudgate/nav-memory";
 
 export type JourneyStepRequest = {
   cmd: string;

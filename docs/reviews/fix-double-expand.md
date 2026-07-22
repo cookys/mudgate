@@ -1,8 +1,8 @@
 Fix verification: double expand fixed. Reply VERDICT only.
 ===== TerminalHost =====
 import { useEffect, useRef } from "react";
-import { ScreenBuffer, Canvas2DRenderer } from "@assmud/terminal";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
+import { ScreenBuffer, Canvas2DRenderer } from "@mudgate/terminal";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
 
 export type HelloMsg = {
   type: "hello";

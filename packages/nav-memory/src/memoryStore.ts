@@ -1,4 +1,4 @@
-import type { MapFrameCells } from "@assmud/terminal";
+import type { MapFrameCells } from "@mudgate/terminal";
 import {
   MAX_FRAMES_PER_PROFILE,
   type Journey,

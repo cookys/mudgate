@@ -1,0 +1,16 @@
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- **Threat Model & UI Warning Correction (XSS vs Persistent IDB)**: §2 Threat Model and §3.3 UI copy claim that XSS risk is only active "在已解鎖時" and requires "拿到 CryptoKey 記憶體參考". This is factually inaccurate. Any XSS on the origin can invoke `indexedDB.open("assmud-vault-keys")` and retrieve the `CryptoKey` handle from IndexedDB *at any time*—even when the vault is locked in memory or before the user enters their master password. The Threat Model and §3.3 UI warning copy MUST be corrected to state: "開啟『記住解鎖』後，金鑰將持久化於本機 IndexedDB；同源 XSS 腳本隨時可從 IDB 取得金鑰並解密密碼庫，無需等待使用者於當下 Session 輸入主密碼。"
+- **Fail-Soft Error Handling on IDB Write in `unlockVault`**: §4.3 does not specify exception handling for `idb.put()` failures (e.g. Private Browsing mode blocking IDB, `SecurityError`, or storage quota exceeded). If `idb.put()` rejects or throws, `unlockVault` MUST NOT crash or block the master password unlock flow. It must catch the IDB error gracefully, log a warning, degrade to memory-only unlock (`rememberUnlock = false`), and succeed.
+- **Fail-Closed Cleanup on Restore Decryption Failure**: In §4.4 `tryRestoreVaultSession`, if `subtle.decrypt` throws an `OperationError` (due to payload corruption or key/envelope mismatch), the function MUST catch the error, immediately delete the invalid IDB key (`idb.delete("default")`), wipe any partial RAM session, and return `false` to fail closed back to the master password prompt.
+
+NITS:
+- **Explicit Key Usages Assertion**: Explicitly verify during `importKey` and after IDB retrieval that `cryptoKey.usages` includes both `"encrypt"` and `"decrypt"`. A key restored without `"encrypt"` usage will cause subsequent secret additions/edits (`persistSession`) to throw `InvalidAccessError`.
+- **Transient `keyBytes` Zeroization**: In §4.3 Step 4, immediately after `crypto.subtle.importKey` completes, zero-fill the temporary PBKDF2 derived `keyBytes` buffer (`keyBytes.fill(0)`) if the session is operating in `CryptoKey`-only mode.
+- **IDB Initialization Guard**: Ensure `indexedDB.open()` handlers explicitly handle `onblocked` and `onerror` events with reasonable timeouts to prevent hanging `Promise` returns during application startup.
+
+SECURITY_NOTES:
+Using WebCrypto `extractable: false` `CryptoKey` persisted in IndexedDB prevents attackers from exporting raw key bytes for off-site offline decryption. However, because IndexedDB is origin-bound and accessible to all scripts on that origin, an XSS attacker can execute on-device decryption via `crypto.subtle.decrypt` using the handle from IndexedDB at any time.
+
+C0_SHIP_OK: yes
+ONE_LINE: Solid WebCrypto + IDB architecture, but requires correcting the XSS/IDB threat model disclosure and adding fail-soft/fail-closed IDB exception handling.

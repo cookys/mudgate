@@ -1,4 +1,4 @@
-Review assmud plan docs/plans/2026-07-21-echo-password-mask.md for W05 Telnet ECHO password masking.
+Review mudgate plan docs/plans/2026-07-21-echo-password-mask.md for W05 Telnet ECHO password masking.
 
 Semantics (must match):
 - Transient mask: WILL ECHO → mask on, WONT ECHO → mask off. NOT permanent local-echo off.

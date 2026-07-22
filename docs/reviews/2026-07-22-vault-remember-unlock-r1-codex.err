@@ -1,0 +1,2032 @@
+warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f87c8-e00d-7e63-adb0-0dae81fcb2d5
+--------
+user
+You are a security-focused plan reviewer for the assmud MUD client monorepo.
+
+Review this plan for: security holes, false claims, missing fail-closed paths, IndexedDB/CryptoKey pitfalls, LAN/no-subtle abuse, multi-tab races, and implementability.
+
+PLAN PATH: docs/plans/2026-07-22-vault-remember-unlock.md
+
+=== PLAN ===
+# Plan — Vault「記住解鎖」（non-extractable CryptoKey + IndexedDB）
+
+> **Status**: **draft** · awaiting plan-hetero ALL_CLEAR  
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Extends**: [`2026-07-22-profile-secrets-vault.md`](./2026-07-22-profile-secrets-vault.md)（SHIP；V2 原寫「重載需 unlock」）  
+> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）
+
+---
+
+## 0. Problem
+
+| 現況 | 痛點 |
+|------|------|
+| 解鎖 key 只在 RAM | **F5 / 硬重新整理** → 一定再問主密碼；autologin 斷 |
+| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+| 使用者要 | 「同一瀏覽器好用」+「不要改出安全問題」 |
+
+### 0.1 與既有 plan 關係
+
+| 原 V2 | 本 plan |
+|-------|---------|
+| 重載後需 unlock | **改為可選**：「記住解鎖」開啟且環境允許時，重載可免主密碼 |
+| 金鑰不落盤 | **維持**：不落 **exportable raw key**；允許落 **non-extractable CryptoKey**（瀏覽器保管） |
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+| ID | Goal |
+|----|------|
+| **R1** | 可選「記住解鎖」：解鎖成功後 F5 **不必**再輸主密碼（環境允許時） |
+| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+| **R3** | 使用 WebCrypto **`extractable: false`** CryptoKey + **IndexedDB** 持久化 |
+| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+| **R5** | 手動鎖定 / 清除 vault → 刪 IDB key；下次必問主密碼 |
+| **R6** | 威脅模型 + UI 同意文案更新；單元測試 + 安全負向測試 |
+| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 把主密碼存任何 storage | 直接洩密 |
+| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+| Anti-XSS password manager | vault 本來就不是 |
+| WebAuthn / 硬體綁定 | 可列 P3 |
+| 跨裝置同步記住解鎖 | 非本機 |
+| noble-only 路徑「假裝」non-extractable | 假安全 |
+
+---
+
+## 2. Threat model（誠實 · 必寫進 UI）
+
+| 威脅 | 記住解鎖後 |
+|------|------------|
+| 靜態 dump localStorage vault 密文、**無**瀏覽器金鑰 | **仍擋** |
+| XSS 讀 sessionStorage 拿走 raw key 字串 | **擋**（沒有 raw key 字串） |
+| XSS 在 **已還原解鎖** 狀態呼叫 `getVaultSecret` | **不擋**（與「當下已 unlock」相同） |
+| XSS 用頁內 non-extractable key 呼叫 `subtle.decrypt` | ** theoretically 可能**若攻擊者能拿到 CryptoKey 參考；比 export key 難，**不是**零風險 |
+| 本機已登入瀏覽器、惡意擴充 | **不擋** |
+| 關瀏覽器後再開（IDB 仍在） | **仍解鎖**（若選「記住直到手動鎖定」）— 使用者可選更嚴策略 |
+
+**一句話**：比「F5 必解」好用；比「sessionStorage raw key」安全；**仍不是**防 XSS 的密碼庫。
+
+**禁止宣稱**：「端到端」「XSS 也偷不到」「比 1Password 還硬」。
+
+---
+
+## 3. Product / UX
+
+### 3.1 開關（預設）
+
+| 項 | 預設 | 說明 |
+|----|------|------|
+| **記住解鎖** | **OFF** | 使用者明確打開才寫 IDB |
+| 位置 | 密碼庫面板（解鎖區旁） | 勾選 + 短威脅文案 |
+| 無 subtle | 開關 disabled + 說明 | 不可開 |
+
+### 3.2 壽命策略（鎖定寫死 · 可再 hetero）
+
+| 策略 ID | 行為 | 本 plan 預設 |
+|---------|------|--------------|
+| **S-manual** | 記住直到使用者按「鎖定」或清 vault | **預設採用** |
+| S-browser | 關閉瀏覽器後失效 | 可選 P2（需 visibility/session 啟發式，不可靠處要寫） |
+| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+
+**R1 鎖定**：先做 **S-manual** only。S-browser / S-tab 列 backlog，不挡 R1 ship。
+
+### 3.3 文案（zh-TW 草案）
+
+**開關：**
+
+> 記住解鎖（本機）  
+> 重新整理後不必再輸主密碼。使用瀏覽器安全金鑰（無法匯出）。  
+> **惡意網頁腳本在已解鎖時仍可能讀取帳密**——與「目前已解鎖」相同。  
+> 按「鎖定」或清除密碼庫會忘記。
+
+**無 subtle：**
+
+> 此連線環境無法使用安全的「記住解鎖」（需要 WebCrypto）。  
+> 重新整理後請再解鎖。
+
+---
+
+## 4. 技術設計
+
+### 4.1 存儲分工
+
+| 存什麼 | 哪裡 | extractable |
+|--------|------|-------------|
+| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+| 解鎖用 AES key | **IndexedDB** `assmud-vault-keys` | **false** |
+| 記住解鎖偏好 | `localStorage` `assmud.vault.rememberUnlock=0\|1` | n/a（非 secret） |
+| 主密碼 | **永不**持久化 | — |
+| raw key bytes in sessionStorage | **禁止** | — |
+
+### 4.2 IndexedDB schema
+
+```text
+DB: assmud-vault-keys
+version: 1
+store: keys
+  keyPath: id
+  record: {
+    id: "default",           // 單 vault 本機一份
+    cryptoKey: CryptoKey,    // structured-cloneable, extractable:false
+    gen: number,             // must match envelope.gen
+    rev: number,             // last known rev (hint only)
+    createdAt: number,
+  }
+```
+
+### 4.3 Unlock path（有 subtle）
+
+```text
+unlockVault(masterPassword):
+  1. PBKDF2 → keyBytes (memory only, ephemeral)
+  2. decrypt envelope → payload
+  3. session = { keyBytes, payload, ... }   // RAM 與今日相同（操作仍用 bytes 或 CryptoKey）
+  4. if rememberUnlock && subtle:
+       cryptoKey = importKey(keyBytes, extractable:false, ["encrypt","decrypt"])
+       idb.put({ id:"default", cryptoKey, gen, rev })
+       // 可選：立即 zeroize 多餘副本的考量寫進 impl 註解
+  5. notifyVaultListeners()
+```
+
+**Impl 細節（R1 鎖定）**：  
+- 今日 `Session` 以 `Uint8Array keyBytes` 為主；IDB 另存 CryptoKey **僅供 restore**。  
+- restore 成功後：`exportKey` **禁止**；用 CryptoKey decrypt 得 payload，並 **在記憶體重建 keyBytes** 僅當 noble 路徑需要——  
+  - **更緊**：restore 後只持有 CryptoKey，改 encrypt/decrypt 路徑走 subtle only。  
+  - **務實 R1**：restore 時若只能 non-extractable，decrypt payload 進 RAM；**後續 persistSession** 需要 encrypt → 必須 subtle + 同一 CryptoKey 的 encrypt usage。  
+  - **禁止**：restore 後為了 noble 再把 key export 成 bytes 存 sessionStorage。
+
+**R1 鎖定（encrypt 路徑）**：
+
+| 環境 | 記住解鎖 | Session 持有 |
+|------|----------|--------------|
+| subtle 可用 + remember ON | 可 | CryptoKey (non-extractable) **或** 暫時仍 keyBytes in RAM only（不寫 storage） |
+| subtle 可用 + remember OFF | 否 | 僅 RAM keyBytes（今日） |
+| 無 subtle | 否 | 僅 RAM keyBytes（今日 noble） |
+
+若 remember ON：`persistSession` **必須**走 subtle + CryptoKey encrypt，不得 export key。
+
+### 4.4 Restore path（頁面載入）
+
+```text
+tryRestoreVaultSession():
+  1. if session already → true
+  2. if !rememberUnlock preference → false
+  3. if !subtle → false (and ensure IDB empty)
+  4. idb.get("default") → cryptoKey?
+  5. read vault envelope from localStorage
+  6. if gen mismatch → delete idb key, false
+  7. subtle.decrypt(envelope) with cryptoKey
+  8. build session (payload in RAM; key material = CryptoKey only if possible)
+  9. notifyVaultListeners(); return true
+```
+
+App boot：`main`/`App` mount 呼叫 `tryRestoreVaultSession()`（async）；UI 顯示「還原中…」可選。
+
+### 4.5 Lock / clear
+
+```text
+lockVault():
+  session = null
+  idb.delete("default")
+  notify
+
+clearVault():
+  刪 envelope + idb key + preference 可保留或清（R1：清 vault 時刪 key；preference 保留 OFF 安全）
+```
+
+### 4.6 多 tab
+
+| 規則 | |
+|------|--|
+| IDB 共享 | tab A 解鎖+remember → tab B refresh 可 restore |
+| tab A 鎖定 | 刪 IDB → tab B 下次操作 fail closed（下一讀取發現無 key / decrypt fail） |
+| BroadcastChannel | **C0 不做**；可接受短暫不一致直到下次 API 呼叫 |
+
+### 4.7 與 autologin
+
+既有：`subscribeVault` + `vaultTick` 在 unlock 後重跑。  
+Restore 成功必須 `notifyVaultListeners()`，使 connected 分頁送帳密。
+
+---
+
+## 5. API surface（`@assmud/profiles`）
+
+| API | 行為 |
+|-----|------|
+| `getRememberUnlock(): boolean` | 讀 preference |
+| `setRememberUnlock(on: boolean): Promise<void>` | 關時刪 IDB key |
+| `canRememberUnlock(): boolean` | `!!crypto.subtle` |
+| `tryRestoreVaultSession(): Promise<boolean>` | 見 §4.4 |
+| `unlockVault` / `createVault` | 若 remember ON → 寫 IDB |
+| `lockVault` / `clearVault` | 刪 IDB key |
+
+---
+
+## 6. Testing
+
+| 層 | 內容 |
+|----|------|
+| Unit | remember OFF → restore false；lock 後 IDB 空 |
+| Unit | **禁止**任何 code path 寫 key bytes 到 sessionStorage/localStorage（grep test 或 invariant） |
+| Unit | subtle mock：importKey extractable false；restore decrypt OK |
+| Unit | gen mismatch → wipe IDB |
+| Manual | HTTPS/localhost：開 remember → F5 → 仍解鎖 → autologin |
+| Manual | HTTP LAN 無 subtle：開關 disabled |
+| Manual | 鎖定後 F5 → 需主密碼 |
+
+**Node vitest**：多用 mock subtle / fake-indexeddb；無真實 IDB 時測 preference 與 API 契約。
+
+---
+
+## 7. Phased delivery
+
+| Phase | 交付 | 驗收 |
+|-------|------|------|
+| **P0** | Plan + hetero ALL_CLEAR | 本文件 |
+| **P1** | `canRememberUnlock` + preference + UI 開關（disabled 路徑） | 無 subtle 不能開 |
+| **P2** | IDB put/get/delete CryptoKey；unlock/create 寫入 | 單測 |
+| **P3** | `tryRestoreVaultSession` + App boot | F5 免主密碼（有 subtle） |
+| **P4** | lock/clear 清 IDB；autologin 還原後可送 | 手動 + log |
+| **P5** | 威脅文案 i18n；docs 一小節 | 無「XSS 也安全」 |
+
+**不做進 P1–P5**：S-browser 壽命、BroadcastChannel、WebAuthn。
+
+---
+
+## 8. Open questions（預設若 owner 不回）
+
+| # | 問題 | 預設 |
+|---|------|------|
+| Q1 | 預設 remember ON 還 OFF？ | **OFF** |
+| Q2 | 關瀏覽器是否自動鎖？ | **否**（S-manual）；P2 可加 |
+| Q3 | 無 subtle 是否允許任何 fallback 記住？ | **否** |
+| Q4 | restore 後 session 是否允許 RAM 持有 keyBytes 複本？ | **允許僅 RAM**（與今日 unlock 相同）；**禁止**再寫 storage |
+
+---
+
+## 9. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| 實作偷懶又寫回 sessionStorage | 測試 grep + code review 紅線 |
+| IDB 在隱私模式失敗 | fail soft → 當 remember OFF |
+| 使用者以為「記住＝絕對安全」 | UI 強制短威脅句 |
+| LAN HTTP 無 subtle 期望 remember | disabled + 說明 |
+
+---
+
+## 10. Success metrics
+
+| 指標 | 目標 |
+|------|------|
+| 有 subtle + remember ON | F5 後 `isVaultUnlocked()` true 無需主密碼 |
+| 安全 | storage 無 raw key；無主密碼 persistence |
+| 無 subtle | 行為與今日相同，無假 remember |
+| Autologin | restore 後 connected 可送帳密 |
+
+---
+
+## 11. References
+
+- Parent vault plan + threat：`2026-07-22-profile-secrets-vault.md`  
+- 撤回 commit：`e9788b4` security(vault): revert sessionStorage unlock-key  
+- WebCrypto: `importKey` extractable false；IndexedDB structured clone of CryptoKey  
+
+---
+
+## 12. Status transitions
+
+| Status | When |
+|--------|------|
+| **draft** | now |
+| **approved** | plan-hetero ALL_CLEAR（≥2 families，無 MUST_FIX） |
+| **impl P1–P5** | after approved |
+| **SHIP** | tests + manual F5 smoke |
+=== END PLAN ===
+
+Respond with EXACTLY this structure:
+
+VERDICT: APPROVED | APPROVE_WITH_NITS | CHANGES_REQUIRED | BLOCK
+MUST_FIX: (bullet list, empty if none — blockers only)
+NITS: (bullet list, empty if none)
+SECURITY_NOTES: (short)
+C0_SHIP_OK: yes|no — can P1–P5 implement after fold without new research
+ONE_LINE: summary
+
+codex
+I’m using the `autopilot:audit` workflow because this review depends on checking the plan’s claims against the existing vault implementation, not just reviewing the prose in isolation.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/audit/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: audit
+description: >
+  Compare two implementations and find every difference. Use when: "compare X with Y", "check X
+  against Y", "verify X matches Y", "flag anything missing", "比對 X 和 Y", "檢查有沒有漏掉",
+  "驗證是否一致", feature parity review between old and new systems, spec vs implementation
+  verification, cross-system completeness check. Not for debugging a single discrepancy or writing
+  comparison tests.
+---
+
+# Systematic Comparison Audit
+
+> Routing overlap? If this intent better matches a sibling skill, redirect per [references/routing-tiebreaks.md](../../references/routing-tiebreaks.md) (prefer implementation parity over prose doc alignment).
+
+## Project Audit Config
+!`cat .claude/audit-config.md 2>/dev/null || true`
+
+## Key Concepts
+
+| Term | Definition |
+|------|-----------|
+| **Source** | The spec, old system, or canonical implementation -- the "source of truth" |
+| **Target** | The new system or implementation being audited |
+| **Parity** | Target covers all source capabilities correctly |
+| **By-Design** | Intentional divergence between source and target |
+
+## Methodology
+
+### Phase 1: Define Scope
+
+Establish before exploring code:
+1. What is the Source (reference)?
+2. What is the Target (audited)?
+3. What constitutes parity? (functional equivalence | field completeness | behavioral match)
+4. What differences are known By-Design?
+
+### Phase 2: Parallel Exploration
+
+Split into segments (Entry/Init, Core Ops, Edge Cases, Post-Op, Field Completeness). For each, compare **presence**, **correctness**, **completeness**. Spawn one agent per segment for large audits.
+
+> **Re-dispatch on the same segment after a fix follows the blind discipline — see Phase 4 below and [references/blind-dispatch.md](../../references/blind-dispatch.md).** First-pass exploration is full-context by design; only verification passes are blinded.
+
+#### No silent caps — disclose every bound (output contract)
+
+**Any bounded coverage — which segments were actually audited, a top-N cap, a sampled subset, or work skipped because an agent timed out — MUST be DISCLOSED in the audit verdict. An undisclosed bound is a defect.** When a large audit is partitioned into per-segment agents, the report MUST state **which segments were covered and which were NOT** (e.g. "audited Entry/Init + Core Ops; Edge Cases NOT covered this pass"). A reader who believes a partitioned audit was exhaustive when only some segments ran is misled.
+
+This **generalizes the `skills/doc-sync` ethos** to the audit output contract: doc-sync already holds that its non-deterministic LLM sweep is bounded — *"a 'clean' sweep only means this sample found nothing, never that nothing exists"* — and never lets a clean sample pose as proof of absence. The same honesty applies here: name the partition / sample / timeout bound, don't let it pass silently.
+
+### Phase 3: Classify Findings
+
+| Severity | Definition |
+|----------|-----------|
+| **Critical** | Feature broken or missing entirely |
+| **Major** | Functionality degraded, display affected |
+| **Minor** | Cosmetic, no functional impact |
+| **By-Design** | Intentional difference, documented reason |
+
+### Phase 4: Prioritized Fix
+
+Fix order: Critical -> Major -> Minor (backlog).
+
+Per fix: update target -> verify against source -> update comparison matrix -> re-run tests.
+
+**Re-audit dispatch is blind** — when re-running an audit segment after a fix (verification pass), the re-dispatch prompt MUST NOT carry the prior round's finding line numbers, "the fix at X to verify" cues, or specific aspect labels the prior pass surfaced. The Phase 2 segment agent must re-derive findings from a clean read of source-vs-target; the dispatcher pattern-matches the new findings against the prior ones in its own memory to determine whether the fix held.
+
+Follow the dispatcher pre-flight checklist in [`../../references/blind-dispatch.md`](../../references/blind-dispatch.md). Fixers acting on the prior finding remain non-blind (they need the specifics to act on); only re-audit verification passes are blinded. First-pass Phase 2 exploration is full-context by design — only round 2+ on the same segment applies.
+
+exec
+/usr/bin/zsh -lc "pwd && rg -n \"(unlockVault|lockVault|clearVault|subscribeVault|vaultTick|isVaultUnlocked|persistSession|crypto\\.subtle|sessionStorage|assmud\\.vault)\" --glob '"'!node_modules'"' . | head -n 300 && sed -n '1,260p' docs/plans/2026-07-22-profile-secrets-vault.md && sed -n '1,220p' docs/plans/2026-07-22-vault-remember-unlock.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+/home/cookys/projects/assmud
+./packages/profiles/src/vault.ts:6: * - Prefer WebCrypto `crypto.subtle` (HTTPS / localhost secure context)
+./packages/profiles/src/vault.ts:10:export const VAULT_KEY = "assmud.vault.v1";
+./packages/profiles/src/vault.ts:11:export const VAULT_META_KEY = "assmud.vault.meta.v1";
+./packages/profiles/src/vault.ts:105:    const subtle = globalThis.crypto.subtle;
+./packages/profiles/src/vault.ts:137:    const subtle = globalThis.crypto.subtle;
+./packages/profiles/src/vault.ts:163:    const subtle = globalThis.crypto.subtle;
+./packages/profiles/src/vault.ts:252:    if (typeof sessionStorage !== "undefined") {
+./packages/profiles/src/vault.ts:253:      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+./packages/profiles/src/vault.ts:411:export function isVaultUnlocked(): boolean {
+./packages/profiles/src/vault.ts:418:export function subscribeVault(cb: () => void): () => void {
+./packages/profiles/src/vault.ts:435:export function lockVault(): void {
+./packages/profiles/src/vault.ts:439:    if (typeof sessionStorage !== "undefined") {
+./packages/profiles/src/vault.ts:440:      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+./packages/profiles/src/vault.ts:455:    return locks.request("assmud.vault", { mode: "exclusive" }, () => fn());
+./packages/profiles/src/vault.ts:508:export async function unlockVault(masterPassword: string): Promise<void> {
+./packages/profiles/src/vault.ts:537:async function persistSession(s: Session): Promise<void> {
+./packages/profiles/src/vault.ts:593:  await persistSession(s);
+./packages/profiles/src/vault.ts:596:export async function clearVault(): Promise<void> {
+./packages/profiles/src/vault.ts:652:  } else if (!isVaultUnlocked()) {
+./packages/profiles/src/vault.ts:653:    await unlockVault(masterPassword);
+./packages/profiles/src/vault.ts:675:  await persistSession(s);
+./packages/profiles/src/vault.ts:683:  await persistSession(s);
+./packages/profiles/src/vault.ts:708:  if (!isVaultUnlocked()) {
+./packages/profiles/src/vault.ts:710:    await unlockVault(masterPassword);
+./packages/profiles/src/vault.ts:718:  await persistSession(s);
+./docs/plans/2026-07-22-vault-remember-unlock.md:7:> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）
+./docs/plans/2026-07-22-vault-remember-unlock.md:16:| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+./docs/plans/2026-07-22-vault-remember-unlock.md:35:| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+./docs/plans/2026-07-22-vault-remember-unlock.md:37:| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+./docs/plans/2026-07-22-vault-remember-unlock.md:40:| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+./docs/plans/2026-07-22-vault-remember-unlock.md:47:| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+./docs/plans/2026-07-22-vault-remember-unlock.md:60:| XSS 讀 sessionStorage 拿走 raw key 字串 | **擋**（沒有 raw key 字串） |
+./docs/plans/2026-07-22-vault-remember-unlock.md:66:**一句話**：比「F5 必解」好用；比「sessionStorage raw key」安全；**仍不是**防 XSS 的密碼庫。
+./docs/plans/2026-07-22-vault-remember-unlock.md:88:| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+./docs/plans/2026-07-22-vault-remember-unlock.md:114:| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+./docs/plans/2026-07-22-vault-remember-unlock.md:116:| 記住解鎖偏好 | `localStorage` `assmud.vault.rememberUnlock=0\|1` | n/a（非 secret） |
+./docs/plans/2026-07-22-vault-remember-unlock.md:118:| raw key bytes in sessionStorage | **禁止** | — |
+./docs/plans/2026-07-22-vault-remember-unlock.md:139:unlockVault(masterPassword):
+./docs/plans/2026-07-22-vault-remember-unlock.md:154:  - **務實 R1**：restore 時若只能 non-extractable，decrypt payload 進 RAM；**後續 persistSession** 需要 encrypt → 必須 subtle + 同一 CryptoKey 的 encrypt usage。  
+./docs/plans/2026-07-22-vault-remember-unlock.md:155:  - **禁止**：restore 後為了 noble 再把 key export 成 bytes 存 sessionStorage。
+./docs/plans/2026-07-22-vault-remember-unlock.md:165:若 remember ON：`persistSession` **必須**走 subtle + CryptoKey encrypt，不得 export key。
+./docs/plans/2026-07-22-vault-remember-unlock.md:187:lockVault():
+./docs/plans/2026-07-22-vault-remember-unlock.md:192:clearVault():
+./docs/plans/2026-07-22-vault-remember-unlock.md:206:既有：`subscribeVault` + `vaultTick` 在 unlock 後重跑。  
+./docs/plans/2026-07-22-vault-remember-unlock.md:217:| `canRememberUnlock(): boolean` | `!!crypto.subtle` |
+./docs/plans/2026-07-22-vault-remember-unlock.md:219:| `unlockVault` / `createVault` | 若 remember ON → 寫 IDB |
+./docs/plans/2026-07-22-vault-remember-unlock.md:220:| `lockVault` / `clearVault` | 刪 IDB key |
+./docs/plans/2026-07-22-vault-remember-unlock.md:229:| Unit | **禁止**任何 code path 寫 key bytes 到 sessionStorage/localStorage（grep test 或 invariant） |
+./docs/plans/2026-07-22-vault-remember-unlock.md:270:| 實作偷懶又寫回 sessionStorage | 測試 grep + code review 紅線 |
+./docs/plans/2026-07-22-vault-remember-unlock.md:281:| 有 subtle + remember ON | F5 後 `isVaultUnlocked()` true 無需主密碼 |
+./docs/plans/2026-07-22-vault-remember-unlock.md:291:- 撤回 commit：`e9788b4` security(vault): revert sessionStorage unlock-key  
+./packages/profiles/src/secrets.ts:8:  isVaultUnlocked,
+./packages/profiles/src/secrets.ts:22:  if (!isVaultUnlocked()) return undefined;
+./packages/profiles/src/secrets.ts:42:  if (!isVaultUnlocked()) {
+./packages/profiles/src/secrets.ts:49:  if (!isVaultUnlocked()) {
+./packages/profiles/src/index.ts:21:  isVaultUnlocked,
+./packages/profiles/src/index.ts:22:  lockVault,
+./packages/profiles/src/index.ts:24:  unlockVault,
+./packages/profiles/src/index.ts:25:  subscribeVault,
+./packages/profiles/src/index.ts:26:  clearVault,
+./docs/research/zmud-input-ux.md:174:| 密碼 at-rest | WebCrypto AES-GCM vault + 主密碼（`assmud.vault.v1`）；非明文 |
+./packages/profiles/tests/vault.test.ts:15:  unlockVault,
+./packages/profiles/tests/vault.test.ts:16:  lockVault,
+./packages/profiles/tests/vault.test.ts:17:  isVaultUnlocked,
+./packages/profiles/tests/vault.test.ts:21:  clearVault,
+./packages/profiles/tests/vault.test.ts:36:    expect(isVaultUnlocked()).toBe(true);
+./packages/profiles/tests/vault.test.ts:42:    lockVault();
+./packages/profiles/tests/vault.test.ts:43:    expect(isVaultUnlocked()).toBe(false);
+./packages/profiles/tests/vault.test.ts:44:    await unlockVault("master-pass-1");
+./packages/profiles/tests/vault.test.ts:56:    lockVault();
+./packages/profiles/tests/vault.test.ts:57:    await expect(unlockVault("wrong")).rejects.toMatchObject({
+./packages/profiles/tests/vault.test.ts:60:    expect(isVaultUnlocked()).toBe(false);
+./packages/profiles/tests/vault.test.ts:65:    lockVault();
+./packages/profiles/tests/vault.test.ts:108:    lockVault();
+./packages/profiles/tests/vault.test.ts:115:  it("clearVault allows recreate", async () => {
+./packages/profiles/tests/vault.test.ts:118:    await clearVault();
+./packages/profiles/tests/vault.test.ts:124:  it("works without crypto.subtle (LAN HTTP / noble fallback)", async () => {
+./packages/profiles/tests/vault.test.ts:137:      lockVault();
+./packages/profiles/tests/vault.test.ts:138:      await unlockVault("lan-http-master");
+./docs/plans/2026-07-22-profile-secrets-vault.md:126:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/plans/2026-07-22-profile-secrets-vault.md:135:| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
+./docs/plans/2026-07-22-profile-secrets-vault.md:136:| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+./docs/plans/2026-07-22-profile-secrets-vault.md:151:- **`gen`**：來自 meta；`createVault` / 遷移建庫時 `meta.gen++` 並寫入 envelope。`clearVault` **只刪 envelope**，meta.gen **保留**。  
+./docs/plans/2026-07-22-profile-secrets-vault.md:178:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/plans/2026-07-22-profile-secrets-vault.md:180:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/plans/2026-07-22-profile-secrets-vault.md:252:`metaGen` 在 absent/present 都必填，來自 `assmud.vault.meta.v1.gen`（無 meta 檔視為 0）。
+./docs/plans/2026-07-22-profile-secrets-vault.md:254:#### clearVault tombstone（R4）
+./docs/plans/2026-07-22-profile-secrets-vault.md:257:clearVault:
+./docs/plans/2026-07-22-profile-secrets-vault.md:259:  removeItem(assmud.vault.v1) // envelope 刪除
+./docs/plans/2026-07-22-profile-secrets-vault.md:282:  //    clearVault:  require before.kind==='present' (or allow absent no-op);
+./docs/plans/2026-07-22-profile-secrets-vault.md:372:| clearVault ABA | `assmud.vault.meta.v1` gen 持久 + envelope.gen |
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:15:R5 final re-review. Folded: VaultSnap always has metaGen; clearVault increments meta.gen tombstone; snapEqual requires full raw string equality; write protocol uses before-check then intended-after-check (not before===after post-mutate); migration delete needs vault===receipt AND currentLegacy===receipt. VERDICT MUST_FIX NITS ALL_CLEAR only.
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:142:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:151:| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:152:| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:167:- **`gen`**：來自 meta；`createVault` / 遷移建庫時 `meta.gen++` 並寫入 envelope。`clearVault` **只刪 envelope**，meta.gen **保留**。  
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:194:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:196:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:262:`metaGen` 在 absent/present 都必填，來自 `assmud.vault.meta.v1.gen`（無 meta 檔視為 0）。
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:264:#### clearVault tombstone（R4）
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:267:clearVault:
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:269:  removeItem(assmud.vault.v1) // envelope 刪除
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:292:  //    clearVault:  require before.kind==='present' (or allow absent no-op);
+./docs/reviews/2026-07-22-profile-vault-codex-r5.out:379:| clearVault ABA | `assmud.vault.meta.v1` gen 持久 + envelope.gen |
+./docs/reviews/2026-07-22-profile-vault-minimax-r5.out:7:| clearVault 只增 meta.gen，不歸零 | §3.7 line 252, §3.3 line 136 | ✓ |
+./docs/reviews/2026-07-22-profile-vault-minimax-r3.out:9:其他無新問題：envelope rev 遞增、`locked → throw`、`clearVault` 也走同協議論（正確）、storage event 清他 tab key + toast、crash 單 key 原子寫入，全部到位。
+./docs/reviews/2026-07-21-hetero-r3-glm.out:50:4. **profile-library**: P4 should name the storage surface (`localStorage["assmud.profileSecrets"]`) to match the "no cloud sync" non-goal and block accidental `sessionStorage`/cookie misuse.
+./docs/reviews/2026-07-22-profile-vault-codex-r2.out:143:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/reviews/2026-07-22-profile-vault-codex-r2.out:183:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/reviews/2026-07-22-profile-vault-codex-r2.out:185:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r2.out:319:MUST_FIX: ["§3.7 multi-tab conflict control is not implementable as written: re-reading before setItem is still a TOCTOU race, and the envelope has no write version/updatedAt field. Specify one concrete protocol—prefer Web Locks API around read-modify-write plus an envelope revision check—and define fallback behavior when Web Locks is unavailable. Apply the same serialization to createVault, migration, setSecret, clearVault, and password re-wrap."]
+./docs/reviews/2026-07-22-profile-vault-codex-r2.out:325:MUST_FIX: ["§3.7 multi-tab conflict control is not implementable as written: re-reading before setItem is still a TOCTOU race, and the envelope has no write version/updatedAt field. Specify one concrete protocol—prefer Web Locks API around read-modify-write plus an envelope revision check—and define fallback behavior when Web Locks is unavailable. Apply the same serialization to createVault, migration, setSecret, clearVault, and password re-wrap."]
+./docs/reviews/2026-07-22-profile-vault-codex-r1.out:137:| `assmud.vault.v1` | 密文 envelope（見 schema） |
+./docs/reviews/2026-07-22-profile-vault-codex-r1.out:174:**禁止**：把 master password 或 raw AES key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r1.out:186:> 註：Vitest 環境若無 `crypto.subtle`，用 `node:crypto` webcrypto 或條件 skip + 瀏覽器 e2e 備註。
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:142:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:151:| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:152:| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:167:- **`gen`**：來自 meta；`createVault` / 遷移建庫時 `meta.gen++` 並寫入 envelope。`clearVault` **只刪 envelope**，meta.gen **保留**。  
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:194:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:196:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:268:`metaGen` 在 absent/present 都必填，來自 `assmud.vault.meta.v1.gen`（無 meta 檔視為 0）。
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:270:#### clearVault tombstone（R4）
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:273:clearVault:
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:275:  removeItem(assmud.vault.v1) // envelope 刪除
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:298:  //    clearVault:  require before.kind==='present' (or allow absent no-op);
+./docs/reviews/2026-07-22-profile-vault-codex-r6.out:386:| clearVault ABA | `assmud.vault.meta.v1` gen 持久 + envelope.gen |
+./apps/web/src/components/VaultPanel.tsx:4:  isVaultUnlocked,
+./apps/web/src/components/VaultPanel.tsx:6:  unlockVault,
+./apps/web/src/components/VaultPanel.tsx:7:  lockVault,
+./apps/web/src/components/VaultPanel.tsx:8:  clearVault,
+./apps/web/src/components/VaultPanel.tsx:26:  const unlocked = isVaultUnlocked();
+./apps/web/src/components/VaultPanel.tsx:181:                  await unlockVault(master);
+./apps/web/src/components/VaultPanel.tsx:199:                    await clearVault();
+./apps/web/src/components/VaultPanel.tsx:217:              lockVault();
+./apps/web/src/components/VaultPanel.tsx:230:                  await clearVault();
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:142:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:184:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:186:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:222:#### 寫入協議（所有 mutate：createVault / migrate / setSecret / clearVault / re-wrap）
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:227:await navigator.locks.request('assmud.vault.v1', { mode: 'exclusive' }, async () => {
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:352:MUST_FIX: ["Rev conflict check mishandles null transitions: compare current and expected envelope identity/revision exactly; current condition misses absent→present and present→absent races.", "clearVault deletes revision state, so clear→recreate resets rev and permits ABA/stale-write conflicts. Define a persistent monotonic generation/tombstone protocol covering clearVault and createVault.", "Migration finish-delete cannot prove that legacy entries were imported merely from matching profileIds; pre-existing/skipped conflicts are indistinguishable. Persist an authenticated migration receipt or verify exact resolved values before deleting legacy.", "Validate and cap iter before invoking PBKDF2; size bounds alone do not prevent a corrupt envelope from requesting pathological KDF work."]
+./docs/reviews/2026-07-22-profile-vault-codex-r3.out:358:MUST_FIX: ["Rev conflict check mishandles null transitions: compare current and expected envelope identity/revision exactly; current condition misses absent→present and present→absent races.", "clearVault deletes revision state, so clear→recreate resets rev and permits ABA/stale-write conflicts. Define a persistent monotonic generation/tombstone protocol covering clearVault and createVault.", "Migration finish-delete cannot prove that legacy entries were imported merely from matching profileIds; pre-existing/skipped conflicts are indistinguishable. Persist an authenticated migration receipt or verify exact resolved values before deleting legacy.", "Validate and cap iter before invoking PBKDF2; size bounds alone do not prevent a corrupt envelope from requesting pathological KDF work."]
+./apps/web/src/components/ProfileEditor.tsx:11:  isVaultUnlocked,
+./apps/web/src/components/ProfileEditor.tsx:52:    selected && isVaultUnlocked()
+./apps/web/src/components/ProfileEditor.tsx:57:    selected && isVaultUnlocked()
+./apps/web/src/components/ProfileEditor.tsx:62:    selected && isVaultUnlocked()
+./apps/web/src/components/ProfileEditor.tsx:73:    if (!isVaultUnlocked()) {
+./apps/web/src/components/ProfileEditor.tsx:161:        if (!secretsEnabled || !isVaultUnlocked()) {
+./apps/web/src/components/ProfileEditor.tsx:172:      } else if (secretsEnabled && isVaultUnlocked()) {
+./apps/web/src/components/ProfileEditor.tsx:188:    if (isVaultUnlocked()) {
+./apps/web/src/components/ProfileEditor.tsx:238:            {isVaultUnlocked() && getProfileAccount(selected.id)
+./apps/web/src/components/ProfileEditor.tsx:241:            {isVaultUnlocked() && getProfilePassword(selected.id)
+./apps/web/src/components/ProfileEditor.tsx:244:            {isVaultUnlocked() && getProfileAutoLogin(selected.id)
+./apps/web/src/components/ProfileEditor.tsx:246:              : !isVaultUnlocked()
+./apps/web/src/components/ProfileManager.tsx:3:import { isVaultUnlocked, vaultExists } from "@assmud/profiles";
+./apps/web/src/components/ProfileManager.tsx:30:  const unlocked = isVaultUnlocked();
+./apps/web/src/App.tsx:15:  isVaultUnlocked,
+./apps/web/src/App.tsx:16:  subscribeVault,
+./apps/web/src/App.tsx:691:  const [vaultTick, setVaultTick] = useState(0);
+./apps/web/src/App.tsx:692:  useEffect(() => subscribeVault(() => setVaultTick((n) => n + 1)), []);
+./apps/web/src/App.tsx:702:    if (!isVaultUnlocked()) {
+./apps/web/src/App.tsx:726:      if (!isVaultUnlocked()) return;
+./apps/web/src/App.tsx:742:    vaultTick,
+./apps/web/src/App.tsx:748:    if (!isVaultUnlocked()) {
+./apps/web/src/App.tsx:761:      if (!isVaultUnlocked()) return;
+./apps/web/src/App.tsx:770:  }, [echoMask, tab.connected, tab.status.code, profile.id, fireInject, vaultTick]);
+./apps/web/tests/profileEditor.test.ts:23:  unlockVault,
+./apps/web/tests/profileEditor.test.ts:24:  lockVault,
+./apps/web/tests/profileEditor.test.ts:26:  isVaultUnlocked,
+./apps/web/tests/profileEditor.test.ts:55:    lockVault();
+./apps/web/tests/profileEditor.test.ts:56:    expect(isVaultUnlocked()).toBe(false);
+./apps/web/tests/profileEditor.test.ts:59:    await unlockVault("test-master-key");
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out:4:- **Fail-Soft Error Handling on IDB Write in `unlockVault`**: §4.3 does not specify exception handling for `idb.put()` failures (e.g. Private Browsing mode blocking IDB, `SecurityError`, or storage quota exceeded). If `idb.put()` rejects or throws, `unlockVault` MUST NOT crash or block the master password unlock flow. It must catch the IDB error gracefully, log a warning, degrade to memory-only unlock (`rememberUnlock = false`), and succeed.
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out:8:- **Explicit Key Usages Assertion**: Explicitly verify during `importKey` and after IDB retrieval that `cryptoKey.usages` includes both `"encrypt"` and `"decrypt"`. A key restored without `"encrypt"` usage will cause subsequent secret additions/edits (`persistSession`) to throw `InvalidAccessError`.
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out:9:- **Transient `keyBytes` Zeroization**: In §4.3 Step 4, immediately after `crypto.subtle.importKey` completes, zero-fill the temporary PBKDF2 derived `keyBytes` buffer (`keyBytes.fill(0)`) if the session is operating in `CryptoKey`-only mode.
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out:13:Using WebCrypto `extractable: false` `CryptoKey` persisted in IndexedDB prevents attackers from exporting raw key bytes for off-site offline decryption. However, because IndexedDB is origin-bound and accessible to all scripts on that origin, an XSS attacker can execute on-device decryption via `crypto.subtle.decrypt` using the handle from IndexedDB at any time.
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:15:R4 re-review vault plan after R3 fold: VaultSnap absent/present identity, persistent meta.gen tombstone for clearVault ABA, migration.entries exact value receipt before legacy delete, iter capped before PBKDF2. VERDICT MUST_FIX NITS ALL_CLEAR only. Plan: docs/plans/2026-07-22-profile-secrets-vault.md
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:142:| `assmud.vault.v1` | 單一 envelope JSON |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:151:| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:152:| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:167:- **`gen`**：來自 meta；`createVault` / 遷移建庫時 `meta.gen++` 並寫入 envelope。`clearVault` **只刪 envelope**，meta.gen **保留**。  
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:194:| `clearVault()` | 使用者確認後刪 envelope |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:196:**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:267:#### 協議（createVault / migrate / setSecret / clearVault / re-wrap）
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:277:  // clearVault: removeItem(VAULT_KEY) only; meta.gen 不變
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:284:| Web Locks 可用 | `navigator.locks.request('assmud.vault', exclusive)` + snapEqual |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:352:| clearVault ABA | `assmud.vault.meta.v1` gen 持久 + envelope.gen |
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:399:  - "VaultSnap absent lacks persistent meta.gen identity. Include meta.gen in both absent and present snapshots, compare it in snapEqual, and increment meta.gen on clearVault (tombstone) so absent→create→clear ABA conflicts are detectable."
+./docs/reviews/2026-07-22-profile-vault-codex-r4.out:408:  - "VaultSnap absent lacks persistent meta.gen identity. Include meta.gen in both absent and present snapshots, compare it in snapEqual, and increment meta.gen on clearVault (tombstone) so absent→create→clear ABA conflicts are detectable."
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:28:> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:37:| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:56:| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:58:| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:61:| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:68:| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:81:| XSS 讀 sessionStorage 拿走 raw key 字串 | **擋**（沒有 raw key 字串） |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:87:**一句話**：比「F5 必解」好用；比「sessionStorage raw key」安全；**仍不是**防 XSS 的密碼庫。
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:109:| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:135:| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:137:| 記住解鎖偏好 | `localStorage` `assmud.vault.rememberUnlock=0\|1` | n/a（非 secret） |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:139:| raw key bytes in sessionStorage | **禁止** | — |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:160:unlockVault(masterPassword):
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:175:  - **務實 R1**：restore 時若只能 non-extractable，decrypt payload 進 RAM；**後續 persistSession** 需要 encrypt → 必須 subtle + 同一 CryptoKey 的 encrypt usage。  
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:176:  - **禁止**：restore 後為了 noble 再把 key export 成 bytes 存 sessionStorage。
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:186:若 remember ON：`persistSession` **必須**走 subtle + CryptoKey encrypt，不得 export key。
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:208:lockVault():
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:213:clearVault():
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:227:既有：`subscribeVault` + `vaultTick` 在 unlock 後重跑。  
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:238:| `canRememberUnlock(): boolean` | `!!crypto.subtle` |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:240:| `unlockVault` / `createVault` | 若 remember ON → 寫 IDB |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:241:| `lockVault` / `clearVault` | 刪 IDB key |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:250:| Unit | **禁止**任何 code path 寫 key bytes 到 sessionStorage/localStorage（grep test 或 invariant） |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:291:| 實作偷懶又寫回 sessionStorage | 測試 grep + code review 紅線 |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:302:| 有 subtle + remember ON | F5 後 `isVaultUnlocked()` true 無需主密碼 |
+./docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err:312:- 撤回 commit：`e9788b4` security(vault): revert sessionStorage unlock-key  
+./docs/reviews/2026-07-22-profile-vault-minimax-r2.out:18:- `clearVault()` is listed in API but no UX path from the unlock modal shown — obvious but worth a line. Minor.
+# Plan — Profile manager UX + secrets vault (encrypt at rest)
+
+> **Status**: **SHIP** (impl on develop) · plan hetero ALL_CLEAR R6  
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Supersedes / extends**: `2026-07-21-profile-library.md` (SHIP skeleton; secrets were **plaintext opt-in**)  
+> **Related**: `docs/research/zmud-input-ux.md` auto-login; trust modes T0–T3  
+
+## 0. Problem (user report)
+
+1. **「沒看到 profile」** — CRUD / 帳密 UI **只掛在 ConnectGate**（未連線畫面）。連上後 ⚙ drawer 只有 **profile 下拉**，沒有 Edit / New / 密碼欄 → 功能「像沒做」。  
+2. **密碼存哪** — 今日：`localStorage` key `assmud.profileSecrets`，**明文 JSON**（有 opt-in 勾選，**無** AES / WebCrypto）。  
+3. 需要把 **可見的 profile 管理 + 加密 vault + auto-login** 合成一案，hetero 過再 impl。
+
+### 0.1 已落地（勿重做）
+
+| 能力 | 狀態 | 位置 |
+|------|------|------|
+| Profile schema + validate + RW seeds | done | `@assmud/profiles` |
+| Export 不含 secrets | done | `sanitizeProfileForExport` |
+| 明文 secrets + opt-in | done（**將被 vault 取代**） | `secrets.ts` |
+| ConnectGate `ProfileEditor` | done 但 **僅 pre-connect** | `ConnectGate.tsx` |
+| Auto-login：account 延遲 + password on WILL ECHO | done | `App.tsx`（依 secret 旗標） |
+| 指令 inject `{id,line}` | done | Enter 可靠送出 |
+
+### 0.2 本 plan 交付
+
+| ID | 交付 | 驗收 |
+|----|------|------|
+| **U1** | **連線中也可開 Profile 管理**（drawer 或 modal） | 連上後不需斷線即可 New/Edit/Delete、改帳密、auto-login |
+| **U2** | ConnectGate 與 in-session 共用同一 `ProfileEditor` | 單一路徑、無雙份 UI 漂移 |
+| **U3** | i18n 標籤（中/英）「設定檔 / Profiles」入口明確 | 不靠英文藏在連線頁 |
+| **V1** | **Vault 加密 at rest**（WebCrypto AES-GCM） | localStorage 只見 ciphertext / salt / iv；明文不落盤 |
+| **V2** | **主密碼** 解鎖 session | 重載後需 unlock 才可讀密 / auto-login |
+| **V3** | **原子遷移** 舊明文 → vault（見 §3.6） | 失敗保留明文；成功後刪明文 |
+| **V4** | Export 永不含密 | 單元測試 |
+| **V5** | **Corruption / multi-tab** 語意（見 §3.7） | 測試 + 文件 |
+| **A1** | Auto-login 僅 vault unlocked + autoLogin | 鎖上不送 |
+| **D1** | Threat model 誠實（含 unlock 當下攔截） | plan + deploy 短註 |
+
+---
+
+## 1. Threat model（誠實版 · R1 fold）
+
+| 威脅 | Vault 能擋？ | 說明 |
+|------|-------------|------|
+| 離線 / 靜態讀 localStorage **無**主密碼 | **擋**（密文） | dump 檔案看不到密碼 |
+| 同 origin **XSS / 惡意擴充** 在使用者**輸入主密碼當下** | **不擋** | 可攔截 master password 或之後記憶體 key |
+| XSS / 擴充 在 **已 unlock** session | **不擋** | 記憶體已有 plaintext secrets |
+| 本機攻擊者 + 已登入瀏覽器 profile | **不擋** | 同左 |
+| Proxy / MUD 看 cleartext telnet | **不擋** | WSS≠E2E；線上永遠可能被看 |
+| 匯出 JSON | **擋**（設計） | export 永不帶 vault 內密碼 |
+| 忘記主密碼 | 不可恢復 | UI「清除 vault 重來」 |
+
+**一句話**：vault 是 **at-rest 防護**（比明文 localStorage 好），**不是** anti-XSS password manager，也**不是** wire E2E。
+
+**不是目標**：Argon2id 硬體綁定、雲同步、WebAuthn（可列 P3）。
+
+---
+
+## 2. UX
+
+### 2.1 入口（解決「看不到」）
+
+| 畫面 | 入口 |
+|------|------|
+| ConnectGate | profile 區 + 明確 **「管理設定檔…」** |
+| Play shell（已連線） | ⚙ drawer · profile 下拉下方 **「管理設定檔…」** → `ProfileManager` modal |
+| 可選 P2 | 頂欄快捷 |
+
+### 2.2 欄位
+
+| 欄位 | 必填 | 存哪 |
+|------|------|------|
+| id, name, host, port, charset, widthMode | 是 | `assmud.profiles.v1` 明文 |
+| account | 否 | **vault ciphertext only** |
+| password | 否 | **vault** |
+| autoLogin | 否 | **vault 內**（R1 決議：不放明文 profiles，避免洩漏「哪些會自動登」） |
+| 同意文案 | 首次存密 | 「at-rest 加密 ≠ E2E；XSS/擴充仍可能在解鎖時偷密」 |
+
+**Locked 時 UI**：profile 列可顯示 🔒；**不**顯示 autoLogin 開關真實狀態（改顯示「解鎖後可管理自動登入」）。避免為了 drawer 美觀把 autoLogin 放到明文。
+
+### 2.3 Vault unlock UX
+
+1. **首次存任何 secret**（account/password/autoLogin）：強制 **建立 vault**（主密碼 ×2）。僅改 host/port **不**逼建 vault。  
+2. 之後啟動：vault 存在且 locked → unlock modal（可略過 → 本 session 無密、無 auto-login）。  
+3. 錯密：可重試；**無**硬 lockout；任何時刻可「清除 vault」（不可恢復）。  
+4. 手動鎖定；tab 隱藏 auto-lock = P2。  
+5. 變更主密碼 = P2。
+
+### 2.4 遷移 UX（明文 → vault）
+
+若偵測到 `assmud.profileSecrets`：
+
+1. 一次性 dialog：**「發現舊版明文密碼庫。建立主密碼並匯入？ / 稍後 / 丟棄明文」**  
+2. **匯入** = 走 §3.6 原子遷移（先寫 vault 並驗證，再刪明文）。  
+3. **稍後**：每次開 Profile 管理再提示；**不**在背景默默刪。  
+4. **丟棄**：確認後刪明文 key（不可恢復）。
+
+### 2.5 Auto-login
+
+- **禁止** 畫面 `Password:` 文字 trigger 當主路徑。  
+- account：connected 後短延遲送一次；password：WILL ECHO / echoMask 送一次。  
+- 前置：`vault.isUnlocked()` 否則 skip + toast。
+
+---
+
+## 3. 加密設計（V1）
+
+### 3.1 演算法（WebCrypto）
+
+| 步驟 | 選擇（R1 決議） |
+|------|----------------|
+| KDF | **PBKDF2-HMAC-SHA-256** |
+| Iterations | **預設 600_000** 寫入 envelope；之後以 envelope `iter` 為準（可升級 re-wrap） |
+| 密碼編碼 | **UTF-8** 再送入 KDF |
+| 對稱 | **AES-256-GCM** |
+| Salt | ≥16 bytes random / vault |
+| IV | 12 bytes random **每 write** |
+
+### 3.2 Storage keys
+
+| Key | 內容 |
+|-----|------|
+| `assmud.profiles.v1` | 非密 profiles |
+| `assmud.vault.v1` | 單一 envelope JSON |
+| ~~`assmud.profileSecrets`~~ | 僅遷移來源；成功後刪 |
+
+### 3.3 Envelope
+
+**兩個 localStorage key（分離 generation，避免 clear→recreate ABA）：**
+
+| Key | 內容 |
+|-----|------|
+| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
+| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+
+```json
+{
+  "v": 1,
+  "gen": 3,
+  "rev": 12,
+  "kdf": "PBKDF2-SHA256",
+  "iter": 600000,
+  "salt_b64": "...",
+  "iv_b64": "...",
+  "ct_b64": "..."
+}
+```
+
+- **`gen`**：來自 meta；`createVault` / 遷移建庫時 `meta.gen++` 並寫入 envelope。`clearVault` **只刪 envelope**，meta.gen **保留**。  
+- **`rev`**：同一 gen 內每次成功 persist +1；新 gen 從 rev=1 起。  
+- 嚴格 validate：未知 `v` / 缺欄 / 非法 base64 → fail closed。  
+- **Size bounds（KDF 前）**：envelope JSON ≤ 512 KiB；ct 解碼 ≤ 384 KiB；明文 ≤ 256 KiB。  
+- **`iter` cap（KDF 前）**：必須為整數；**硬上限 2_000_000**；低於 100_000 拒絕（防可笑弱參數）。預設新建 600_000。畸形/過大 iter → **不呼叫 PBKDF2**，直接 throw。  
+
+明文 payload（僅記憶體）：
+
+```json
+{
+  "profiles": {
+    "rw-4000": { "account": "...", "password": "...", "autoLogin": true }
+  }
+}
+```
+
+### 3.4 API
+
+| API | 行為 |
+|-----|------|
+| `vaultExists()` | boolean |
+| `createVault(masterPassword)` | 建空 vault；已存在 → error（勿默默覆蓋） |
+| `unlock(masterPassword)` | 失敗 **throw**；成功 memory 持有 CryptoKey |
+| `lock()` | 清 key + plaintext cache |
+| `isUnlocked()` | boolean |
+| `getSecret` / `setSecret` | **locked → throw**（禁止回傳模糊 empty） |
+| `migratePlaintextSecrets(masterPassword)` | §3.6 |
+| `clearVault()` | 使用者確認後刪 envelope |
+
+**禁止**：master password 或 raw key 寫入 localStorage / sessionStorage。
+
+### 3.5 測試
+
+| 測試 |
+|------|
+| encrypt/decrypt round-trip（node webcrypto） |
+| wrong password fails closed |
+| export 永不含 password 字串 |
+| migrate 原子性（失敗保留明文；成功刪明文） |
+| locked getSecret throws |
+| corrupt envelope fails closed |
+| 不覆寫既有 vault（createVault 若已存在） |
+
+### 3.6 原子遷移 + migration receipt（R3 MUST_FIX）
+
+遷移成功寫入 vault 後、刪 legacy **前**，payload 內必須有 **authenticated receipt**（與 secrets 同在 GCM 密文內）：
+
+```json
+{
+  "profiles": { "...": {} },
+  "migration": {
+    "from": "assmud.profileSecrets",
+    "at": 1720000000000,
+    "entries": {
+      "rw-4000": { "account": "hero", "password": "…", "autoLogin": true }
+    }
+  }
+}
+```
+
+```
+1. 讀 legacy；無 → no-op
+2. exclusive lock（§3.7）
+3. createVault 或 unlock
+4. merge secrets；寫 migration.entries = **實際寫入/採用的精確值**（非僅 id 列表）
+5. persist envelope；decrypt 驗證
+6. **逐欄比對** vault 內 values === migration.entries（account/password/autoLogin）
+7. 比對通過才 delete legacy
+8. 失敗 → 保留 legacy
+```
+
+**刪 legacy 的充分條件（R5 MUST_FIX：含 key set 全等）：**
+
+```
+deleteLegacyOnlyIf:
+  (0) receipt 存在且非空
+  (1) keySet(vault.profiles ∩ migrated) 與 keySet(migration.entries) 全等
+      （不得只遍歷 receipt id 而忽略 legacy 多出來的新 key）
+  (2) keySet(currentLegacy) === keySet(migration.entries)
+      （legacy 多了新 profileId 或少了 id → 不刪）
+  (3) ∀ id ∈ migration.entries:
+        deepEqual(vault[id], migration.entries[id]) AND
+        deepEqual(currentLegacy[id], migration.entries[id])
+```
+
+若遷移後使用者又往 legacy 加了新 id → (2) 失敗 → **保留整份 legacy**（安全偏好；UI 可提示手動清理）。
+
+**Crash 雙份 finish-delete：** 同上；缺 receipt → 不自動刪。
+
+### 3.7 Corruption & multi-tab（R4 — snap + gen tombstone + locks）
+
+#### Snapshot（必含 meta.gen，含 absent）
+
+```ts
+type VaultSnap =
+  | { kind: 'absent'; metaGen: number }              // envelope 不存在；metaGen 仍讀自 meta key
+  | { kind: 'present'; metaGen: number; gen: number; rev: number; raw: string };
+// raw = envelope 的完整 JSON 字串（強制比對，非 optional）
+```
+
+`snapEqual(a,b)`：**全欄嚴格相等**（含 `raw` 字串全等）。  
+`metaGen` 在 absent/present 都必填，來自 `assmud.vault.meta.v1.gen`（無 meta 檔視為 0）。
+
+#### clearVault tombstone（R4）
+
+```
+clearVault:
+  meta.gen = meta.gen + 1     // 持久 tombstone；禁止歸零
+  removeItem(assmud.vault.v1) // envelope 刪除
+```
+# Plan — Vault「記住解鎖」（non-extractable CryptoKey + IndexedDB）
+
+> **Status**: **draft** · awaiting plan-hetero ALL_CLEAR  
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Extends**: [`2026-07-22-profile-secrets-vault.md`](./2026-07-22-profile-secrets-vault.md)（SHIP；V2 原寫「重載需 unlock」）  
+> **User drivers**: refresh 後要再解鎖難用；**禁止** sessionStorage 存 raw 派生金鑰（已撤回）
+
+---
+
+## 0. Problem
+
+| 現況 | 痛點 |
+|------|------|
+| 解鎖 key 只在 RAM | **F5 / 硬重新整理** → 一定再問主密碼；autologin 斷 |
+| 曾試 sessionStorage 存 `key_b64` | **不安全**：XSS 可 export 字串外洩 → 已 **revert** |
+| 使用者要 | 「同一瀏覽器好用」+「不要改出安全問題」 |
+
+### 0.1 與既有 plan 關係
+
+| 原 V2 | 本 plan |
+|-------|---------|
+| 重載後需 unlock | **改為可選**：「記住解鎖」開啟且環境允許時，重載可免主密碼 |
+| 金鑰不落盤 | **維持**：不落 **exportable raw key**；允許落 **non-extractable CryptoKey**（瀏覽器保管） |
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+| ID | Goal |
+|----|------|
+| **R1** | 可選「記住解鎖」：解鎖成功後 F5 **不必**再輸主密碼（環境允許時） |
+| **R2** | **永不**把 exportable AES key bytes / 主密碼寫入 sessionStorage / localStorage |
+| **R3** | 使用 WebCrypto **`extractable: false`** CryptoKey + **IndexedDB** 持久化 |
+| **R4** | 無 `crypto.subtle`（部分 HTTP LAN）→ **禁用**記住解鎖，誠實 UI，不 fallback 存 raw key |
+| **R5** | 手動鎖定 / 清除 vault → 刪 IDB key；下次必問主密碼 |
+| **R6** | 威脅模型 + UI 同意文案更新；單元測試 + 安全負向測試 |
+| **R7** | 解鎖還原後 `subscribeVault` 觸發 → autologin 可跑（既有） |
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 把主密碼存任何 storage | 直接洩密 |
+| sessionStorage / localStorage 存 raw key_b64 | 已證明有安全問題 |
+| Anti-XSS password manager | vault 本來就不是 |
+| WebAuthn / 硬體綁定 | 可列 P3 |
+| 跨裝置同步記住解鎖 | 非本機 |
+| noble-only 路徑「假裝」non-extractable | 假安全 |
+
+---
+
+## 2. Threat model（誠實 · 必寫進 UI）
+
+| 威脅 | 記住解鎖後 |
+|------|------------|
+| 靜態 dump localStorage vault 密文、**無**瀏覽器金鑰 | **仍擋** |
+| XSS 讀 sessionStorage 拿走 raw key 字串 | **擋**（沒有 raw key 字串） |
+| XSS 在 **已還原解鎖** 狀態呼叫 `getVaultSecret` | **不擋**（與「當下已 unlock」相同） |
+| XSS 用頁內 non-extractable key 呼叫 `subtle.decrypt` | ** theoretically 可能**若攻擊者能拿到 CryptoKey 參考；比 export key 難，**不是**零風險 |
+| 本機已登入瀏覽器、惡意擴充 | **不擋** |
+| 關瀏覽器後再開（IDB 仍在） | **仍解鎖**（若選「記住直到手動鎖定」）— 使用者可選更嚴策略 |
+
+**一句話**：比「F5 必解」好用；比「sessionStorage raw key」安全；**仍不是**防 XSS 的密碼庫。
+
+**禁止宣稱**：「端到端」「XSS 也偷不到」「比 1Password 還硬」。
+
+---
+
+## 3. Product / UX
+
+### 3.1 開關（預設）
+
+| 項 | 預設 | 說明 |
+|----|------|------|
+| **記住解鎖** | **OFF** | 使用者明確打開才寫 IDB |
+| 位置 | 密碼庫面板（解鎖區旁） | 勾選 + 短威脅文案 |
+| 無 subtle | 開關 disabled + 說明 | 不可開 |
+
+### 3.2 壽命策略（鎖定寫死 · 可再 hetero）
+
+| 策略 ID | 行為 | 本 plan 預設 |
+|---------|------|--------------|
+| **S-manual** | 記住直到使用者按「鎖定」或清 vault | **預設採用** |
+| S-browser | 關閉瀏覽器後失效 | 可選 P2（需 visibility/session 啟發式，不可靠處要寫） |
+| S-tab | 僅同分頁 | 可用 sessionStorage **旗標**（非 key）+ IDB key；關分頁清旗標則下次不 auto-restore |
+
+**R1 鎖定**：先做 **S-manual** only。S-browser / S-tab 列 backlog，不挡 R1 ship。
+
+### 3.3 文案（zh-TW 草案）
+
+**開關：**
+
+> 記住解鎖（本機）  
+> 重新整理後不必再輸主密碼。使用瀏覽器安全金鑰（無法匯出）。  
+> **惡意網頁腳本在已解鎖時仍可能讀取帳密**——與「目前已解鎖」相同。  
+> 按「鎖定」或清除密碼庫會忘記。
+
+**無 subtle：**
+
+> 此連線環境無法使用安全的「記住解鎖」（需要 WebCrypto）。  
+> 重新整理後請再解鎖。
+
+---
+
+## 4. 技術設計
+
+### 4.1 存儲分工
+
+| 存什麼 | 哪裡 | extractable |
+|--------|------|-------------|
+| Vault envelope（密文） | `localStorage` `assmud.vault.v1` | n/a |
+| 解鎖用 AES key | **IndexedDB** `assmud-vault-keys` | **false** |
+| 記住解鎖偏好 | `localStorage` `assmud.vault.rememberUnlock=0\|1` | n/a（非 secret） |
+| 主密碼 | **永不**持久化 | — |
+| raw key bytes in sessionStorage | **禁止** | — |
+
+### 4.2 IndexedDB schema
+
+```text
+DB: assmud-vault-keys
+version: 1
+store: keys
+  keyPath: id
+  record: {
+    id: "default",           // 單 vault 本機一份
+    cryptoKey: CryptoKey,    // structured-cloneable, extractable:false
+    gen: number,             // must match envelope.gen
+    rev: number,             // last known rev (hint only)
+    createdAt: number,
+  }
+```
+
+### 4.3 Unlock path（有 subtle）
+
+```text
+unlockVault(masterPassword):
+  1. PBKDF2 → keyBytes (memory only, ephemeral)
+  2. decrypt envelope → payload
+  3. session = { keyBytes, payload, ... }   // RAM 與今日相同（操作仍用 bytes 或 CryptoKey）
+  4. if rememberUnlock && subtle:
+       cryptoKey = importKey(keyBytes, extractable:false, ["encrypt","decrypt"])
+       idb.put({ id:"default", cryptoKey, gen, rev })
+       // 可選：立即 zeroize 多餘副本的考量寫進 impl 註解
+  5. notifyVaultListeners()
+```
+
+**Impl 細節（R1 鎖定）**：  
+- 今日 `Session` 以 `Uint8Array keyBytes` 為主；IDB 另存 CryptoKey **僅供 restore**。  
+- restore 成功後：`exportKey` **禁止**；用 CryptoKey decrypt 得 payload，並 **在記憶體重建 keyBytes** 僅當 noble 路徑需要——  
+  - **更緊**：restore 後只持有 CryptoKey，改 encrypt/decrypt 路徑走 subtle only。  
+  - **務實 R1**：restore 時若只能 non-extractable，decrypt payload 進 RAM；**後續 persistSession** 需要 encrypt → 必須 subtle + 同一 CryptoKey 的 encrypt usage。  
+  - **禁止**：restore 後為了 noble 再把 key export 成 bytes 存 sessionStorage。
+
+**R1 鎖定（encrypt 路徑）**：
+
+| 環境 | 記住解鎖 | Session 持有 |
+|------|----------|--------------|
+| subtle 可用 + remember ON | 可 | CryptoKey (non-extractable) **或** 暫時仍 keyBytes in RAM only（不寫 storage） |
+| subtle 可用 + remember OFF | 否 | 僅 RAM keyBytes（今日） |
+| 無 subtle | 否 | 僅 RAM keyBytes（今日 noble） |
+
+若 remember ON：`persistSession` **必須**走 subtle + CryptoKey encrypt，不得 export key。
+
+### 4.4 Restore path（頁面載入）
+
+```text
+tryRestoreVaultSession():
+  1. if session already → true
+  2. if !rememberUnlock preference → false
+  3. if !subtle → false (and ensure IDB empty)
+  4. idb.get("default") → cryptoKey?
+  5. read vault envelope from localStorage
+  6. if gen mismatch → delete idb key, false
+  7. subtle.decrypt(envelope) with cryptoKey
+  8. build session (payload in RAM; key material = CryptoKey only if possible)
+  9. notifyVaultListeners(); return true
+```
+
+App boot：`main`/`App` mount 呼叫 `tryRestoreVaultSession()`（async）；UI 顯示「還原中…」可選。
+
+### 4.5 Lock / clear
+
+```text
+lockVault():
+  session = null
+  idb.delete("default")
+  notify
+
+clearVault():
+  刪 envelope + idb key + preference 可保留或清（R1：清 vault 時刪 key；preference 保留 OFF 安全）
+```
+
+### 4.6 多 tab
+
+| 規則 | |
+|------|--|
+| IDB 共享 | tab A 解鎖+remember → tab B refresh 可 restore |
+| tab A 鎖定 | 刪 IDB → tab B 下次操作 fail closed（下一讀取發現無 key / decrypt fail） |
+| BroadcastChannel | **C0 不做**；可接受短暫不一致直到下次 API 呼叫 |
+
+### 4.7 與 autologin
+
+既有：`subscribeVault` + `vaultTick` 在 unlock 後重跑。  
+Restore 成功必須 `notifyVaultListeners()`，使 connected 分頁送帳密。
+
+---
+
+## 5. API surface（`@assmud/profiles`）
+
+| API | 行為 |
+|-----|------|
+| `getRememberUnlock(): boolean` | 讀 preference |
+| `setRememberUnlock(on: boolean): Promise<void>` | 關時刪 IDB key |
+| `canRememberUnlock(): boolean` | `!!crypto.subtle` |
+| `tryRestoreVaultSession(): Promise<boolean>` | 見 §4.4 |
+| `unlockVault` / `createVault` | 若 remember ON → 寫 IDB |
+| `lockVault` / `clearVault` | 刪 IDB key |
+
+exec
+/usr/bin/zsh -lc "sed -n '1,760p' packages/profiles/src/vault.ts && sed -n '660,790p' apps/web/src/App.tsx && git show --stat --oneline e9788b4 && git status --short" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+/**
+ * Encrypted profile secrets vault (AES-256-GCM + PBKDF2-SHA-256).
+ * Spec: docs/plans/2026-07-22-profile-secrets-vault.md
+ *
+ * Backend:
+ * - Prefer WebCrypto `crypto.subtle` (HTTPS / localhost secure context)
+ * - Fallback `@noble/*` when subtle is missing (e.g. http://192.168.x.x LAN)
+ */
+
+export const VAULT_KEY = "assmud.vault.v1";
+export const VAULT_META_KEY = "assmud.vault.meta.v1";
+export const LEGACY_SECRETS_KEY = "assmud.profileSecrets";
+
+export const VAULT_DEFAULT_ITER = 600_000;
+export const VAULT_MAX_ITER = 2_000_000;
+export const VAULT_MIN_ITER = 100_000;
+const MAX_ENVELOPE_CHARS = 512 * 1024;
+const MAX_CT_BYTES = 384 * 1024;
+const MAX_PLAIN_BYTES = 256 * 1024;
+
+export type VaultSecretEntry = {
+  account?: string;
+  password?: string;
+  autoLogin?: boolean;
+};
+
+export type VaultPayload = {
+  profiles: Record<string, VaultSecretEntry>;
+  migration?: {
+    from: string;
+    at: number;
+    entries: Record<string, VaultSecretEntry>;
+  };
+};
+
+type Envelope = {
+  v: 1;
+  gen: number;
+  rev: number;
+  kdf: "PBKDF2-SHA256";
+  iter: number;
+  salt_b64: string;
+  iv_b64: string;
+  ct_b64: string;
+};
+
+type Meta = { gen: number };
+
+type VaultSnap =
+  | { kind: "absent"; metaGen: number }
+  | {
+      kind: "present";
+      metaGen: number;
+      gen: number;
+      rev: number;
+      raw: string;
+    };
+
+export class VaultError extends Error {
+  constructor(
+    message: string,
+    readonly code:
+      | "locked"
+      | "exists"
+      | "missing"
+      | "auth"
+      | "corrupt"
+      | "conflict"
+      | "persist"
+      | "legacy"
+      | "size"
+      | "iter",
+  ) {
+    super(message);
+    this.name = "VaultError";
+  }
+}
+
+/** True when browser WebCrypto SubtleCrypto is usable (secure context). */
+export function hasWebCryptoSubtle(): boolean {
+  return Boolean(globalThis.crypto?.subtle);
+}
+
+function randomBytes(n: number): Uint8Array {
+  const u = new Uint8Array(n);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(u);
+    return u;
+  }
+  // Extremely rare; not cryptographically strong
+  for (let i = 0; i < n; i++) u[i] = (Math.random() * 256) | 0;
+  return u;
+}
+
+/** Raw 32-byte AES key via PBKDF2-SHA-256 (noble — works without subtle). */
+async function deriveKeyBytes(
+  password: string,
+  salt: Uint8Array,
+  iter: number,
+): Promise<Uint8Array> {
+  if (iter < VAULT_MIN_ITER || iter > VAULT_MAX_ITER) {
+    throw new VaultError("iter out of range", "iter");
+  }
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const base = await subtle.importKey(
+      "raw",
+      utf8(password) as BufferSource,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: salt as BufferSource,
+        iterations: iter,
+        hash: "SHA-256",
+      },
+      base,
+      256,
+    );
+    return new Uint8Array(bits);
+  }
+  // LAN HTTP / non-secure context
+  const { pbkdf2 } = await import("@noble/hashes/pbkdf2.js");
+  const { sha256 } = await import("@noble/hashes/sha2.js");
+  return pbkdf2(sha256, password, salt, { c: iter, dkLen: 32 });
+}
+
+async function aesGcmEncrypt(
+  keyBytes: Uint8Array,
+  iv: Uint8Array,
+  plain: Uint8Array,
+): Promise<Uint8Array> {
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const key = await subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"],
+    );
+    return new Uint8Array(
+      await subtle.encrypt(
+        { name: "AES-GCM", iv: iv as BufferSource },
+        key,
+        plain as BufferSource,
+      ),
+    );
+  }
+  const { gcm } = await import("@noble/ciphers/aes.js");
+  return gcm(keyBytes, iv).encrypt(plain);
+}
+
+async function aesGcmDecrypt(
+  keyBytes: Uint8Array,
+  iv: Uint8Array,
+  ct: Uint8Array,
+): Promise<Uint8Array> {
+  if (hasWebCryptoSubtle()) {
+    const subtle = globalThis.crypto.subtle;
+    const key = await subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "AES-GCM" },
+      false,
+      ["decrypt"],
+    );
+    try {
+      return new Uint8Array(
+        await subtle.decrypt(
+          { name: "AES-GCM", iv: iv as BufferSource },
+          key,
+          ct as BufferSource,
+        ),
+      );
+    } catch {
+      throw new VaultError("wrong password or corrupt vault", "auth");
+    }
+  }
+  try {
+    const { gcm } = await import("@noble/ciphers/aes.js");
+    return gcm(keyBytes, iv).decrypt(ct);
+  } catch {
+    throw new VaultError("wrong password or corrupt vault", "auth");
+  }
+}
+
+function b64encode(u: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(u).toString("base64");
+  }
+  let s = "";
+  for (const b of u) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+function b64decode(s: string): Uint8Array {
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(s, "base64"));
+  }
+  const bin = atob(s);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+
+function utf8(s: string): Uint8Array {
+  return new TextEncoder().encode(s);
+}
+
+function storageGet(key: string): string | null {
+  if (typeof localStorage === "undefined") return memoryKV.get(key) ?? null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, val: string): void {
+  if (typeof localStorage === "undefined") {
+    memoryKV.set(key, val);
+    return;
+  }
+  localStorage.setItem(key, val);
+}
+
+function storageDel(key: string): void {
+  if (typeof localStorage === "undefined") {
+    memoryKV.delete(key);
+    return;
+  }
+  localStorage.removeItem(key);
+}
+
+/** Node/test memory backend when no localStorage */
+const memoryKV = new Map<string, string>();
+
+/** Test helper */
+export function vaultTestResetStorage(): void {
+  memoryKV.clear();
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem(VAULT_KEY);
+    localStorage.removeItem(VAULT_META_KEY);
+    localStorage.removeItem(LEGACY_SECRETS_KEY);
+  }
+  // Also purge any legacy tab-session key from the unsafe refresh experiment
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+    }
+  } catch {
+    /* ignore */
+  }
+  session = null;
+}
+
+function readMeta(): Meta {
+  const raw = storageGet(VAULT_META_KEY);
+  if (!raw) return { gen: 0 };
+  try {
+    const j = JSON.parse(raw) as Meta;
+    const gen = Number(j.gen);
+    return { gen: Number.isFinite(gen) && gen >= 0 ? Math.floor(gen) : 0 };
+  } catch {
+    return { gen: 0 };
+  }
+}
+
+function writeMeta(m: Meta): void {
+  storageSet(VAULT_META_KEY, JSON.stringify({ gen: m.gen }));
+}
+
+function readSnap(): VaultSnap {
+  const metaGen = readMeta().gen;
+  const raw = storageGet(VAULT_KEY);
+  if (raw == null) return { kind: "absent", metaGen };
+  if (raw.length > MAX_ENVELOPE_CHARS) {
+    throw new VaultError("envelope too large", "size");
+  }
+  try {
+    const env = JSON.parse(raw) as Envelope;
+    if (env.v !== 1 || env.kdf !== "PBKDF2-SHA256") {
+      throw new VaultError("bad envelope version", "corrupt");
+    }
+    return {
+      kind: "present",
+      metaGen,
+      gen: Number(env.gen) || 0,
+      rev: Number(env.rev) || 0,
+      raw,
+    };
+  } catch (e) {
+    if (e instanceof VaultError) throw e;
+    throw new VaultError("corrupt envelope", "corrupt");
+  }
+}
+
+function snapEqual(a: VaultSnap, b: VaultSnap): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.metaGen !== b.metaGen) return false;
+  if (a.kind === "absent") return true;
+  if (b.kind !== "present") return false;
+  return a.gen === b.gen && a.rev === b.rev && a.raw === b.raw;
+}
+
+function parseEnvelope(raw: string): Envelope {
+  if (raw.length > MAX_ENVELOPE_CHARS) {
+    throw new VaultError("envelope too large", "size");
+  }
+  let env: Envelope;
+  try {
+    env = JSON.parse(raw) as Envelope;
+  } catch {
+    throw new VaultError("corrupt envelope json", "corrupt");
+  }
+  if (env.v !== 1 || env.kdf !== "PBKDF2-SHA256") {
+    throw new VaultError("unsupported envelope", "corrupt");
+  }
+  const iter = Number(env.iter);
+  if (!Number.isInteger(iter) || iter < VAULT_MIN_ITER || iter > VAULT_MAX_ITER) {
+    throw new VaultError("iter out of range", "iter");
+  }
+  if (!env.salt_b64 || !env.iv_b64 || !env.ct_b64) {
+    throw new VaultError("missing crypto fields", "corrupt");
+  }
+  return env;
+}
+
+async function encryptPayload(
+  keyBytes: Uint8Array,
+  payload: VaultPayload,
+  gen: number,
+  rev: number,
+  salt: Uint8Array,
+  iter: number,
+): Promise<string> {
+  const plain = utf8(JSON.stringify(payload));
+  if (plain.length > MAX_PLAIN_BYTES) {
+    throw new VaultError("payload too large", "size");
+  }
+  const iv = randomBytes(12);
+  const ct = await aesGcmEncrypt(keyBytes, iv, plain);
+  if (ct.length > MAX_CT_BYTES) {
+    throw new VaultError("ciphertext too large", "size");
+  }
+  const env: Envelope = {
+    v: 1,
+    gen,
+    rev,
+    kdf: "PBKDF2-SHA256",
+    iter,
+    salt_b64: b64encode(salt),
+    iv_b64: b64encode(iv),
+    ct_b64: b64encode(ct),
+  };
+  return JSON.stringify(env);
+}
+
+async function decryptEnvelope(
+  password: string,
+  raw: string,
+): Promise<{ keyBytes: Uint8Array; payload: VaultPayload; env: Envelope }> {
+  const env = parseEnvelope(raw);
+  const salt = b64decode(env.salt_b64);
+  const iv = b64decode(env.iv_b64);
+  const ct = b64decode(env.ct_b64);
+  if (ct.length > MAX_CT_BYTES) {
+    throw new VaultError("ciphertext too large", "size");
+  }
+  const keyBytes = await deriveKeyBytes(password, salt, env.iter);
+  const plain = await aesGcmDecrypt(keyBytes, iv, ct);
+  if (plain.byteLength > MAX_PLAIN_BYTES) {
+    throw new VaultError("plaintext too large", "size");
+  }
+  let payload: VaultPayload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(plain)) as VaultPayload;
+  } catch {
+    throw new VaultError("bad payload json", "corrupt");
+  }
+  if (!payload.profiles || typeof payload.profiles !== "object") {
+    payload = { profiles: {} };
+  }
+  return { keyBytes, payload, env };
+}
+
+type Session = {
+  keyBytes: Uint8Array;
+  payload: VaultPayload;
+  gen: number;
+  rev: number;
+  raw: string;
+  salt: Uint8Array;
+  iter: number;
+};
+
+let session: Session | null = null;
+
+export function vaultExists(): boolean {
+  return storageGet(VAULT_KEY) != null;
+}
+
+export function hasLegacyPlaintextSecrets(): boolean {
+  return storageGet(LEGACY_SECRETS_KEY) != null;
+}
+
+export function isVaultUnlocked(): boolean {
+  return session != null;
+}
+
+const vaultListeners = new Set<() => void>();
+
+/** Notify UI (e.g. autologin) when unlock/lock/create changes session. */
+export function subscribeVault(cb: () => void): () => void {
+  vaultListeners.add(cb);
+  return () => {
+    vaultListeners.delete(cb);
+  };
+}
+
+function notifyVaultListeners(): void {
+  for (const cb of [...vaultListeners]) {
+    try {
+      cb();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function lockVault(): void {
+  session = null;
+  // Purge any leftover key material from the reverted tab-session experiment
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+    }
+  } catch {
+    /* ignore */
+  }
+  notifyVaultListeners();
+}
+
+async function withVaultLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (
+    globalThis as unknown as {
+      navigator?: { locks?: { request: Function } };
+    }
+  ).navigator?.locks;
+  if (locks?.request) {
+    return locks.request("assmud.vault", { mode: "exclusive" }, () => fn());
+  }
+  return fn();
+}
+
+export async function createVault(masterPassword: string): Promise<void> {
+  if (!masterPassword || masterPassword.length < 4) {
+    throw new VaultError("master password too short", "auth");
+  }
+  await withVaultLock(async () => {
+    const before = readSnap();
+    if (before.kind === "present") {
+      throw new VaultError("vault already exists", "exists");
+    }
+    // Envelope must still be absent
+    if (storageGet(VAULT_KEY) != null) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    const metaGen = before.metaGen + 1;
+    const salt = randomBytes(16);
+    const iter = VAULT_DEFAULT_ITER;
+    const keyBytes = await deriveKeyBytes(masterPassword, salt, iter);
+    const payload: VaultPayload = { profiles: {} };
+    const raw = await encryptPayload(
+      keyBytes,
+      payload,
+      metaGen,
+      1,
+      salt,
+      iter,
+    );
+    if (storageGet(VAULT_KEY) != null) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    writeMeta({ gen: metaGen });
+    storageSet(VAULT_KEY, raw);
+    const after = readSnap();
+    if (after.kind !== "present" || after.raw !== raw || after.gen !== metaGen) {
+      throw new VaultError("persist failed", "persist");
+    }
+    session = {
+      keyBytes,
+      payload,
+      gen: metaGen,
+      rev: 1,
+      raw,
+      salt,
+      iter,
+    };
+    notifyVaultListeners();
+  });
+}
+
+export async function unlockVault(masterPassword: string): Promise<void> {
+  const raw = storageGet(VAULT_KEY);
+  if (!raw) throw new VaultError("no vault", "missing");
+  const { keyBytes, payload, env } = await decryptEnvelope(
+    masterPassword,
+    raw,
+  );
+  const salt = b64decode(env.salt_b64);
+  session = {
+    keyBytes,
+    payload: structuredClonePayload(payload),
+    gen: env.gen,
+    rev: env.rev,
+    raw,
+    salt,
+    iter: env.iter,
+  };
+  notifyVaultListeners();
+}
+
+function structuredClonePayload(p: VaultPayload): VaultPayload {
+  return JSON.parse(JSON.stringify(p)) as VaultPayload;
+}
+
+function requireSession(): Session {
+  if (!session) throw new VaultError("vault locked", "locked");
+  return session;
+}
+
+async function persistSession(s: Session): Promise<void> {
+  await withVaultLock(async () => {
+    const before = readSnap();
+    if (before.kind !== "present") {
+      throw new VaultError("vault missing", "missing");
+    }
+    if (before.gen !== s.gen || before.rev !== s.rev || before.raw !== s.raw) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    const nextRev = s.rev + 1;
+    const raw = await encryptPayload(
+      s.keyBytes,
+      s.payload,
+      s.gen,
+      nextRev,
+      s.salt,
+      s.iter,
+    );
+    const still = readSnap();
+    if (!snapEqual(before, still)) {
+      throw new VaultError("vault conflict", "conflict");
+    }
+    storageSet(VAULT_KEY, raw);
+    const after = readSnap();
+    if (after.kind !== "present" || after.raw !== raw) {
+      throw new VaultError("persist failed", "persist");
+    }
+    s.rev = nextRev;
+    s.raw = raw;
+  });
+}
+
+export function getVaultSecret(profileId: string): VaultSecretEntry | undefined {
+  const s = requireSession();
+  const e = s.payload.profiles[profileId];
+  return e ? { ...e } : undefined;
+}
+
+export async function setVaultSecret(
+  profileId: string,
+  entry: VaultSecretEntry | null,
+): Promise<void> {
+  const s = requireSession();
+  if (entry == null) {
+    delete s.payload.profiles[profileId];
+  } else {
+    const clean: VaultSecretEntry = {};
+    if (entry.account?.trim()) clean.account = entry.account.trim();
+    if (entry.password) clean.password = entry.password;
+    if (entry.autoLogin) clean.autoLogin = true;
+    if (!clean.account && !clean.password && !clean.autoLogin) {
+      delete s.payload.profiles[profileId];
+    } else {
+      s.payload.profiles[profileId] = clean;
+    }
+  }
+  await persistSession(s);
+}
+
+export async function clearVault(): Promise<void> {
+  await withVaultLock(async () => {
+    const before = readSnap();
+    const metaGen = before.metaGen + 1;
+    writeMeta({ gen: metaGen });
+    storageDel(VAULT_KEY);
+    session = null;
+  });
+  notifyVaultListeners();
+}
+
+function deepEqualEntry(
+  a: VaultSecretEntry | undefined,
+  b: VaultSecretEntry | undefined,
+): boolean {
+  return (
+    (a?.account ?? "") === (b?.account ?? "") &&
+    (a?.password ?? "") === (b?.password ?? "") &&
+    Boolean(a?.autoLogin) === Boolean(b?.autoLogin)
+  );
+}
+
+function keySetEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((k, i) => k === sb[i]);
+}
+
+/** Load legacy plaintext secrets shape */
+export function readLegacyPlaintext(): Record<string, VaultSecretEntry> {
+  const raw = storageGet(LEGACY_SECRETS_KEY);
+  if (!raw) return {};
+  try {
+    const j = JSON.parse(raw) as Record<string, VaultSecretEntry>;
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Migrate legacy plaintext into vault (must be unlocked or will create).
+ * Atomic: only deletes legacy after full receipt verify.
+ */
+export async function migrateLegacyIntoVault(
+  masterPassword: string,
+): Promise<{ imported: number }> {
+  const legacy = readLegacyPlaintext();
+  const legacyKeys = Object.keys(legacy);
+  if (legacyKeys.length === 0) {
+    return { imported: 0 };
+  }
+
+  if (!vaultExists()) {
+    await createVault(masterPassword);
+  } else if (!isVaultUnlocked()) {
+    await unlockVault(masterPassword);
+  }
+
+  const s = requireSession();
+  const entries: Record<string, VaultSecretEntry> = {};
+  for (const id of legacyKeys) {
+    if (s.payload.profiles[id]) continue; // skip existing
+    const e = legacy[id]!;
+    const clean: VaultSecretEntry = {};
+    if (e.account?.trim()) clean.account = e.account.trim();
+    if (e.password) clean.password = e.password;
+    if (e.autoLogin) clean.autoLogin = true;
+    if (clean.account || clean.password || clean.autoLogin) {
+      s.payload.profiles[id] = clean;
+      entries[id] = { ...clean };
+    }
+  }
+  s.payload.migration = {
+    from: LEGACY_SECRETS_KEY,
+    at: Date.now(),
+    entries,
+  };
+  await persistSession(s);
+
+  // verify receipt
+  if (!canDeleteLegacy(s.payload, legacy)) {
+    throw new VaultError("migration verify failed", "legacy");
+  }
+  storageDel(LEGACY_SECRETS_KEY);
+  delete s.payload.migration;
+  await persistSession(s);
+  return { imported: Object.keys(entries).length };
+}
+
+function canDeleteLegacy(
+  payload: VaultPayload,
+  currentLegacy: Record<string, VaultSecretEntry>,
+): boolean {
+  const receipt = payload.migration?.entries;
+  if (!receipt || Object.keys(receipt).length === 0) return false;
+  const rKeys = Object.keys(receipt);
+  const lKeys = Object.keys(currentLegacy);
+  if (!keySetEqual(rKeys, lKeys)) return false;
+  for (const id of rKeys) {
+    if (!deepEqualEntry(payload.profiles[id], receipt[id])) return false;
+    if (!deepEqualEntry(currentLegacy[id], receipt[id])) return false;
+  }
+  return true;
+}
+
+/** On boot: if both vault + legacy, finish-delete when safe */
+export async function tryFinishLegacyDelete(
+  masterPassword?: string,
+): Promise<boolean> {
+  if (!hasLegacyPlaintextSecrets() || !vaultExists()) return false;
+  if (!isVaultUnlocked()) {
+    if (!masterPassword) return false;
+    await unlockVault(masterPassword);
+  }
+  const s = requireSession();
+  const legacy = readLegacyPlaintext();
+  if (!s.payload.migration?.entries) return false;
+  if (!canDeleteLegacy(s.payload, legacy)) return false;
+  storageDel(LEGACY_SECRETS_KEY);
+  delete s.payload.migration;
+  await persistSession(s);
+  return true;
+}
+
+export function discardLegacyPlaintext(): void {
+  storageDel(LEGACY_SECRETS_KEY);
+}
+  };
+
+  const disconnectTab = () => {
+    autoLoginRef.current = { accountSent: false, passwordSent: false };
+    setTabs((ts) =>
+      ts.map((x) =>
+        x.id === tabId ? { ...x, connected: false, status: IDLE } : x,
+      ),
+    );
+    setEchoMask(false);
+  };
+
+  /**
+   * zMUD-style send: history + optional local echo + inject to proxy.
+   * Passwords (echoMask) are sent but never stored in history or echoed.
+   */
+  const submitCmd = useCallback(
+    (line: string) => {
+      if (!echoMaskRef.current) {
+        const d = line.trim().toLowerCase();
+        if (d === "n" || d === "s" || d === "e" || d === "w") {
+          lastMoveDirRef.current = d;
+        }
+        noteJourneyStep(line);
+      }
+      fireInject(line, { secret: echoMaskRef.current });
+    },
+    [fireInject, noteJourneyStep],
+  );
+
+  /** Bump when vault unlock/lock so autologin re-runs after unlock (same page). */
+  const [vaultTick, setVaultTick] = useState(0);
+  useEffect(() => subscribeVault(() => setVaultTick((n) => n + 1)), []);
+
+  const vaultAutologinToastAt = useRef(0);
+
+  // Auto-login: requires vault unlocked (A1). NOT text "Password:" trigger.
+  // 1) After connected → send account once per wire hop
+  // 2) When Telnet WILL ECHO (mask) → send password once per hop
+  // Flags reset on connecting/reconnect_wait/handshaking/disconnected.
+  useEffect(() => {
+    if (!tab.connected || tab.status.code !== "connected") return;
+    if (!isVaultUnlocked()) {
+      console.info("[assmud autologin] skip account: vault locked — unlock vault first");
+      const now = Date.now();
+      if (
+        getProfileAutoLogin(profile.id) &&
+        now - vaultAutologinToastAt.current > 8_000
+      ) {
+        vaultAutologinToastAt.current = now;
+        setNavToast("autologin:vault_locked");
+      }
+      return;
+    }
+    if (!getProfileAutoLogin(profile.id)) {
+      console.info("[assmud autologin] skip account: autoLogin off", profile.id);
+      return;
+    }
+    const account = getProfileAccount(profile.id);
+    if (!account) {
+      console.info("[assmud autologin] skip account: no account in vault");
+      return;
+    }
+    if (autoLoginRef.current.accountSent) return;
+    const t = window.setTimeout(() => {
+      if (autoLoginRef.current.accountSent) return;
+      if (!isVaultUnlocked()) return;
+      if (tabIdRef.current !== tab.id) return;
+      autoLoginRef.current.accountSent = true;
+      console.info("[assmud autologin] send account", {
+        profileId: profile.id,
+        len: account.length,
+      });
+      fireInject(account, { secret: true, keepDraft: true });
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [
+    tab.connected,
+    tab.status.code,
+    tab.id,
+    profile.id,
+    fireInject,
+    vaultTick,
+  ]);
+
+  useEffect(() => {
+    if (!echoMask) return;
+    if (!tab.connected || tab.status.code !== "connected") return;
+    if (!isVaultUnlocked()) {
+      console.info("[assmud autologin] skip password: vault locked");
+      return;
+    }
+    if (!getProfileAutoLogin(profile.id)) return;
+    const pw = getProfilePassword(profile.id);
+    if (!pw) {
+      console.info("[assmud autologin] skip password: no password in vault");
+      return;
+    }
+    if (autoLoginRef.current.passwordSent) return;
+    const t = window.setTimeout(() => {
+      if (autoLoginRef.current.passwordSent) return;
+      if (!isVaultUnlocked()) return;
+      autoLoginRef.current.passwordSent = true;
+      console.info("[assmud autologin] send password", {
+        profileId: profile.id,
+        len: pw.length,
+      });
+      fireInject(pw, { secret: true, keepDraft: true });
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [echoMask, tab.connected, tab.status.code, profile.id, fireInject, vaultTick]);
+
+  // Type-anywhere + Enter-anywhere → command line (zMUD)
+  useEffect(() => {
+    if (!tab.connected) return;
+    const isFormField = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "SELECT" || el.isContentEditable) return true;
+      if (tag === "TEXTAREA") return true;
+      if (tag === "INPUT") {
+        const al = el.getAttribute("aria-label") ?? "";
+        // command/password bar is OK for Enter to submit via form; skip type-in
+        return al !== "command" && al !== "password";
+      }
+      return false;
+    };
+    const isCmdBar = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const al = el.getAttribute("aria-label") ?? "";
+      return al === "command" || al === "password";
+e9788b4 security(vault): revert sessionStorage unlock-key persistence
+ apps/web/src/App.tsx                  |  12 +---
+ apps/web/src/i18n/messages/en.ts      |   2 +-
+ apps/web/src/i18n/messages/zh-CN.ts   |   2 +-
+ apps/web/src/i18n/messages/zh-TW.ts   |   2 +-
+ packages/profiles/src/index.ts        |   2 -
+ packages/profiles/src/vault.ts        | 121 ++--------------------------------
+ packages/profiles/tests/vault.test.ts |  29 --------
+ 7 files changed, 8 insertions(+), 162 deletions(-)
+?? docs/TRY-FEATURES.md
+?? docs/plans/2026-07-22-vault-remember-unlock.md
+?? docs/reviews/2026-07-22-t1-site-plan-r1-gemini36.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-glm52.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-gpt56sol.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-minimax.err
+?? docs/reviews/2026-07-22-t1-site-plan-r1-qwen38.err
+?? docs/reviews/2026-07-22-t1-site-plan-r2-gemini36.err
+?? docs/reviews/2026-07-22-t1-site-plan-r2-gpt56sol.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-claude.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-claude.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.out
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.err
+?? docs/reviews/2026-07-22-vault-remember-unlock-r1-gemini.out
+
+exec
+/usr/bin/zsh -lc "rg -n \"storage.*event|addEventListener\\(.*storage|lockVault\\(\" apps packages --glob '"'!**/dist/**'"' && sed -n '1,180p' docs/reviews/2026-07-22-vault-remember-unlock-r1-codex.out && sed -n '1,180p' docs/reviews/2026-07-22-vault-remember-unlock-r1-claude.out" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+apps/web/tests/profileEditor.test.ts:55:    lockVault();
+apps/web/tests/profileEditor.test.ts:59:    await unlockVault("test-master-key");
+packages/profiles/src/vault.ts:435:export function lockVault(): void {
+packages/profiles/src/vault.ts:508:export async function unlockVault(masterPassword: string): Promise<void> {
+packages/profiles/src/vault.ts:653:    await unlockVault(masterPassword);
+packages/profiles/src/vault.ts:710:    await unlockVault(masterPassword);
+packages/profiles/tests/vault.test.ts:42:    lockVault();
+packages/profiles/tests/vault.test.ts:44:    await unlockVault("master-pass-1");
+packages/profiles/tests/vault.test.ts:56:    lockVault();
+packages/profiles/tests/vault.test.ts:57:    await expect(unlockVault("wrong")).rejects.toMatchObject({
+packages/profiles/tests/vault.test.ts:65:    lockVault();
+packages/profiles/tests/vault.test.ts:108:    lockVault();
+packages/profiles/tests/vault.test.ts:137:      lockVault();
+packages/profiles/tests/vault.test.ts:138:      await unlockVault("lan-http-master");
+apps/web/src/components/VaultPanel.tsx:181:                  await unlockVault(master);
+apps/web/src/components/VaultPanel.tsx:217:              lockVault();
+You've hit your weekly limit · resets Jul 23, 12pm (Asia/Taipei)
+
+codex
+VERDICT: CHANGES_REQUIRED
+MUST_FIX:
+- Multi-tab lock claim is false: deleting IDB does not revoke a `CryptoKey` or plaintext already held by tab B, and current secret APIs do not re-check IDB. Define explicit tab-local semantics or add a shared revocation epoch plus `storage`/BroadcastChannel handling and fail-closed checks before every sensitive read/write/autologin.
+- Lock/disable is not fail-closed or implementable as written. IDB deletion is asynchronous and can fail; a failed delete permits F5 restore. Specify ordering: disable restore preference first, clear RAM immediately, await deletion, surface failure, and never report “forgotten” unless durable revocation succeeds. Resolve `lockVault()` becoming async and update all callers.
+- Enabling remember while already unlocked stores only the preference, not a key. `setRememberUnlock(true)` must atomically persist the current non-extractable key before committing preference=ON, or require re-authentication. IDB failure/DataCloneError must leave preference OFF and remove partial state.
+- Boot restore needs a mandatory state machine/single-flight gate, not an optional “還原中” UI. A late restore can currently race with unlock, lock, clear, preference changes, or vault mutation and resurrect a session. Require operation epochs/cancellation and revalidate preference, envelope snapshot/gen, and revocation state immediately before installing the session.
+- Threat claims understate same-origin XSS: malicious script can open IndexedDB, obtain the stored non-extractable `CryptoKey`, and use it directly without waiting for the app to restore. Non-extractability prevents raw-key export, not offline use or secret exfiltration. Fold this into the threat table and consent text.
+- `canRememberUnlock()` cannot be only `!!crypto.subtle`. Require safe feature detection for `globalThis.crypto?.subtle`, IndexedDB availability, and successful non-extractable CryptoKey structured-clone round-trip. Validate restored keys (`type=secret`, AES-GCM-256, `extractable=false`, required usages) and fail closed on malformed records, IDB errors, blocked upgrades, or unsupported cloning.
+NITS:
+- Add real-browser tests for CryptoKey persistence across reload; mocks/fake-indexeddb cannot prove browser structured-clone behavior.
+- Specify IDB open timeout, `onblocked`, `versionchange`, transaction abort, quota/private-mode behavior, and database cleanup ownership.
+- Test crash points and ordering for enable, disable, lock, clear, and concurrent restore.
+- Preserve the existing CSPRNG requirement on LAN paths; never allow the current `Math.random()` fallback to generate vault salt/IV.
+SECURITY_NOTES: IndexedDB persistence converts “remember unlock” into a durable same-origin decryption capability. It protects against a localStorage-only dump and raw-key export, but not same-origin script, extensions, an unlocked browser profile, or cooperative multi-tab sessions already holding the key.
+C0_SHIP_OK: no — P1–P5 can proceed only after the revocation, async lock, enable ordering, and boot-race protocols are concretely folded into the plan.
+ONE_LINE: The core CryptoKey approach is viable, but the current plan can silently resurrect unlock state and falsely promises cross-tab revocation.
+tokens used
+43,381

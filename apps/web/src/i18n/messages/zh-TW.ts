@@ -1,7 +1,7 @@
 import type { MessageKey } from "../types";
 
 export const zhTW = {
-  "app.name": "assmud",
+  "app.name": "mudgate",
   "connect.title": "接入線路",
   "connect.profile": "世界／設定檔",
   "connect.token": "驗證權杖",
@@ -18,7 +18,7 @@ export const zhTW = {
   "trust.mode.label": "連線信任模式",
   "trust.mode.local": "本機／LAN（T0）",
   "trust.mode.selfhost": "我的自架（T1）",
-  "trust.mode.official": "assmud 官方（T2）",
+  "trust.mode.official": "mudgate 官方（T2）",
   "trust.mode.custom": "其他伺服器（T3）",
   "trust.ws": "WebSocket URL",
   "trust.ws.placeholder": "wss://your-host/ws",
@@ -26,7 +26,7 @@ export const zhTW = {
     "此伺服器的管理員可以看到你的 MUD 帳號與密碼（遊戲多為明文）。WSS 只加密到 proxy，不代表 proxy 看不到密碼。只在你完全信任架設者時繼續。",
   "trust.warn.ack": "我了解風險",
   "trust.warn.official":
-    "密碼會經過 assmud 官方 proxy；政策上不記錄密碼字串。這不是端到端加密。",
+    "密碼會經過 mudgate 官方 proxy；政策上不記錄密碼字串。這不是端到端加密。",
   "trust.selfhost.cta": "自架說明（Oracle／Docker）",
   "trust.home.cf": "家用 Cloudflare Tunnel",
   "trust.token.secret": "視同密碼 — 不會匯出",

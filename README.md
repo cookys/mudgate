@@ -1,4 +1,4 @@
-# assmud
+# mudgate
 
 **目標**：用 **電腦或手機瀏覽器** 打開這個網頁專案，在 **登入 + 加密（HTTPS/WSS）** 下，經 **官方/自架 TCP proxy** 連上 **各家 MUD** 遊玩。
 
@@ -47,7 +47,7 @@
 npm install
 npm test
 # terminal 1
-ASSMUD_PROXY_MODE=localhost-dev npm run dev:proxy
+MUDGATE_PROXY_MODE=localhost-dev npm run dev:proxy
 # terminal 2
 npm run dev:web
 # open http://127.0.0.1:5173 — Connect to mud.revivalworld.org:4000

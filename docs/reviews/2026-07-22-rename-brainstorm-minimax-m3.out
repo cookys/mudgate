@@ -1,0 +1,26 @@
+```
+VERDICT_TOP3:
+1. mudwell — "well" as the source/a watering hole, also evokes "wish well" for rebirth — works because it's short, slug-safe, mildly mythic, and reads as "well-mud" or "mud-well" without vulgarity; suggests a deep, trustworthy place clients draw from.
+2. mudgate — straight gateway metaphor for site-mode proxy — works because it tells the truth (operator gateway at mud.revivalworld.org), one word, npm-safe, no cultural baggage, and pairs naturally with future "mudgate-player".
+3. rerite — reb(irth) + rite/rite-of-passage, nod to zMUD lineage (z→re) — works because it's bilingual-friendly (重生之禮), product-agnostic beyond Revival World, and frames MUDing as ritual rather than a dorky acronym.
+
+ALSO_GOOD:
+- mudway — "way/path" + 道路, echoes RW navigation/road meta
+- ziren — 子認 / 子任, plays on zMUD's "z" and "任/認" (to take responsibility for), very Chinese-flavored codename
+- tethermud — "tethered" wire from browser→proxy→telnet, honest about thin client
+- telmud — honest telnet-first branding, reads clean, easy to type
+- mudloom — loom weaves sessions/scripts together, evokes the scripting engine
+
+AVOID:
+- mudhub — screams "generic github template #47", no soul
+- mudly / mudder — too close to "smudly" / Reddit's r/mudder, sounds like a cleaning product
+- mudforge — overloaded with gaming-cliché fantasy tone, pretentious for a proxy
+- mudshell — collides hard with "mush" reading and existing shell tools
+- zMud2 / zmud-ng — trademark-adjacent, arrogant, and locks you to one ancestor
+- mudgatekeeper — too long, sounds like a CAPTCHA product
+- revivalmud — fine name but literally a one-campaign brand; paints you into RW corner
+
+CHINESE_PRODUCT_TITLE: 重生之徑 — "Path of Rebirth". Reads as 道路/navigation (your map feature), rebirth (your benchmark), and 徑 has a classical MUD-literature feel without being limited to 復活世界. Falls back gracefully to 通境之門 ("Gateway of Realms") if you want a more operator-flavored title.
+
+ONE_LINE: mudwell — high confidence; short, slug-safe, gateway+depth metaphor, survives the "assMud" rebrand cleanly and works whether you ever ship player mode or pivot past Revival World.
+```

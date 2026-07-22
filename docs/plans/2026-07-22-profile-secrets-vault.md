@@ -9,14 +9,14 @@
 ## 0. Problem (user report)
 
 1. **「沒看到 profile」** — CRUD / 帳密 UI **只掛在 ConnectGate**（未連線畫面）。連上後 ⚙ drawer 只有 **profile 下拉**，沒有 Edit / New / 密碼欄 → 功能「像沒做」。  
-2. **密碼存哪** — 今日：`localStorage` key `assmud.profileSecrets`，**明文 JSON**（有 opt-in 勾選，**無** AES / WebCrypto）。  
+2. **密碼存哪** — 今日：`localStorage` key `mudgate.profileSecrets`，**明文 JSON**（有 opt-in 勾選，**無** AES / WebCrypto）。  
 3. 需要把 **可見的 profile 管理 + 加密 vault + auto-login** 合成一案，hetero 過再 impl。
 
 ### 0.1 已落地（勿重做）
 
 | 能力 | 狀態 | 位置 |
 |------|------|------|
-| Profile schema + validate + RW seeds | done | `@assmud/profiles` |
+| Profile schema + validate + RW seeds | done | `@mudgate/profiles` |
 | Export 不含 secrets | done | `sanitizeProfileForExport` |
 | 明文 secrets + opt-in | done（**將被 vault 取代**） | `secrets.ts` |
 | ConnectGate `ProfileEditor` | done 但 **僅 pre-connect** | `ConnectGate.tsx` |
@@ -72,7 +72,7 @@
 
 | 欄位 | 必填 | 存哪 |
 |------|------|------|
-| id, name, host, port, charset, widthMode | 是 | `assmud.profiles.v1` 明文 |
+| id, name, host, port, charset, widthMode | 是 | `mudgate.profiles.v1` 明文 |
 | account | 否 | **vault ciphertext only** |
 | password | 否 | **vault** |
 | autoLogin | 否 | **vault 內**（R1 決議：不放明文 profiles，避免洩漏「哪些會自動登」） |
@@ -90,7 +90,7 @@
 
 ### 2.4 遷移 UX（明文 → vault）
 
-若偵測到 `assmud.profileSecrets`：
+若偵測到 `mudgate.profileSecrets`：
 
 1. 一次性 dialog：**「發現舊版明文密碼庫。建立主密碼並匯入？ / 稍後 / 丟棄明文」**  
 2. **匯入** = 走 §3.6 原子遷移（先寫 vault 並驗證，再刪明文）。  
@@ -122,9 +122,9 @@
 
 | Key | 內容 |
 |-----|------|
-| `assmud.profiles.v1` | 非密 profiles |
-| `assmud.vault.v1` | 單一 envelope JSON |
-| ~~`assmud.profileSecrets`~~ | 僅遷移來源；成功後刪 |
+| `mudgate.profiles.v1` | 非密 profiles |
+| `mudgate.vault.v1` | 單一 envelope JSON |
+| ~~`mudgate.profileSecrets`~~ | 僅遷移來源；成功後刪 |
 
 ### 3.3 Envelope
 
@@ -132,8 +132,8 @@
 
 | Key | 內容 |
 |-----|------|
-| `assmud.vault.v1` | envelope 或 **缺席**（已 clear） |
-| `assmud.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
+| `mudgate.vault.v1` | envelope 或 **缺席**（已 clear） |
+| `mudgate.vault.meta.v1` | `{ "gen": number }` — **永不因 clearVault 歸零**；只遞增 |
 
 ```json
 {
@@ -199,7 +199,7 @@
 {
   "profiles": { "...": {} },
   "migration": {
-    "from": "assmud.profileSecrets",
+    "from": "mudgate.profileSecrets",
     "at": 1720000000000,
     "entries": {
       "rw-4000": { "account": "hero", "password": "…", "autoLogin": true }
@@ -249,14 +249,14 @@ type VaultSnap =
 ```
 
 `snapEqual(a,b)`：**全欄嚴格相等**（含 `raw` 字串全等）。  
-`metaGen` 在 absent/present 都必填，來自 `assmud.vault.meta.v1.gen`（無 meta 檔視為 0）。
+`metaGen` 在 absent/present 都必填，來自 `mudgate.vault.meta.v1.gen`（無 meta 檔視為 0）。
 
 #### clearVault tombstone（R4）
 
 ```
 clearVault:
   meta.gen = meta.gen + 1     // 持久 tombstone；禁止歸零
-  removeItem(assmud.vault.v1) // envelope 刪除
+  removeItem(mudgate.vault.v1) // envelope 刪除
 ```
 
 之後 `createVault` 使用 **新** `meta.gen` 寫入 envelope.gen，rev=1。  
@@ -369,7 +369,7 @@ Artifacts: `docs/reviews/2026-07-22-profile-vault-{codex,minimax}-r{1..6}.out`
 |----------|------|
 | Web Locks + rev | §3.7 |
 | null absent/present races | §3.7 `VaultSnap` / snapEqual |
-| clearVault ABA | `assmud.vault.meta.v1` gen 持久 + envelope.gen |
+| clearVault ABA | `mudgate.vault.meta.v1` gen 持久 + envelope.gen |
 | migration id-only 不夠 | §3.6 authenticated `migration.entries` 精確比對 |
 | pathological iter | §3.3 iter cap 2e6 於 KDF 前 |
 

@@ -1,7 +1,7 @@
-# zMUD 輸入 / Focus / 送指令 — 操作模型（vs assmud）
+# zMUD 輸入 / Focus / 送指令 — 操作模型（vs mudgate）
 
 > **目的**：手邊沒 zMUD 時，用這份當「案件與操作行為」SSOT，決定要不要 1:1 port。  
-> **來源**：既有 matrix §1.1 ECHO survey、UI redesign plan、Zugg 產品慣例、Mudlet/line-mode 對照、assmud 現況 code。  
+> **來源**：既有 matrix §1.1 ECHO survey、UI redesign plan、Zugg 產品慣例、Mudlet/line-mode 對照、mudgate 現況 code。  
 > **不是**完整 zScript 手冊；只涵蓋 **怎麼 focus、怎麼走路、怎麼送指令**。
 
 ---
@@ -13,7 +13,7 @@ zMUD（與多數桌面 MUD 客）是：
 > **輸出窗（可回捲） + 底部獨立指令列（line editor）+ 應用層熱鍵（numpad 方向）**  
 > 不是「終端機 TTY 鍵盤直通」。
 
-assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，所以會覺得怪。
+mudgate 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，所以會覺得怪。
 
 ---
 
@@ -76,9 +76,9 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 
 ---
 
-## 2. assmud 現況（2026-07-22 · input UX ship）
+## 2. mudgate 現況（2026-07-22 · input UX ship）
 
-| 項目 | assmud | 跟 zMUD 比 |
+| 項目 | mudgate | 跟 zMUD 比 |
 |------|--------|------------|
 | 獨立 command bar + 輸出 canvas | ✅ | 同架構 |
 | Enter 送出 | ✅ `submitCmd` | 同 |
@@ -100,7 +100,7 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 | 行為 | 檔案 |
 |------|------|
 | 指令歷史 | `apps/web/src/lib/commandHistory.ts` |
-| Echo 偏好 | `loadEchoCommands` / `saveEchoCommands` → `localStorage assmud.echoCommands` |
+| Echo 偏好 | `loadEchoCommands` / `saveEchoCommands` → `localStorage mudgate.echoCommands` |
 | 送出 + history + echo | `App.tsx` `submitCmd` |
 | Numpad → submitCmd | `TerminalHost` `onUserCommand` |
 | 點 canvas focus | `TerminalHost` `onRequestFocusCmd`（click without drag） |
@@ -157,7 +157,7 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 
 ---
 
-## 6. 實作備註（assmud code）
+## 6. 實作備註（mudgate code）
 
 | 行為 | 位置 |
 |------|------|
@@ -167,11 +167,11 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 | Numpad → 統一送出 | `onUserCommand={submitCmd}` |
 | Command bar + ↑↓ | `App.tsx` footer `input` |
 | ECHO mask | `App.tsx` `echoMask` → `type=password` |
-| Echo commands 偏好 | drawer checkbox · `assmud.echoCommands` |
+| Echo commands 偏好 | drawer checkbox · `mudgate.echoCommands` |
 | 送出 | `fireInject` → `{ id, line }`（**id 必變**，同指令可連送）→ `MudSocket.send` |
 | 點終端 focus | `onRequestFocusCmd` on click-without-drag |
 | 自動登入 | **vault 解鎖後** account + password + autoLogin；ECHO mask 送密；見 `profile-secrets-vault` plan |
-| 密碼 at-rest | WebCrypto AES-GCM vault + 主密碼（`assmud.vault.v1`）；非明文 |
+| 密碼 at-rest | WebCrypto AES-GCM vault + 主密碼（`mudgate.vault.v1`）；非明文 |
 
 ### Enter 送不出去的 bug（已修）
 
@@ -183,7 +183,7 @@ assmud 也走同一架構，但 **熱鍵／focus 規則還沒對齊手感**，�
 | 做法 | 評價 |
 |------|------|
 | 抓畫面「Password:」文字 | 多語系/改提示就炸；RW 未必英文字串 |
-| **Telnet WILL ECHO → mask → 送密** | 協定級，zMUD/Mudlet 同語意；**assmud 採用** |
+| **Telnet WILL ECHO → mask → 送密** | 協定級，zMUD/Mudlet 同語意；**mudgate 採用** |
 | 連線後延遲送 account | 對齊「login 提示後打帳號」的實務 |
 
 Profile 編輯：Account + Password + Enable auto-login + plaintext opt-in。

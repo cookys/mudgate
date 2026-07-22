@@ -1,0 +1,7 @@
+VERDICT: APPROVED
+MUST_FIX:
+NITS:
+- In `probeRememberUnlock`, ensure probe key handles are explicitly dereferenced after cleaning up test records in IndexedDB to avoid transient memory retention.
+SECURITY_NOTES: Non-extractable CryptoKeys stored in IndexedDB successfully block raw key exfiltration while honestly acknowledging the origin-wide XSS threat window; durable `restoreAllowed` gates and atomic single-transaction `opToken` deletions robustly mitigate multi-tab races and post-lock auto-restore bypasses.
+C0_SHIP_OK: yes
+ONE_LINE: The plan fully satisfies all security, cross-tab race prevention, and fail-closed lock requirements under R6.

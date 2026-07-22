@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ScreenBuffer } from "../src/buffer.js";
-import { defaultAttrs } from "@assmud/vt";
+import { defaultAttrs } from "@mudgate/vt";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

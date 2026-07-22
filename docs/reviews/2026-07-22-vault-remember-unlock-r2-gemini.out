@@ -1,0 +1,7 @@
+VERDICT: APPROVED
+MUST_FIX: (none)
+NITS:
+- Ensure implementation of `unlockVault` (§4.4) explicitly updates `restoreAllowed = 1` in localStorage upon successful IDB put, fully aligning with the restore gate protocol defined in §4.7.
+SECURITY_NOTES: Storing `extractable: false` CryptoKeys in IndexedDB prevents exfiltration of raw key bytes off-origin via XSS, but preserves on-origin decryption capabilities for any script executing within the origin while enabled. The threat model, warning text, and fail-closed state controls correctly document and handle this security boundary.
+C0_SHIP_OK: yes
+ONE_LINE: All R1 MUST_FIX feedback cleanly integrated; capability probing, single-flight restore, and lock fail-closed protocols are sound and approved.

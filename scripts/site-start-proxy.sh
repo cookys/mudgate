@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Start assmud-proxy using private Node if present; loads repo-root .env via cli.
+# Start mudgate-proxy using private Node if present; loads repo-root .env via cli.
 set -e
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -15,8 +15,8 @@ fi
 
 if [ ! -f apps/proxy/dist/cli.js ]; then
   echo "building protocol + proxy..."
-  npm run build -w @assmud/protocol
-  npm run build -w @assmud/proxy
+  npm run build -w @mudgate/protocol
+  npm run build -w @mudgate/proxy
 fi
 
 exec node apps/proxy/dist/cli.js

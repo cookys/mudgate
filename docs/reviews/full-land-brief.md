@@ -1,4 +1,4 @@
-Review full assmud land phases 1a–5. Implementer: grok-4.5 CEO.
+Review full mudgate land phases 1a–5. Implementer: grok-4.5 CEO.
 
 Must verify:
 - VT map controls (CUP/save/restore/ED/EL/DECSTBM)

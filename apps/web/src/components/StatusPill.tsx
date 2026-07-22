@@ -33,12 +33,12 @@ export function StatusPill({ status }: Props) {
           background: color,
           boxShadow: ton === "ok" || ton === "warn" ? `0 0 10px ${color}` : undefined,
           animation:
-            ton === "warn" ? "assmud-pulse 1.4s ease-in-out infinite" : undefined,
+            ton === "warn" ? "mudgate-pulse 1.4s ease-in-out infinite" : undefined,
         }}
       />
       <span className="max-w-[10rem] truncate sm:max-w-none">{label}</span>
       <style>{`
-        @keyframes assmud-pulse {
+        @keyframes mudgate-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.35; }
         }

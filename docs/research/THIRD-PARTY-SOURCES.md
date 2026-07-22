@@ -2,7 +2,7 @@
 
 This file tracks **external materials** we study for interop. It is not a license grant to re-ship those trees.
 
-| Material | Origin | Use in assmud | Redistribution |
+| Material | Origin | Use in mudgate | Redistribution |
 |----------|--------|---------------|----------------|
 | RW live TCP banner | `mud.revivalworld.org:4000` (pre-auth) | `tests/fixtures/streams/rw-banner-4000.*` | Small interop fixture; no account data |
 | RWlib 1.0.2 / Undine | https://www.revivalworld.org/rw/opensource | Cited in `rw-ansi-and-map-controls.md` | **Do not vendor** full archives here without separate license review |

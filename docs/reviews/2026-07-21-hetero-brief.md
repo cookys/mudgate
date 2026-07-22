@@ -1,6 +1,6 @@
 # Hetero review brief — roadmap queue (multi-LLM)
 
-You are a **plan reviewer** (not implementer). Review the **assmud** roadmap plans for a web zMUD client (RW = Revival World: Big5 + VT map_d; WSS auth proxy).
+You are a **plan reviewer** (not implementer). Review the **mudgate** roadmap plans for a web zMUD client (RW = Revival World: Big5 + VT map_d; WSS auth proxy).
 
 ## Product facts (do not invent opposite)
 
@@ -21,7 +21,7 @@ You are a **plan reviewer** (not implementer). Review the **assmud** roadmap pla
 7. `docs/plans/2026-07-21-profile-library.md`
 8. `docs/plans/2026-07-21-research-spikes.md`
 
-Read files under `/home/cookys/projects/assmud/` as needed. Ground MCCP against `apps/proxy/src/bridge.ts` and `packages/protocol`.
+Read files under `/home/cookys/projects/mudgate/` as needed. Ground MCCP against `apps/proxy/src/bridge.ts` and `packages/protocol`.
 
 ## Output format (required)
 

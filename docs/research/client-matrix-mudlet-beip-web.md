@@ -1,8 +1,8 @@
-# Client matrix: Mudlet / BeipMU / webmud / mudportal vs zMUD / assmud
+# Client matrix: Mudlet / BeipMU / webmud / mudportal vs zMUD / mudgate
 
 > Research spike R2 — public info only. Feeds future plans; not a product ship.
 
-| Capability | zMUD | Mudlet | BeipMU | Web clients (mudportal-class) | assmud (2026-07) |
+| Capability | zMUD | Mudlet | BeipMU | Web clients (mudportal-class) | mudgate (2026-07) |
 |------------|------|--------|--------|-------------------------------|------------------|
 | Big5 / CJK | ✅ | ✅ (encoding) | partial | varies | ✅ HKSCS |
 | MCCP2 | ✅ | ✅ | varies | rare | ✅ proxy stream |
@@ -16,6 +16,6 @@
 
 ## Takeaways
 
-1. assmud’s differentiator is **browser + auth proxy + CJK cell width**, not full zMUD script parity.
+1. mudgate’s differentiator is **browser + auth proxy + CJK cell width**, not full zMUD script parity.
 2. Mudlet remains gold standard for **Lua / GMCP** power users.
 3. Web portals often skip ECHO/MCCP — parity with desktop Chinese clients is the gap we close first.

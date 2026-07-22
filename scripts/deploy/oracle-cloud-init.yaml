@@ -1,9 +1,9 @@
 #cloud-config
 # Oracle Always Free / any cloud-init host.
 # REQUIRED user-data env via write_files or runcmd exports:
-#   ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:...
-#   ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com
-#   ASSMUD_INSTALLER_URL + ASSMUD_INSTALLER_SHA256 when using remote installer
+#   MUDGATE_PROXY_IMAGE=ghcr.io/OWNER/mudgate-proxy@sha256:...
+#   MUDGATE_ORIGIN_ALLOWLIST=https://mud.example.com
+#   MUDGATE_INSTALLER_URL + MUDGATE_INSTALLER_SHA256 when using remote installer
 #
 # Token is written 0600 and NEVER echoed to console log.
 
@@ -14,46 +14,46 @@ packages:
   - curl
 
 write_files:
-  - path: /etc/assmud/bootstrap.env
+  - path: /etc/mudgate/bootstrap.env
     permissions: "0600"
     content: |
       # Fill before first boot or replace via user-data:
-      # ASSMUD_PROXY_IMAGE=ghcr.io/OWNER/assmud-proxy@sha256:REPLACE
-      # ASSMUD_ORIGIN_ALLOWLIST=https://mud.example.com
+      # MUDGATE_PROXY_IMAGE=ghcr.io/OWNER/mudgate-proxy@sha256:REPLACE
+      # MUDGATE_ORIGIN_ALLOWLIST=https://mud.example.com
 
 runcmd:
   - systemctl enable --now docker || true
-  - mkdir -p /etc/assmud /opt/assmud
+  - mkdir -p /etc/mudgate /opt/mudgate
   - |
     set -euo pipefail
     # shellcheck disable=SC1091
-    if [[ -f /etc/assmud/bootstrap.env ]]; then set -a; . /etc/assmud/bootstrap.env; set +a; fi
-    if [[ -z "${ASSMUD_PROXY_IMAGE:-}" || -z "${ASSMUD_ORIGIN_ALLOWLIST:-}" ]]; then
-      echo "assmud: missing ASSMUD_PROXY_IMAGE or ASSMUD_ORIGIN_ALLOWLIST — not starting" >&2
+    if [[ -f /etc/mudgate/bootstrap.env ]]; then set -a; . /etc/mudgate/bootstrap.env; set +a; fi
+    if [[ -z "${MUDGATE_PROXY_IMAGE:-}" || -z "${MUDGATE_ORIGIN_ALLOWLIST:-}" ]]; then
+      echo "mudgate: missing MUDGATE_PROXY_IMAGE or MUDGATE_ORIGIN_ALLOWLIST — not starting" >&2
       exit 0
     fi
     TOKEN=$(openssl rand -hex 24)
-    printf '%s' "$TOKEN" >/etc/assmud/auth_token
-    chmod 600 /etc/assmud/auth_token
+    printf '%s' "$TOKEN" >/etc/mudgate/auth_token
+    chmod 600 /etc/mudgate/auth_token
     # Do NOT echo TOKEN to cloud-init output
-    cat >/opt/assmud/.env <<EOF
-    ASSMUD_PROXY_IMAGE=${ASSMUD_PROXY_IMAGE}
-    ASSMUD_AUTH_TOKEN=$(cat /etc/assmud/auth_token)
-    ASSMUD_ORIGIN_ALLOWLIST=${ASSMUD_ORIGIN_ALLOWLIST}
+    cat >/opt/mudgate/.env <<EOF
+    MUDGATE_PROXY_IMAGE=${MUDGATE_PROXY_IMAGE}
+    MUDGATE_AUTH_TOKEN=$(cat /etc/mudgate/auth_token)
+    MUDGATE_ORIGIN_ALLOWLIST=${MUDGATE_ORIGIN_ALLOWLIST}
     EOF
-    chmod 600 /opt/assmud/.env
-    cat >/opt/assmud/docker-compose.yml <<'YAML'
+    chmod 600 /opt/mudgate/.env
+    cat >/opt/mudgate/docker-compose.yml <<'YAML'
     services:
       proxy:
-        image: ${ASSMUD_PROXY_IMAGE}
+        image: ${MUDGATE_PROXY_IMAGE}
         restart: unless-stopped
         env_file: .env
         environment:
-          ASSMUD_PROXY_MODE: remote-prod
-          ASSMUD_BIND_HOST: "127.0.0.1"
+          MUDGATE_PROXY_MODE: remote-prod
+          MUDGATE_BIND_HOST: "127.0.0.1"
           PORT: "7788"
         network_mode: host
     YAML
-    docker pull "$ASSMUD_PROXY_IMAGE"
-    cd /opt/assmud && docker compose up -d
-    echo "assmud: proxy up on 127.0.0.1:7788 — retrieve token: sudo cat /etc/assmud/auth_token"
+    docker pull "$MUDGATE_PROXY_IMAGE"
+    cd /opt/mudgate && docker compose up -d
+    echo "mudgate: proxy up on 127.0.0.1:7788 — retrieve token: sudo cat /etc/mudgate/auth_token"

@@ -1,0 +1,21 @@
+Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited. For the best experience, use a terminal emulator with truecolor support.
+YOLO mode is enabled. All tool calls will be automatically approved.
+Error authenticating: IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google
+    at throwIneligibleOrProjectIdError (file:///home/cookys/.nvm/versions/node/v24.15.0/lib/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273244:11)
+    at _doSetupUser (file:///home/cookys/.nvm/versions/node/v24.15.0/lib/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273233:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  ineligibleTiers: [
+    {
+      reasonCode: 'UNSUPPORTED_CLIENT',
+      reasonMessage: 'This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google',
+      tierId: 'free-tier',
+      tierName: 'Gemini Code Assist for individuals'
+    }
+  ]
+}
+YOLO mode is enabled. All tool calls will be automatically approved.
+Ripgrep is not available. Falling back to GrepTool.
+An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google
+    at throwIneligibleOrProjectIdError (file:///home/cookys/.nvm/versions/node/v24.15.0/lib/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273244:11)
+    at _doSetupUser (file:///home/cookys/.nvm/versions/node/v24.15.0/lib/node_modules/@google/gemini-cli/bundle/chunk-7VVHSNDQ.js:273233:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

@@ -14,7 +14,7 @@ import {
   setRememberUnlock,
   probeRememberUnlock,
   VaultError,
-} from "@assmud/profiles";
+} from "@mudgate/profiles";
 
 type Props = {
   onChange: () => void;
@@ -85,7 +85,7 @@ export function VaultPanel({ onChange }: Props) {
           className="rounded border p-2 space-y-1"
           style={{ borderColor: "var(--accent)", color: "var(--text-dim)" }}
         >
-          <div>發現舊版明文密碼庫（assmud.profileSecrets）</div>
+          <div>發現舊版明文密碼庫（mudgate.profileSecrets）</div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

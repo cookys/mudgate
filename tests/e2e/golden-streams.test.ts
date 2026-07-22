@@ -17,9 +17,9 @@ import {
   SB,
   SE,
   replyToNegotiation,
-} from "@assmud/protocol";
-import { Big5StreamDecoder } from "@assmud/codec-big5";
-import { ScreenBuffer } from "@assmud/terminal";
+} from "@mudgate/protocol";
+import { Big5StreamDecoder } from "@mudgate/codec-big5";
+import { ScreenBuffer } from "@mudgate/terminal";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 

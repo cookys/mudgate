@@ -1,5 +1,5 @@
 {
-  "name": "@assmud/nav-memory",
+  "name": "@mudgate/nav-memory",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -12,6 +12,6 @@
     }
   },
   "dependencies": {
-    "@assmud/terminal": "0.1.0"
+    "@mudgate/terminal": "0.1.0"
   }
 }

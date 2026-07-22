@@ -2,10 +2,10 @@
 
 export type TrustMode = "local" | "selfhost" | "official" | "custom";
 
-const MODE_KEY = "assmud_trust_mode";
-const CUSTOM_WS_KEY = "assmud_custom_ws";
-const TOKEN_KEY = "assmud_token";
-const CUSTOM_ACK_KEY = "assmud_trust_custom_ack";
+const MODE_KEY = "mudgate_trust_mode";
+const CUSTOM_WS_KEY = "mudgate_custom_ws";
+const TOKEN_KEY = "mudgate_token";
+const CUSTOM_ACK_KEY = "mudgate_trust_custom_ack";
 
 export type SiteConfig = {
   officialProxyUrl?: string;
@@ -49,8 +49,8 @@ export function assertExportOmitsToken(exportedJson: string): boolean {
   try {
     const data = JSON.parse(exportedJson) as unknown;
     const s = JSON.stringify(data);
-    // exported profiles should not embed assmud_token field
-    return !/"assmud_token"\s*:/.test(s) && !/"proxyToken"\s*:/.test(s);
+    // exported profiles should not embed mudgate_token field
+    return !/"mudgate_token"\s*:/.test(s) && !/"proxyToken"\s*:/.test(s);
   } catch {
     return false;
   }
@@ -122,6 +122,6 @@ export function canConnect(
 
 export function readOfficialProxyUrl(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  const w = window as unknown as { __ASSMUD_SITE__?: SiteConfig };
-  return w.__ASSMUD_SITE__?.officialProxyUrl;
+  const w = window as unknown as { __MUDGATE_SITE__?: SiteConfig };
+  return w.__MUDGATE_SITE__?.officialProxyUrl;
 }

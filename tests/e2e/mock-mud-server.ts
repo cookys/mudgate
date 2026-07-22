@@ -1,7 +1,7 @@
 /** Minimal TCP mock that plays a byte fixture then optional MCCP2 compressed payload. */
 import net from "node:net";
 import zlib from "node:zlib";
-import { IAC, WILL, DO, SB, SE, OPT } from "@assmud/protocol";
+import { IAC, WILL, DO, SB, SE, OPT } from "@mudgate/protocol";
 
 export type MockMudHandle = {
   port: number;

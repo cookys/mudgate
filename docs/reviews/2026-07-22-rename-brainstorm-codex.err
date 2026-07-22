@@ -1,0 +1,136 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 019f888b-1d65-7c83-9ebf-fc78cc7a1404
+--------
+user
+Brainstorm product/repo rename. You are naming a software product / open-source repo (not yet on GitHub — rename is free).
+
+CURRENT internal name: assmud / assMud
+PROBLEM: English speakers read it as "ass" + MUD — looks unprofessional. We want a better engineering + product name.
+
+PRODUCT FACTS:
+- Web zMUD-class multi-MUD client (TypeScript monorepo)
+- Fat browser SPA + thin Node WebSocket→telnet proxy
+- Two product modes: "site mode" (MUD operator gateway) and future "player mode" (player daemon, thin display)
+- Depth benchmark: Taiwanese MUD "重生的世界" / Revival World (Big5, telnet, classic UX)
+- Features: terminal, map/nav companion, encrypted vault, autologin, scripts
+- Site deploy target: https://mud.revivalworld.org (gateway; honest that site can see passwords)
+- NOT claiming E2E security; honest threat model
+
+CONSTRAINTS:
+- Good as npm scope / github org-ish slug: lowercase, no spaces, preferably one word or short kebab
+- Should not be an English insult or accidental vulgarity
+- Prefer memorable; ok bilingual (Chinese product title separate from eng codename)
+- Avoid pure generic: mudclient, webmud (too flat unless strongly justified)
+- Consider: gateway metaphor, session/wire, zMUD lineage, Chinese MUD culture, "revival/rebirth" without locking ONLY to RW forever
+
+OUTPUT EXACTLY this format (English or 繁中 ok):
+
+VERDICT_TOP3:
+1. name — one-line meaning — why it works
+2. ...
+3. ...
+
+ALSO_GOOD: (up to 5 more bullets: name — meaning)
+
+AVOID: (names that look clever but fail, + why)
+
+CHINESE_PRODUCT_TITLE: one recommended player-facing 中文 title (for RW site or generic)
+
+ONE_LINE: your single best recommendation and confidence (high/med/low)
+codex
+我會用 `autopilot:brainstorm` 做命名發散與收斂，並直接按你指定的格式交付候選，不進入實作。
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' /home/cookys/.codex/plugins/cache/autopilot-local/autopilot/2.32.54/skills/brainstorm/SKILL.md" in /home/cookys/projects/assmud
+ succeeded in 0ms:
+---
+name: brainstorm
+description: >
+  Pre-code Socratic design exploration — when the options don't exist yet. Use when: "I haven't figured
+  out the approach", "help me think through X", "what should this even be / 還沒想清楚", "explore how to
+  do X before we build", "我不確定要怎麼做", "尚未成形 / 沒有方向". DISCOVERS the options, surfaces 2-3
+  genuinely different approaches, and GATES implementation until you approve a design. Not for: deciding
+  between options that ALREADY exist on the table (→ think-tank), external best-practice research
+  (→ survey), an approach you've already chosen (→ references/plan-template.md to author the plan, then
+  dev-flow), or a quick known fix (→ dev-flow).
+---
+
+# brainstorm — discover the design before any code exists
+
+The discriminator vs neighbours: **do the options exist yet?**
+- **No options yet / fuzzy need** → `brainstorm` (this skill) — explore, then converge on a design.
+- **Options on the table, need to decide** → `think-tank` (multi-perspective) / `think-tank-dialectic`.
+- **Need to know what others do** → `survey` (external research).
+- **Approach already chosen** → author the plan (`references/plan-template.md`) → `dev-flow`.
+
+This is a **gate**: do NOT invoke any implementation skill or write code until the user approves a design.
+
+## Protocol
+
+### 1. Explore the real need — Socratic, ONE question at a time
+Don't propose solutions yet. Ask one focused question, wait for the answer, then ask the next. Surface the
+*actual* problem, the constraints, the success picture, the no-go zones. Stop asking once you can restate
+the need in one sentence the user confirms. (One-at-a-time matters: a wall of questions gets a thin
+answer; a single sharp question gets a real one.)
+
+### 2. Surface 2–3 genuinely different approaches
+Not strawmen. Each approach: a one-line essence, its honest tradeoffs, what it's best/worst at. They must
+differ in *kind* (different architecture / different mechanism), not just in parameter. If you can only
+find one real approach, say so — that's a finding, not a failure.
+
+### 3. Converge to a design spec
+Once the user leans toward an approach, write a short **design spec**: the chosen approach, why it beat the
+others (1 line each), the key decisions made, and the open questions that remain. Keep it tight — it's the
+thing the plan will be built from, not the plan itself.
+
+### 4. The approval gate
+Present the design spec and ask for explicit approval. **Nothing downstream runs without it.** On approval,
+hand off:
+- to `references/plan-template.md` to **author the plan** (then `dev-flow` to execute), or
+- directly to `dev-flow` if the work is small enough to skip a formal plan.
+On "not yet" → keep exploring (back to step 1/2) — do not force forward.
+
+## Boundaries
+- **Discovers, doesn't decide-between-knowns** — the moment the options are already enumerated and the
+  question is "which one", that's `think-tank`, not this.
+- **Explores internally, doesn't research externally** — if the gap is "what do others do", chain to
+  `survey` first, then bring its findings back here.
+- **Designs, doesn't author the plan** — the structured plan doc is `references/plan-template.md`'s job;
+  this skill produces the *design spec* that feeds it.
+- Fits `research-to-ship` as an optional Phase-0 (discover the design before its Phase-1 research/plan),
+  for topics that start fuzzy rather than from a clear question.
+
+codex
+VERDICT_TOP3:
+1. realmwire — a wire into many realms — memorable, technical, and fits both gateway and player modes
+2. mudweaver — weaves sessions, maps, scripts, and worlds together — clearly MUD-focused without sounding generic
+3. waygate — a navigational gateway between player and world — short, approachable, and strong for site deployment
+
+ALSO_GOOD:
+- realmbridge — a bridge between browsers and virtual worlds
+- worldwire — the network path into persistent worlds
+- mudrelay — an honest description of the WebSocket-to-telnet role
+- wayfinder — emphasizes maps, navigation, and cross-world journeys
+- emberlink — a memorable connection that keeps old worlds alive
+
+AVOID:
+- assmud / assMud — immediately parses as “ass” + “MUD”
+- mudhub — generic, crowded-sounding, and weakly differentiated
+- webmud — accurate but flat and tied too tightly to the browser
+- zWeb / zMUD.js — derivative, dated, and potentially confusing around zMUD lineage
+- RevivalWire — attractive, but locks the project too closely to Revival World
+- MUDdy — looks playful but invokes “muddy” and can feel unserious
+
+CHINESE_PRODUCT_TITLE: 萬界連線
+
+ONE_LINE: `realmwire` is my single best recommendation: distinctive, engineering-friendly, extensible beyond Revival World, and suitable for `@realmwire/*` — confidence high.
+tokens used
+33,242

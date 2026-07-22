@@ -1,4 +1,4 @@
-You reviewed assmud plan pack earlier (or act as if you did). Below is the MUST-FIX list from Round 1 and the UPDATED key docs.
+You reviewed mudgate plan pack earlier (or act as if you did). Below is the MUST-FIX list from Round 1 and the UPDATED key docs.
 
 For each must-fix item, answer: FIXED | PARTIAL | STILL OPEN with one-line evidence (section name).
 

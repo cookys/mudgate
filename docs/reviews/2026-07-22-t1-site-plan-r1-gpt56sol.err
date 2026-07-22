@@ -1,0 +1,435 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/assmud
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8685-ffa7-7dc0-877d-38329054f423
+--------
+user
+NO TOOLS. ENGINE/VERDICT/MUST_FIX/NITS/ARCH_VERDICT/C0_EQUIV_SHIP_OK/ONE_LINE_SUMMARY.
+
+Plan hetero R1 — T1-site + IP + Rust/TinTin daemon architecture. Output ENGINE/VERDICT/MUST_FIX/NITS/ONE_LINE_SUMMARY/ARCH_VERDICT (accept D1 mid-term?).
+# Plan — T1-site（站方自架 proxy）+ 出口 IP／身份 · 與「Rust core = TinTin 式 daemon」架構討論
+
+> **Status**: **draft** — awaiting plan-hetero  
+> **Owner**: cookys  
+> **Date**: 2026-07-22  
+> **Extends**: [`2026-07-21-selfhost-proxy-trust.md`](./2026-07-21-selfhost-proxy-trust.md)（T0–T3 **已 SHIP**）  
+> **Related**: ADR-002 remote auth proxy · `docs/deploy/SELF-HOSTED-PROXY.md` · threat model · proxy abuse limits  
+> **Trigger**: 站方若自架 → wss 護瀏覽器；但 mud 常只見 `127.0.0.1` → 限連／多開／ban 失效；並牽動「核心是否該是 TinTin 式 daemon」  
+
+---
+
+## 0. Problem
+
+### 0.1 部署缺一格
+
+現有信任表（selfhost-proxy-trust）：
+
+| 等級 | 誰跑 proxy | 典型出口 IP |
+|------|------------|-------------|
+| T0 | 玩家本機 | 玩家 ISP |
+| T1a | 玩家 VPS | VPS |
+| T1b | 玩家家 + CF Tunnel | 玩家 ISP |
+| T2 | assmud 官方 | 共用官方 |
+| T3 | 陌生人 URL | 未知 |
+
+**缺：T1-site — MUD 站方自己跑 proxy（與 mud 同信任域）。**
+
+| 站方自架的甜頭 | 代價 |
+|----------------|------|
+| 公網玩家用 **wss/https**，不必裸 telnet 出站 | 站方仍見帳密（本來就管 mud） |
+| allowlist 可鎖死本站 `host:port` | mud 預設見 **proxy 的 TCP src**（常 `127.0.0.1`） |
+| 可跟官網同源、站方帳號綁 | IP 限連／多開策略要改或補 identity |
+
+### 0.2 Source IP 鐵律
+
+```text
+mud accept() 看到的 = 建立 TCP 連線那一端的位址
+瀏覽器無法「直接」當 telnet client 的 src IP
+```
+
+站方 hop：
+
+```text
+玩家 --wss--> [站方 proxy] --tcp--> mud:4000
+                    ↑
+              mud 看到 proxy（多為 127.0.0.1 / 內網）
+```
+
+**不能**在不改 mud／不加 shim 的情況下，讓標準 TCP 假裝 src = 玩家家寬。
+
+### 0.3 架構討論觸發
+
+若「站方 daemon」變一等公民，自然問：
+
+> 是否應有 **Rust（或 native）core** 像 **TinTin++** 一樣當常駐 **execute daemon**（握 TCP、腳本、mapper 狀態），  
+> **Web 只負責顯示／輸入**？
+
+本 plan **同時**定 T1-site 產品契約，並把 daemon 分層做成 **可裁決的架構選項**（不立刻重寫，但鎖方向）。
+
+---
+
+## 1. Goals / Non-goals
+
+### Goals
+
+| ID | Goal |
+|----|------|
+| **S1** | 定義 **T1-site** 信任級、UX 文案、與 T1a／T2 差異 |
+| **S2** | 站方一鍵／文件：proxy 只連本站 mud；wss + origin + token 預設 |
+| **S3** | **誠實** 出口 IP 行為 + 可選 **PROXY protocol** 與 **proxy 層限流** 補洞 |
+| **S4** | 身份替代：ws `remoteAddress` 稽核、per-token／per-account 限連（不依賴 mud 見真人 IP） |
+| **S5** | 架構：對照 **Thin proxy + fat web** vs **TinTin 式 daemon + thin display**；產出 ADR 草案與分期 |
+| **S6** | 明確「何時值得上 Rust core」的門檻（perf／站方嵌入／本地 daemon） |
+
+### Non-goals
+
+| 不做 | 原因 |
+|------|------|
+| 保證 E2E 密碼對站方不可見 | 站方＝mud 營運者；無意義且不可能（plain telnet hop） |
+| 在無 mud 支援下偽造任意 src IP | TCP 不允許 |
+| 立刻把現有 Node proxy 全改 Rust | 風險大；先契約與可選 shim |
+| 公共 proxy 目錄 | 密碼農場（既有禁止） |
+| Web 直接 raw TCP | 瀏覽器做不到 |
+
+---
+
+## 2. T1-site 產品定義
+
+### 2.1 信任表新增列
+
+| 等級 | 模式 | 出口 IP（mud 預設） | 誰見密碼 | UX |
+|------|------|---------------------|----------|-----|
+| **T1-site** | **MUD 站方自架 proxy** | proxy 機（常 localhost／內網） | **站方**（與 mud 同營運） | 「連線經本站安全閘道」；**不**用 T3 地獄警告 |
+
+與 T2 差異：營運者 = 遊戲站，不是 assmud 官方。  
+與 T1a 差異：玩家不必自己有 VPS；站方提供 `wss://mud.example/ws`。
+
+### 2.2 部署拓撲（建議預設）
+
+```text
+                    ┌─ static web (optional, same origin)
+Internet ─ wss ──► │  assmud-proxy (site)
+                    └─ tcp 127.0.0.1:4000 ─► mud
+```
+
+| 旋鈕 | 預設 |
+|------|------|
+| `ASSMUD_PROXY_MODE` | `remote-prod` |
+| bind | 僅 reverse-proxy 可達（或 tunnel） |
+| allowlist | **僅** 本站 mud host:port |
+| auth | site token / 站方 session（實作可分階段） |
+| Origin | 站方 web origin fail-closed |
+| payload log | off |
+
+### 2.3 UX 文案（zh-TW 草案）
+
+**連線本站閘道時（非 T3）：**
+
+> 你經 **本站 Web 閘道** 連線。瀏覽器到閘道為加密傳輸（WSS）。  
+> 遊戲協定多為傳統 telnet；**站方伺服器本來就能處理登入**（與桌面客端連站相同信任模型）。  
+
+**禁止**：「端到端，站方也看不到密碼」。
+
+### 2.4 與現有 selfhost 的關係
+
+| 文件／模式 | 關係 |
+|------------|------|
+| T0 玩家本機 | 不變；多開最乾淨 |
+| T1a 玩家 VPS | 不變 |
+| **T1-site** | **新增**；站方 installer + 文件 |
+| T2 官方 | 多開仍痛；站方模式是替代敘事 |
+
+---
+
+## 3. 出口 IP 與身份（S3–S4）
+
+### 3.1 現實選項矩陣
+
+| 方案 | mud 見 | 需 mud／shim | C0 可做？ | 建議 |
+|------|--------|--------------|-----------|------|
+| **A. 接受 local src + 改限連哲學** | proxy IP | 否 | **是** | **預設路徑** |
+| **B. PROXY protocol v1/v2** | header 內嵌 client IP | **是**（driver 或 tcp shim） | 可選 flag | **可選進階** |
+| **C. HAProxy/nginx stream + PROXY** | 同上 | 前置 + mud 支援 | 部署文件 | 站方自行加 |
+| **D. IP_TRANSPARENT / 每連線 spoof** | 近似玩家 IP | root + 網路魔法 | 否 | **不做** |
+| **E. proxy 稽核 log** | 仍 local | 否 | **是** | **必做配套** |
+| **F. 站方 web 帳號 ↔ mud 帳號** | 不靠 IP | 站方整合 | 產品合作 | 長期 |
+
+### 3.2 方案 A（預設）— 產品契約
+
+1. 文件寫死：T1-site 下 mud 可能見 `127.0.0.1`。  
+2. 站方限連改為：  
+   - **遊戲帳號** 維度（mud 本體）  
+   - **proxy**：per `ws.remoteAddress`、per auth token、concurrent caps（既有 limits 延伸）  
+3. Ban IP：對 web 玩家應 ban **proxy 記錄的 client IP**（方案 E），不是指望 mud 的 `getpeername`。
+
+### 3.3 方案 B — PROXY protocol（可選）
+
+```text
+proxy --tcp connect--> mud
+首行（v1 例）:
+PROXY TCP4 <src> <dst> <srcport> <dstport>\r\n
+然後才是 telnet 位元組
+```
+
+| 項 | 契約 |
+|----|------|
+| Env | `ASSMUD_PROXY_PROTOCOL=0\|1`（預設 **0**） |
+| src IP 來源 | WSS upgrade 的 `socket.remoteAddress`（經 **信任的** reverse-proxy 時可吃 `X-Forwarded-For` **最左不可信** → 只信 **單一** `ASSMUD_TRUSTED_PROXY=1` 時的 `X-Real-IP`／CF 專用頭，**fail-closed 文件**） |
+| 未支援的 mud | 連線會爛 → 預設關；站方文件「僅當 mud 宣告支援」 |
+| 測試 | mock TCP server 斷言首行；RW 本體 **不**假設支援 |
+
+**誠實**：即便 PROXY 成功，src 也是 **「連到 wss 入口的位址」**（CDN／NAT），不是瀏覽器 API 可讀的「真實家寬保證」。
+
+### 3.4 方案 E — proxy 層身份（C0 必做配套）
+
+| 事件 | 記錄（metadata only） |
+|------|------------------------|
+| ws open | token id hash、remoteAddress、time |
+| hello mud | dest host:port、outcome |
+| close | reason、bytes in/out counters |
+| **禁止** | 密碼、完整 telnet payload |
+
+Admin：站方可 `journald`／檔案轉發；assmud 不內建「密碼農場儀表板」。
+
+---
+
+## 4. 架構討論：Thin proxy + fat web  vs  TinTin 式 daemon + thin display
+
+### 4.1 今日 assmud（已落地）
+
+```text
+[Browser React]
+  VT buffer · UI · scripts (declarative) · vault
+       │ WSS
+[Node proxy]
+  auth · allowlist · bridge TCP · MCCP
+       │ TCP
+[MUD]
+```
+
+| 優 | 劣 |
+|----|-----|
+| 一開網頁就能玩（手機友善） | 熱路徑／長連在 Node；站方要 Node 執行環境 |
+| 與 ADR-002 一致 | 腳本／mapper 狀態在 browser → 關分頁易丟（除非雲端） |
+| 迭代快 | 「像 zMUD 常駐」體感弱 |
+
+### 4.2 TinTin++ 心智（對照）
+
+```text
+[tt++ daemon]
+  TCP · #action · #map · session 常駐
+       │
+  可接：console / GUI /  theoretically remote UI
+```
+
+| 優 | 劣 |
+|----|----|
+| 執行與狀態在 daemon；UI 可換 | 瀏覽器不能當「零安裝 daemon」 |
+| 適合桌面 power user | 手機要另裝／另跑常駐 |
+
+### 4.3 選項（裁決用）
+
+#### 選項 **W0** — 維持：Node proxy + fat web（現狀強化）
+
+- T1-site = **部署／政策／可選 PROXY**，不換 core 語言  
+- Web 繼續握 VT／腳本／vault  
+- **最適合**：現在就 ship 站方模式  
+
+#### 選項 **D1** — **Split：Session Daemon + Display Client**（推薦中期方向）
+
+```text
+[Display]
+  Web / 未來 native UI
+  只：渲染 cells、輸入、通知
+       │  session protocol (WSS or local IPC)
+[Session daemon]  ← 可 Node 先做，Rust 後換
+  TCP·MCCP·telnet · 腳本引擎 · mapper graph · 自動登入
+  可 headless 常駐
+       │
+[MUD]
+```
+
+| 特點 | |
+|------|--|
+| Web **不是**唯一 runtime | 關瀏覽器可選「daemon 續跑」（桌面） |
+| 站方 T1-site | daemon 就在站上；display 仍是官網 SPA |
+| 手機 | 仍連 **遠端 daemon**（站方或自架），不要求手機跑 daemon |
+| TinTin 類比 | daemon ≈ tt++；web ≈ 可拆的 front |
+
+#### 選項 **R2** — **Rust core daemon 為 SSOT**（長期）
+
+- 熱路徑、記憶、bridge 全 Rust  
+- Node proxy **退役或變薄**（僅 reverse-proxy 邊緣）  
+- Web 經 WSS 訂閱 **cell diff / input** 協定  
+
+| 何時才做 | 門檻 |
+|----------|------|
+| Node bridge CPU／延遲成可測瓶頸 | 有 profile 數據 |
+| 站方要單一二進位嵌入 mud 機 | 運維需求 |
+| 桌面「無瀏覽器也能玩」 | 產品要 desktop shell |
+| 腳本要強到接近 tt++/Mudlet | 引擎重寫理由 |
+
+**禁止**：為了「Rust 比較酷」在無門檻下重寫。
+
+### 4.4 建議裁決（plan 預設）
+
+| 時程 | 選擇 |
+|------|------|
+| **現在（本 plan 實作範圍）** | **W0 + T1-site 文件／開關／可選 PROXY + 稽核** |
+| **中期 ADR** | **D1 方向鎖定**：定義 **Session Protocol v0**（顯示與執行分離），daemon **先可用 Node 抽離**（從現有 proxy+部分 web 狀態下沉） |
+| **長期** | 達 §4.3 R2 門檻再 **Rust 實作同一 Session Protocol** |
+
+一句話：
+
+> **Web 應該越來「只負責顯示＋輸入」；執行與 TCP 應收斂到可常駐的 session daemon。**  
+> 今天的 Node proxy 是 daemon 的 **雛形**，不是終點；Rust 是 **換引擎**，不是换产品形态。
+
+### 4.5 Session Protocol v0（草案 · 非本 plan 實作）
+
+| 方向 | 訊息（概念） |
+|------|----------------|
+| display ← daemon | `frame` / `cell_patch` / `bell` / `echo_mask` / `status` |
+| display → daemon | `input_line` / `naws` / `ping` |
+| 控制 | `hello`（profile dest）/ `auth` / `disconnect` |
+
+與現有 JSON over WSS **可演進**，不要求 big-bang。
+
+---
+
+## 5. 實作分期（T1-site 工程）
+
+### Phase S0 — 契約與文件（可先 ship 文件）
+
+| ID | 交付 |
+|----|------|
+| **S0.1** | 信任表加入 T1-site；i18n 文案 |
+| **S0.2** | `docs/deploy/SITE-OPERATOR.md`：站方 docker-compose 例（proxy+可選 caddy，allowlist 本機 mud） |
+| **S0.3** | threat model 補「站方模式」一段 |
+| **S0.4** | README 部署模式表：玩家本機／玩家 VPS／**站方**／官方 |
+
+### Phase S1 — Proxy 行為
+
+| ID | 交付 |
+|----|------|
+| **S1.1** | `ASSMUD_SITE_MODE=1`：強制 allowlist 僅 env 白名單；拒絕任意 hello host（或僅允許清單） |
+| **S1.2** | Metadata audit log（§3.4）；仍禁 payload |
+| **S1.3** | 文件：限連應看帳號 + proxy 限流，不依賴 mud peer IP |
+| **S1.4** | 測試：site mode 拒非 allowlist dest |
+
+### Phase S2 — 可選 PROXY protocol
+
+| ID | 交付 |
+|----|------|
+| **S2.1** | `ASSMUD_PROXY_PROTOCOL=1` 時 TCP 連上後先寫 PROXY v1 |
+| **S2.2** | mock server 測試；預設 0 |
+| **S2.3** | 文件：僅當 mud/shim 支援；RW 未驗證則標 experimental |
+
+### Phase S3 — Session 分離（ADR + spike，不強制換 Rust）
+
+| ID | 交付 |
+|----|------|
+| **S3.1** | ADR-00x：Display/Session split；TinTin 類比；Rust 門檻 |
+| **S3.2** | Session Protocol v0 草案 + 與現有 WS 訊息對照表 |
+| **S3.3** | Spike（可選）：把 bridge 狀態機畫成「daemon 邊界」圖；無大重寫 |
+
+---
+
+## 6. 測試 / 驗收
+
+| 層 | 內容 |
+|----|------|
+| Unit | site mode allowlist；PROXY 線格式；audit 無 payload |
+| Manual | 站方 compose 起 proxy → 瀏覽器 wss → 本機假 mud |
+| 文件 | 出口 IP 行為一頁內講完 |
+
+---
+
+## 7. Risks
+
+| 風險 | 緩解 |
+|------|------|
+| 站方以為 wss = 密碼對自己不可見 | 文案禁止 |
+| PROXY 開了 mud 不懂 → 全站不能玩 | 預設 0；顯眼 experimental |
+| XFF 偽造 | 只信單一 trusted hop；預設不信 |
+| 過早 Rust 重寫 | R2 門檻；S3 只 ADR |
+| 與 T3 混淆 | T1-site 明示「站方＝遊戲營運」 |
+
+---
+
+## 8. Open questions（Board）
+
+1. T1-site 是否要 **強制** 站方提供「非 localhost 的 public mud IP allowlist」備援（雙機部署）？  
+2. PROXY v1 是否進 S1 還是嚴格 S2 experimental？  
+3. Session Protocol v0 是否與 mapd Companion 並行（display 幀從 daemon 來）？  
+4. 站方模式 auth：沿用 `ASSMUD_AUTH_TOKEN` 共用密，還是要 per-player 站方 SSO（更大）？  
+
+**預設若 Board 不回：**
+
+| # | 預設 |
+|---|------|
+| 1 | 文件支援雙機；一鍵 compose 預設 localhost mud |
+| 2 | **S2 experimental**，不挡 S0–S1 |
+| 3 | 並行文件；實作不耦合 C0 companion |
+| 4 | S1 = shared site token；SSO = 後續 |
+
+---
+
+## 9. 與「Rust = TinTin daemon」的一句裁決
+
+| 命題 | 裁決 |
+|------|------|
+| Web 只負責顯示？ | **方向：是**（中期 D1） |
+| 現在立刻 Rust？ | **否** — 先 T1-site + 可選 PROXY + 限流／稽核 |
+| Node proxy 定位 | **Session daemon 雛形**，站方可先跑 Node |
+| Rust | **同一協定的未來引擎**，達門檻再換 |
+
+---
+
+## 10. Status
+
+| 狀態 | 條件 |
+|------|------|
+| draft | now |
+| approved | plan-hetero ALL_CLEAR |
+| S0–S1 impl | after approved |
+| S2–S3 | 可平行文件／spike |
+
+**Hetero 請審：** T1-site 契約、IP 選項 honesty、S 分期、D1/R2 架構裁決是否可接受、false-ship 風險。
+codex
+ENGINE: GPT-5 Codex — plan-hetero R1
+
+VERDICT: CHANGES_REQUIRED
+
+MUST_FIX:
+
+- **S4 與預設實作不一致。** S1 採 shared site token，無法提供真正的 per-token／per-account 限連或可靠身份。需改成「shared token 僅閘道驗證；C0 身份能力只保證 per-IP」，或在 S1 納入具唯一 ID、可撤銷的 per-player token。不得用 shared token 宣稱 identity replacement。
+- **Client IP 信任模型必須精確化。** `ASSMUD_TRUSTED_PROXY=1` 布林值不足以建立安全邊界。需指定可信 peer CIDR／Unix socket，只有 TCP peer 命中才接受指定 header；直連時忽略所有 forwarded headers。多 hop 應採「由右向左剝除可信 hop」，不能籠統使用 XFF。
+- **限流必須發生在昂貴操作之前。** 明定 upgrade／auth／TCP dial 前的 per-effective-IP 限速，以及 auth identity 的 concurrent cap、全域 cap、dial timeout；否則 T1-site 仍可被用來耗盡 fd、記憶體與 MUD connection slots。
+- **Audit 契約缺少資料治理。** Client IP、token hash、目的地與時間仍是敏感 metadata。需定義預設輸出位置、保留期／rotation、權限、hash 使用 keyed HMAC 而非裸 hash，以及 log injection 防護。
+- **D1 必須拆成兩種 deployment role。** 「站方多租戶 gateway daemon」與「玩家私有常駐 session daemon」不是同一安全模型。站方 daemon 若承載腳本、mapper、自動登入，會新增憑證保管、租戶隔離、資源配額、session ownership、重連與版本遷移問題。ADR 應先定協定與 ownership，不應直接承諾把 vault／autologin 下沉至站方。
+- **PROXY v1 的 destination 欄位與地址正規化需有明確來源。** 定義 src/dst、IPv4-mapped IPv6、IPv6 zone ID、`UNKNOWN`、CRLF/header injection、header 長度，以及「只對 allowlisted destination 且連線成功後寫一次」。否則測試一條 happy-path 首行不足。
+- **驗收缺少負向安全案例。** 至少加入：偽造 forwarded header、非可信 peer、缺失／重複 header、IPv6、token 撤銷或 shared-token 降級語義、audit 不含輸入內容、rate-limit 在 dial 前生效、PROXY-disabled byte-for-byte 相容。
+
+NITS:
+
+- `remoteAddress` 建議統一稱為 `effective client address`，並在 log 同時保留 transport peer，方便稽核來源。
+- 「最左不可信」表述容易誤導；直接寫完整可信代理鏈演算法。
+- `ASSMUD_SITE_MODE=1` 與既有 `remote-prod` 的優先序、衝突時 fail-fast 行為需列入設定契約。
+- S0–S1 可先 ship；S2 應維持 experimental，且不阻擋主路徑。
+- Session Protocol v0 應預先包含版本協商、resume/session ownership、流量控制、序號或 snapshot recovery；只有 `cell_patch` 不足以安全重連。
+- 「Web 只負責顯示＋輸入」宜寫成目標形態，不應把本地 vault、離線偏好與可及性邏輯一概移出 Web。
+
+ARCH_VERDICT: **接受 D1 作為中期方向，但僅限「協定優先、部署角色分離、Node 先驗證」的條件式接受。** W0 是本 plan 正確的近期裁決；R2 只能在量測或單一二進位運維需求達門檻後啟動。Rust 不應成為 D1 的前置條件。
+
+C0_EQUIV_SHIP_OK: **NO** — 目前 shared-token 預設無法滿足宣稱的 identity／per-token 限連，可信代理與 metadata 治理也尚未形成可驗收契約。修正上述契約後，S0–S1 可獨立 ship；S2–S3 不應阻擋。
+
+ONE_LINE_SUMMARY: T1-site 與 W0→D1→R2 分期方向正確，但必須先補齊可驗證的 client-IP 信任鏈、身份／限流語義、audit 治理，並分離站方多租戶 daemon 與玩家私有 daemon 的安全模型。
+tokens used
+20,864

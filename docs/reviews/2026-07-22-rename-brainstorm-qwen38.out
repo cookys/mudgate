@@ -1,0 +1,23 @@
+VERDICT_TOP3:
+1. **mudgate** — gateway to MUDs; the WebSocket→telnet gateway is literally the product's spine — clean, professional, instantly parseable, great npm scope `@mudgate/*`, works for both site-mode and player-mode without locking to one MUD
+2. **mudport** — network port + harbor (port = 港口) — dual meaning captures "protocol endpoint" and "safe dock for sessions"; memorable, no negative connotations, short
+3. **remud** — "re-MUD", revival/rebirth baked in without naming RW exclusively — 5 chars, punchy, hints at modernizing classic MUD UX; slight risk of reading as "re-mud" (re-apply mud?) but context kills that fast
+
+ALSO_GOOD:
+- **mudwire** — the wire/session layer between browser and telnet; engineering-flavored, honest about what it does
+- **mudterm** — classic terminal lineage (zMUD → web terminal); safe, immediately understood, slightly flat
+- **mudrelay** — protocol relay metaphor; accurate for the proxy architecture, neutral tone
+- **mudforge** — crafting/building connotation; good if you lean into scripting + extensibility as the identity
+- **mudcast** — broadcast/multicast; fits multi-MUD client ambition, slightly podcast-y risk
+
+AVOID:
+- **mudsh / mudshell** — first three letters read as "mud-sh(it)"; same class of problem as assmud
+- **mudproxy** — accurate but sounds like an infra utility, not a product; no emotional hook
+- **zmudweb / zmud-ts** — trademark adjacency to zMUD; locks you to "we're a clone" positioning forever
+- **gateway / mudportal** — too generic, SEO-black-hole, "Gateway" is a loaded brand in English
+- **revival / rebirth** — beautiful meaning but zero MUD signal; indistinguishable from 10k other repos
+- **mudvault** — collides with your own encrypted-vault feature name; confusing scope
+
+CHINESE_PRODUCT_TITLE: **泥界** (ní jiè) — "MUD realm"; two characters, works as a standalone brand for RW site or any future MUD; pairs naturally: "泥界 — powered by mudgate"
+
+ONE_LINE: Go with **mudgate** — it names the architecture (gateway), scales across site/player modes, is vulgarity-proof, and `@mudgate` is a clean npm scope. Confidence: **high**.

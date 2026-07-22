@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>assmud docs</title>
+  <title>mudgate docs</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
@@ -204,7 +204,7 @@
 </head>
 <body>
   <header>
-    <span class="brand">assmud docs</span>
+    <span class="brand">mudgate docs</span>
     <h1 id="title">載入中…</h1>
     <button type="button" id="btn-menu" title="切換目錄">目錄</button>
     <a class="btn" id="btn-raw" href="#" target="_blank" rel="noopener">原始 .md</a>
@@ -297,7 +297,7 @@
 
     async function loadDoc(path) {
       if (!path) {
-        $title.textContent = "assmud documentation";
+        $title.textContent = "mudgate documentation";
         $content.className = "empty";
         $content.textContent = "從左側選一份 .md — 建議先看 ★ zMUD 功能 Matrix";
         $raw.href = "#";

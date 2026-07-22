@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { MapFrameCells } from "@assmud/terminal";
+import type { MapFrameCells } from "@mudgate/terminal";
 import {
   MAX_FRAMES_PER_PROFILE,
   MemoryNavStore,
