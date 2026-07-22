@@ -1,4 +1,14 @@
-/** Terminal grid fit — geometry + metrics; MUD policy locks cols to VT 80. */
+/**
+ * Terminal grid fit for mudgate play.
+ *
+ * Policy (hetero codex gpt-5.6-sol + Qwen3.8-Max 2026-07-22):
+ * - Lock cols = 80 (VT / map_d).
+ * - **Only shrink fontSize** until measure(S).cellW * 80 <= stageW.
+ * - **Never** set cellW < measured advance (that causes glyph overlap).
+ * - cellH only from metrics at the same S.
+ * - If 80 still impossible at abs min font: keep measured pitch + cols=80;
+ *   stage must allow horizontal scroll (caller).
+ */
 
 export type TermFit = { cols: number; rows: number };
 
@@ -11,13 +21,15 @@ export type FitTypographyResult = {
   cellH: number;
   cols: number;
   rows: number;
+  /** True when 80×cellW > stageW even at min font — need overflow-x scroll */
+  needsHScroll: boolean;
 };
 
-/**
- * Classic teletype / MUD map width (half-width cells).
- * Always used as the **locked column count** for mudgate play (portrait + landscape).
- */
+/** Classic teletype / MUD map width (half-width cells). */
 export const VT_CLASSIC_COLS = 80;
+
+/** Absolute floor — below this CJK is generally unreadable. */
+export const ABS_MIN_FONT_PX = 6;
 
 export const TERM_FIT = {
   maxCols: 200,
@@ -26,7 +38,6 @@ export const TERM_FIT = {
   defaultRows: 28,
 } as const;
 
-/** cols/rows that physically fit the stage at a given cell size. */
 export function fitTermSize(
   cssW: number,
   cssH: number,
@@ -35,14 +46,10 @@ export function fitTermSize(
 ): TermFit {
   const cw = Math.max(1, cellW);
   const ch = Math.max(1, cellH);
-  if (cssW < 1 || cssH < 1) {
-    return { cols: 0, rows: 0 };
-  }
-  const cols = Math.floor(cssW / cw);
-  const rows = Math.floor(cssH / ch);
+  if (cssW < 1 || cssH < 1) return { cols: 0, rows: 0 };
   return {
-    cols: Math.min(TERM_FIT.maxCols, Math.max(0, cols)),
-    rows: Math.min(TERM_FIT.maxRows, Math.max(0, rows)),
+    cols: Math.min(TERM_FIT.maxCols, Math.max(0, Math.floor(cssW / cw))),
+    rows: Math.min(TERM_FIT.maxRows, Math.max(0, Math.floor(cssH / ch))),
   };
 }
 
@@ -62,14 +69,7 @@ export function clampFitToStage(
 }
 
 /**
- * MUD play fit: **always lock cols = classicCols (default 80)** so map_d / banners
- * match authoring width. Portrait and landscape both keep 80.
- *
- * Font: largest S in [minFont, userFont] such that measure(S).cellW * 80 <= stageW.
- * If even minFont is too wide, force cellW = stageW/80 (layout) so 80 still fits;
- * glyphs may be slightly tight but NAWS stays 80.
- *
- * Rows: floor(stageH / cellH) at the chosen font (vertical scrollbar covers history).
+ * @param measure returns cell metrics for exact (fontPx, lineScale) — advance must match draw()
  */
 export function fitTypographyToStage(
   stageW: number,
@@ -78,8 +78,8 @@ export function fitTypographyToStage(
   userLineScale: number,
   measure: (fontPx: number, lineScale: number) => CellMetrics,
   opts?: {
-    /** Locked column count; default 80. Pass null only for free-form desktop experiments. */
     classicCols?: number | null;
+    /** Fraction of userFont for min (default 0.5); still floored by ABS_MIN_FONT_PX */
     minFontRatio?: number;
   },
 ): FitTypographyResult {
@@ -87,12 +87,15 @@ export function fitTypographyToStage(
     opts?.classicCols === null
       ? null
       : (opts?.classicCols ?? VT_CLASSIC_COLS);
-  const minRatio = opts?.minFontRatio ?? 0.65;
-  const minFont = Math.max(10, Math.round(userFontPx * minRatio * 2) / 2);
+  const L = userLineScale;
+  const minFont = Math.max(
+    ABS_MIN_FONT_PX,
+    Math.round(userFontPx * (opts?.minFontRatio ?? 0.5) * 2) / 2,
+  );
 
-  // Free-form (no lock): xterm style
+  // Free-form: xterm style, no col lock
   if (classic == null) {
-    const m = measure(userFontPx, userLineScale);
+    const m = measure(userFontPx, L);
     const g = clampFitToStage(
       fitTermSize(stageW, stageH, m.cellW, m.cellH),
       stageW,
@@ -102,47 +105,47 @@ export function fitTypographyToStage(
     );
     return {
       fontSizePx: userFontPx,
-      lineHeightScale: userLineScale,
+      lineHeightScale: L,
       cellW: m.cellW,
       cellH: m.cellH,
       cols: Math.max(1, g.cols),
       rows: Math.max(1, g.rows),
+      needsHScroll: false,
     };
   }
 
-  const colsTarget = classic;
-  const L = userLineScale;
-
-  const fits = (S: number) => {
+  const cols = classic;
+  const packs = (S: number) => {
     const m = measure(S, L);
-    return m.cellW * colsTarget <= stageW + 0.5;
+    // INVARIANT: use measured cellW only — never invent a smaller pitch
+    return { m, ok: m.cellW * cols <= stageW + 0.01 };
   };
 
-  // Prefer user font when 80 cols fit
   let S = userFontPx;
-  if (!fits(S)) {
-    if (!fits(minFont)) {
-      // Force 80 cols into width: derive cellW from geometry
-      const m = measure(minFont, L);
-      const cellW = Math.max(4, Math.floor(stageW / colsTarget));
-      const cellH = m.cellH;
-      const rows = Math.max(1, Math.floor(stageH / Math.max(1, cellH)));
+  const atUser = packs(S);
+  if (!atUser.ok) {
+    const atMin = packs(minFont);
+    if (!atMin.ok) {
+      // Cannot fit 80 measured cells — keep pitch honest; h-scroll
+      const m = atMin.m;
+      const rows = Math.max(1, Math.floor(stageH / Math.max(1, m.cellH)));
       return {
         fontSizePx: minFont,
         lineHeightScale: L,
-        cellW,
-        cellH,
-        cols: colsTarget,
+        cellW: m.cellW,
+        cellH: m.cellH,
+        cols,
         rows: Math.min(TERM_FIT.maxRows, rows),
+        needsHScroll: true,
       };
     }
-    // Binary search largest font that packs 80 cells into stageW
+    // Binary search largest S in [minFont, userFont] that packs 80 measured cells
     let lo = minFont;
     let hi = userFontPx;
     S = minFont;
     for (let i = 0; i < 18 && hi - lo > 0.25; i++) {
       const mid = Math.round(((lo + hi) / 2) * 2) / 2;
-      if (fits(mid)) {
+      if (packs(mid).ok) {
         S = mid;
         lo = mid;
       } else {
@@ -152,20 +155,22 @@ export function fitTypographyToStage(
   }
 
   const m = measure(S, L);
-  // Exact cellW so 80 * cellW <= stageW (use measured, but never overflow)
-  let cellW = m.cellW;
-  if (cellW * colsTarget > stageW) {
-    cellW = Math.max(4, Math.floor(stageW / colsTarget));
-  }
+  // Never assign cellW smaller than measure — that was the overlap bug
+  const cellW = m.cellW;
   const cellH = m.cellH;
-  const rows = Math.max(1, Math.min(TERM_FIT.maxRows, Math.floor(stageH / Math.max(1, cellH))));
+  const rows = Math.max(
+    1,
+    Math.min(TERM_FIT.maxRows, Math.floor(stageH / Math.max(1, cellH))),
+  );
+  const needsHScroll = cellW * cols > stageW + 0.01;
 
   return {
     fontSizePx: S,
     lineHeightScale: L,
     cellW,
     cellH,
-    cols: colsTarget,
+    cols,
     rows,
+    needsHScroll,
   };
 }

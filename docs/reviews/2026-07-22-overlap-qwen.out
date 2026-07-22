@@ -1,0 +1,51 @@
+Found the full picture. Here's the analysis:
+
+---
+
+```
+CAUSE: YES — confirmed. termFit.ts:155-159 forces cellW = floor(stageW/80)
+       while canvas2d.ts:228 draws glyphs at fontSizePx (S from binary search).
+       Glyphs are positioned at x = col*cellW but advance at measureText(S) > cellW.
+       Root amplifier: minFont = max(10, userFont*0.65) floors at 10px;
+       at 10px mono, cellW ≈ 6px → 6*80 = 480 > 360px stage → force path fires.
+
+POLICY: A (with lower absolute floor). Never draw with cellW < measure(S).
+
+ALGO:
+  fit(W, H, userFont, lineScale, measure, cols=80):
+    ABS_MIN = 6                        // below this: unreadable anyway
+    lo, hi = ABS_MIN, userFont
+    if measure(hi).cellW * cols <= W:  S = hi        // user font fits
+    else:
+      S = lo                           // fallback
+      for i in 0..20:                  // bisect largest S that fits
+        mid = floor((lo+hi)*2)/4       // 0.25px quantize
+        if measure(mid).cellW * cols <= W: S = mid; lo = mid
+        else: hi = mid
+    m = measure(S)
+    cellW = m.cellW                    // INVARIANT: cellW >= advance(S)
+    cellH = m.cellH                    // from same S — never independent
+    rows  = max(1, floor(H / cellH))
+    // cellW*80 > W only if S hit ABS_MIN and still overflows:
+    //   → accept horizontal overflow (clip), do NOT squeeze pitch
+    return { S, cellW, cellH, cols, rows }
+
+ONE_LINE: Shrink S until measured cell fits — pitch must never be less than
+          advance at the drawn font size; overlap is the inevitable result
+          of violating that invariant.
+
+CONFIDENCE: high
+```
+
+---
+
+**Q2 detail** — why A over the others:
+
+- **B** (letter-spacing only): can't recover enough — spacing hits 0 long before 480→360px gap closes.
+- **C** (h-scroll): breaks MUD map_d rendering; users expect full-width visible.
+- **D** (drop 80): breaks map alignment server-side; NAWS renegotiation mid-session confuses MUDs.
+- **A** works because the current code's floor (10px) is the real bug — at 360px you need cellW ≤ 4.5px, which means S ≈ 7–7.5px for typical mono. That's tiny but legible on high-DPI phones, and the user already accepted "80 cols no matter what" as the product policy.
+
+**Q4**: Yes — `cellH` must derive solely from metrics at S (`round(S * lineScale)` or actual `fontBoundingBoxAscent+Descent`). Independent vertical squeeze breaks baseline alignment and clips descenders. Vertical budget shortfall → fewer rows + scrollback (which you already have), never compressed pitch.
+
+**Concrete fix** in `termFit.ts`: change `minFont` from `max(10, userFont*0.65)` to `max(6, ...)`, and delete/neutralize both force paths (line 127, lines 155–159) — replace with a clamp that keeps `cellW = m.cellW` and lets the canvas overflow-clip in the degenerate sub-6px case.

@@ -182,6 +182,7 @@ export function TerminalHost({
   const [scrollOffset, setScrollOffset] = useState(0);
   /** Reactive scrollback length for the vertical scrollbar. */
   const [scrollDepth, setScrollDepth] = useState(0);
+  const [needsHScroll, setNeedsHScroll] = useState(false);
   const [termSizeLabel, setTermSizeLabel] = useState(
     `${TERM_FIT.defaultCols}×${TERM_FIT.defaultRows}`,
   );
@@ -268,8 +269,9 @@ export function TerminalHost({
         cellWidthScale,
         lineHeightScale: fitted.lineHeightScale,
       });
-      // Lock geometry (may force cellW so cols stay 80 on narrow phones)
+      // cellW/H ONLY from metrics at chosen S — never force pitch < advance
       r.setCellMetrics(fitted.cellW, fitted.cellH);
+      setNeedsHScroll(fitted.needsHScroll);
 
       const next = { cols: fitted.cols, rows: fitted.rows };
       const prev = termSizeRef.current;
@@ -749,7 +751,11 @@ export function TerminalHost({
       <div
         ref={wrapRef}
         lang="und"
-        className="relative flex-1 min-w-0 min-h-0 overflow-hidden touch-pan-y"
+        className={
+          needsHScroll
+            ? "relative flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
+            : "relative flex-1 min-w-0 min-h-0 overflow-hidden touch-pan-y"
+        }
       >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div
@@ -838,15 +844,15 @@ export function TerminalHost({
 
       <canvas
         ref={canvasRef}
-        className="block cursor-text max-w-full max-h-full"
+        className="block cursor-text"
         style={{
-          // never use pixelated — it freckles glyph edges when CSS-scaled
+          // never use pixelated — freckles CJK when CSS-scaled
           imageRendering: "auto",
           background: "#0a0b0e",
-          // Exact cell grid size from renderer (cols×cellW). Fit logic must keep
-          // this ≤ stage; max-w/h is a last-resort clip, not a scale-to-80-col plan.
-          maxWidth: "100%",
+          // Exact cols×cellW / rows×cellH from renderer (may exceed stage width
+          // only when needsHScroll — parent scrolls horizontally)
           maxHeight: "100%",
+          ...(needsHScroll ? {} : { maxWidth: "100%" }),
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

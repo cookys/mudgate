@@ -1,0 +1,101 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /home/cookys/projects/mudgate
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 019f8903-964d-7272-9b7a-1e7e45e5d351
+--------
+user
+# Terminal cell overlap: shrink font vs shrink cell pitch
+
+mudgate locks NAWS cols=80 for MUD map_d. On phone (~360px wide), code did:
+
+```
+if measured.cellW * 80 > stageW:
+  cellW = floor(stageW / 80)  // FORCE pitch smaller than measureText('M')
+  // still draw with fontSizePx (not re-measured to that pitch)
+```
+
+User reports **overlapping glyphs**. Suspect: cell pitch forced down without shrinking font.
+
+## Questions
+1. Is forcing cellW < measured advance the correct cause of overlap?
+2. Correct policy for fixed 80 cols on narrow stage?
+   A) Only shrink fontSize until measure(S).cellW * 80 <= W (never cellW < measure)
+   B) Shrink letter-spacing / cellWidthScale only
+   C) Allow horizontal scroll with full measured cells at user font, cols still 80
+   D) Drop lock 80 when impossible at min readable font
+3. Pseudocode pure function: fit(W,H,userFont,measure) → {S, cellW, cellH, cols=80, rows}
+4. Should cellH also only come from metrics at S (not independent squeeze)?
+
+```
+CAUSE: ...
+POLICY: A|B|C|D or mix
+ALGO: ...
+ONE_LINE: ...
+CONFIDENCE: high|med|low
+```
+codex
+CAUSE: Yes. Forcing `cellW` below the font’s measured advance makes adjacent glyph origins too close, causing overlap. Glyph overhangs can require a small extra safety margin too.
+
+POLICY: A+C. Shrink font only down to a configured minimum readable size; if 80 measured cells still do not fit, preserve the measured cell pitch and allow horizontal scrolling. Use D only if horizontal scrolling is unacceptable. Avoid B: negative letter-spacing/cell scaling recreates the overlap problem.
+
+ALGO:
+```text
+fit(W, H, userFont, measure):
+  COLS = 80
+  MIN_FONT = userFont.minReadableSize
+  MAX_FONT = userFont.size
+
+  metricsAt(S):
+    m = measure(userFont.withSize(S))
+    return {
+      S: S,
+      cellW: ceil(m.cellAdvance),  // never less than measured advance
+      cellH: ceil(m.lineHeight)    // ascent + descent + desired leading
+    }
+
+  lo = MIN_FONT
+  hi = MAX_FONT
+  best = null
+
+  // Find largest readable size whose 80 cells fit.
+  while lo <= hi:
+    mid = floor((lo + hi) / 2)
+    m = metricsAt(mid)
+
+    if m.cellW * COLS <= W:
+      best = m
+      lo = mid + 1
+    else:
+      hi = mid - 1
+
+  if best == null:
+    // 80 columns cannot fit at the minimum readable size.
+    // Keep correct pitch; viewport becomes horizontally scrollable.
+    best = metricsAt(MIN_FONT)
+
+  return {
+    S: best.S,
+    cellW: best.cellW,
+    cellH: best.cellH,
+    cols: COLS,
+    rows: max(1, floor(H / best.cellH))
+  }
+```
+
+If fractional coordinates render cleanly, keep `cellW` and `cellH` as measured floats rather than applying `ceil`; the invariant is `cellW >= measuredAdvance`, not integer sizing.
+
+`cellH` should likewise come from the metrics at `S`. Independently squeezing it below the required line height risks vertical overlap or clipping. Extra line spacing is safe; reduced metric height is not.
+
+ONE_LINE: Fit 80 columns by reducing font size, never by making the cell pitch smaller than that font’s metrics; at the readability floor, scroll horizontally or abandon the 80-column lock.
+
+CONFIDENCE: high
+tokens used
+19,014
+CODEX:0
