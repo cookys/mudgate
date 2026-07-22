@@ -7,6 +7,7 @@
 
 | Seq | Project | Plan | Branch | Status |
 |-----|---------|------|--------|--------|
+| 0 | [mobile-viewport-surfaces](2026-07-22-mobile-viewport-surfaces/README.md) | [mobile-viewport-surfaces](../plans/2026-07-22-mobile-viewport-surfaces.md) | `feat/mobile-viewport-surfaces` | 🚧 P0–P2 |
 | 1 | [mccp2-stream](2026-07-21-mccp2-stream/README.md) | [mccp2-stream](../plans/2026-07-21-mccp2-stream.md) | `feat/mccp2-stream` | ✅ **SHIP** develop |
 | 1b | [echo-password-mask](2026-07-21-echo-password-mask/README.md) | [echo-password-mask](../plans/2026-07-21-echo-password-mask.md) | `feat/echo-password-mask` | ✅ **SHIP** develop |
 | 1c | [cjk-cell-width](2026-07-21-cjk-cell-width/README.md) | [cjk-cell-width-taiwanmud](../plans/2026-07-21-cjk-cell-width-taiwanmud.md) | `feat/cjk-cell-width` | ✅ **SHIP** develop |

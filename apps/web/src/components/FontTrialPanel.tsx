@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas2DRenderer } from "@mudgate/terminal";
+import { ViewportModalPanel, ViewportSurface } from "./ViewportSurface";
 import {
   STATIC_CATALOG,
   applyPreset,
@@ -88,14 +89,14 @@ export function FontTrialPanel({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    <ViewportSurface
+      className="z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.65)" }}
       role="dialog"
       aria-label="Font trial"
     >
-      <div
-        className="w-full max-w-3xl rounded-[var(--radius)] border p-4 max-h-[90vh] overflow-auto"
+      <ViewportModalPanel
+        className="w-full max-w-3xl rounded-[var(--radius)] border p-4"
         style={{ background: "var(--bg-panel)", borderColor: "var(--border)" }}
       >
         <div className="flex justify-between items-center mb-3">
@@ -174,7 +175,7 @@ export function FontTrialPanel({
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </ViewportModalPanel>
+    </ViewportSurface>
   );
 }

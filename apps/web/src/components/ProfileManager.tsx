@@ -3,6 +3,7 @@ import type { MudProfile } from "@mudgate/profiles";
 import { isVaultUnlocked, vaultExists } from "@mudgate/profiles";
 import { ProfileEditor } from "./ProfileEditor";
 import { VaultPanel } from "./VaultPanel";
+import { ViewportModalPanel, ViewportSurface } from "./ViewportSurface";
 
 type Props = {
   open: boolean;
@@ -51,8 +52,8 @@ export function ProfileManager({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+    <ViewportSurface
+      className="z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: "rgba(0,0,0,0.55)" }}
       role="dialog"
       aria-modal
@@ -62,8 +63,8 @@ export function ProfileManager({
         if (e.target === e.currentTarget) requestClose();
       }}
     >
-      <div
-        className="w-full sm:max-w-lg max-h-[90vh] overflow-auto rounded-t-[var(--radius)] sm:rounded-[var(--radius)] border shadow-xl"
+      <ViewportModalPanel
+        className="w-full sm:max-w-lg rounded-t-[var(--radius)] sm:rounded-[var(--radius)] border shadow-xl"
         style={{
           background: "var(--bg-panel)",
           borderColor: "var(--border)",
@@ -116,7 +117,7 @@ export function ProfileManager({
             onEditingChange={setEditing}
           />
         </div>
-      </div>
-    </div>
+      </ViewportModalPanel>
+    </ViewportSurface>
   );
 }

@@ -44,7 +44,9 @@ import {
 import { ConnectGate } from "./components/ConnectGate";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { StatusPill } from "./components/StatusPill";
-import { LocaleSwitch } from "./components/LocaleSwitch";
+import { LocaleModalSwitch, LocaleSwitch } from "./components/LocaleSwitch";
+import { SessionTabs } from "./components/SessionTabs";
+import { ViewportSurface } from "./components/ViewportSurface";
 import { FontTrialPanel } from "./components/FontTrialPanel";
 import { applyAccent, loadAccent, type AccentId } from "./lib/theme";
 import {
@@ -374,6 +376,29 @@ export function App() {
 
   const requestCloseTab = (id: string) => {
     setCloseTargetId(id);
+  };
+
+  const addTab = () => {
+    const id = newTabId();
+    setTabs((ts) => [
+      ...ts,
+      {
+        id,
+        profileId: activeProfile,
+        connected: false,
+        status: IDLE,
+        log: [],
+      },
+    ]);
+    setTabId(id);
+  };
+
+  const manageTab = (id: string) => {
+    const selected = tabs.find((candidate) => candidate.id === id);
+    if (!selected) return;
+    setTabId(id);
+    setActiveProfile(selected.profileId);
+    setProfileMgrOpen(true);
   };
 
   const confirmCloseTab = () => {
@@ -921,16 +946,10 @@ export function App() {
 
   // ── Play shell (hetero: fixed viewport shell, min-w/h 0 all ancestors) ──
   return (
-    <div
+    <ViewportSurface
       className="flex flex-col min-h-0 min-w-0 overflow-hidden"
       style={{
         background: "var(--bg-void)",
-        position: "fixed",
-        top: "var(--app-vtop, 0px)",
-        left: "var(--app-vleft, 0px)",
-        width: "var(--app-vw, 100dvw)",
-        height: "var(--app-vh, 100dvh)",
-        maxHeight: "var(--app-vh, 100dvh)",
       }}
     >
       <FontTrialPanel
@@ -970,115 +989,38 @@ export function App() {
         }}
       >
         <span
-          className="font-mono text-xs font-semibold tracking-widest uppercase shrink-0"
+          className="mobile-portrait-spacer font-mono text-xs font-semibold tracking-widest uppercase shrink-0"
           style={{ color: "var(--accent)" }}
         >
           {t("app.name")}
         </span>
 
-        <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
-          {tabs.map((tb) => {
-            const p = profiles.find((x) => x.id === tb.profileId);
-            const active = tb.id === tabId;
-            return (
-              <div
-                key={tb.id}
-                className="inline-flex items-stretch shrink-0 rounded-[var(--radius-sm)] border overflow-hidden"
-                style={{
-                  borderColor: active ? "var(--accent)" : "var(--border)",
-                  background: active
-                    ? "var(--accent-dim)"
-                    : "var(--bg-elevated)",
-                }}
-              >
-                <button
-                  type="button"
-                  className="px-2.5 py-1 text-xs font-mono transition max-w-[8rem] truncate"
-                  style={{ color: "var(--text)" }}
-                  onClick={() => setTabId(tb.id)}
-                  title={p?.name ?? tb.id}
-                >
-                  {p?.name?.slice(0, 12) ?? tb.id}
-                  {tb.connected ? (
-                    <span
-                      className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
-                      style={{ background: "var(--ok)" }}
-                      aria-hidden
-                    />
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className="px-1.5 text-[11px] border-l min-w-[26px] hover:opacity-100 opacity-70 transition"
-                  style={{
-                    borderColor: active ? "var(--accent)" : "var(--border)",
-                    color:
-                      active && profileMgrOpen
-                        ? "var(--accent)"
-                        : "var(--text-dim)",
-                  }}
-                  aria-label={`${t("drawer.manageProfiles")}: ${p?.name ?? tb.id}`}
-                  title={t("drawer.manageProfiles")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Session gear → this tab's profile manager (not global drawer)
-                    setTabId(tb.id);
-                    setActiveProfile(tb.profileId);
-                    setProfileMgrOpen(true);
-                  }}
-                >
-                  ⚙
-                </button>
-                <button
-                  type="button"
-                  className="px-1.5 text-xs border-l min-w-[28px] hover:opacity-100 opacity-70 transition"
-                  style={{
-                    borderColor: active ? "var(--accent)" : "var(--border)",
-                    color: "var(--text-dim)",
-                  }}
-                  aria-label={`${t("shell.closeTab")}: ${p?.name ?? tb.id}`}
-                  title={t("shell.closeTab")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    requestCloseTab(tb.id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            className="rounded-[var(--radius-sm)] px-2 py-1 text-xs border shrink-0"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-elevated)",
-              color: "var(--text-dim)",
-            }}
-            onClick={() => {
-              const id = newTabId();
-              setTabs((ts) => [
-                ...ts,
-                {
-                  id,
-                  profileId: activeProfile,
-                  connected: false,
-                  status: IDLE,
-                  log: [],
-                },
-              ]);
-              setTabId(id);
-            }}
-            title={t("shell.newTab")}
-          >
-            +
-          </button>
-        </div>
+        <SessionTabs
+          tabs={tabs.map((item) => ({
+            id: item.id,
+            connected: item.connected,
+            label:
+              profiles.find((candidate) => candidate.id === item.profileId)
+                ?.name ?? item.id,
+          }))}
+          activeId={tabId}
+          profileManagerOpen={profileMgrOpen}
+          placement="header"
+          sessionLabel={t("drawer.session")}
+          manageLabel={t("drawer.manageProfiles")}
+          closeLabel={t("shell.closeTab")}
+          newLabel={t("shell.newTab")}
+          onSelect={setTabId}
+          onManage={manageTab}
+          onClose={requestCloseTab}
+          onNew={addTab}
+        />
 
-        <StatusPill status={tab.status} />
+        <StatusPill status={tab.status} className="mobile-portrait-hide" />
+        <StatusPill status={tab.status} compact className="mobile-portrait-only" />
 
         <LocaleSwitch compact className="hidden lg:inline-flex" />
+        <LocaleModalSwitch className="mobile-portrait-only" />
 
         <button
           type="button"
@@ -1120,6 +1062,27 @@ export function App() {
           ⚙
         </button>
       </header>
+
+      <SessionTabs
+        tabs={tabs.map((item) => ({
+          id: item.id,
+          connected: item.connected,
+          label:
+            profiles.find((candidate) => candidate.id === item.profileId)
+              ?.name ?? item.id,
+        }))}
+        activeId={tabId}
+        profileManagerOpen={profileMgrOpen}
+        placement="content"
+        sessionLabel={t("drawer.session")}
+        manageLabel={t("drawer.manageProfiles")}
+        closeLabel={t("shell.closeTab")}
+        newLabel={t("shell.newTab")}
+        onSelect={setTabId}
+        onManage={manageTab}
+        onClose={requestCloseTab}
+        onNew={addTab}
+      />
 
       {/* Main stage — flex 1 1 0% so terminal cannot blow out the shell */}
       <div
@@ -1920,6 +1883,6 @@ export function App() {
           {landToast}
         </div>
       )}
-    </div>
+    </ViewportSurface>
   );
 }

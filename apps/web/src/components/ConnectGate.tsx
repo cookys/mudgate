@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { MudProfile } from "@mudgate/profiles";
 import type { AccentId } from "../lib/theme";
 import { pickTagline, useLocale, useT } from "../i18n";
-import { LocaleSwitch } from "./LocaleSwitch";
+import { LocaleModalSwitch, LocaleSwitch } from "./LocaleSwitch";
 import type { TrustMode } from "../lib/trustMode";
 import {
   canConnect,
@@ -11,6 +11,7 @@ import {
   siteWsUrl,
 } from "../lib/trustMode";
 import { ProfileManager } from "./ProfileManager";
+import { ViewportSurface } from "./ViewportSurface";
 
 type Props = {
   profiles: MudProfile[];
@@ -78,14 +79,15 @@ export function ConnectGate({
   const connectOk = canConnect(trustMode, customAck, endpoint);
 
   return (
-    <div className="min-h-full flex items-center justify-center p-4 sm:p-8">
-      <div
-        className="w-full max-w-md rounded-[var(--radius)] border p-6 sm:p-8 shadow-[var(--shadow)]"
-        style={{
-          background: "var(--bg-panel)",
-          borderColor: "var(--border)",
-        }}
-      >
+    <ViewportSurface scrollY>
+      <div className="min-h-full flex items-start sm:items-center justify-center p-4 sm:p-8">
+        <div
+          className="w-full max-w-md rounded-[var(--radius)] border p-6 sm:p-8 shadow-[var(--shadow)]"
+          style={{
+            background: "var(--bg-panel)",
+            borderColor: "var(--border)",
+          }}
+        >
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span
@@ -101,7 +103,8 @@ export function ConnectGate({
               v0.1
             </span>
             <div className="ml-auto">
-              <LocaleSwitch />
+              <LocaleSwitch className="mobile-portrait-hide" />
+              <LocaleModalSwitch className="mobile-portrait-only" />
             </div>
           </div>
           <h1
@@ -408,7 +411,8 @@ export function ConnectGate({
             </label>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </ViewportSurface>
   );
 }
