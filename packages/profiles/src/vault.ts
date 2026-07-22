@@ -434,6 +434,14 @@ function notifyVaultListeners(): void {
 
 export function lockVault(): void {
   session = null;
+  // Purge any leftover key material from the reverted tab-session experiment
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("assmud.vault.tabSession.v1");
+    }
+  } catch {
+    /* ignore */
+  }
   notifyVaultListeners();
 }
 
