@@ -6,9 +6,11 @@ import {
 } from "../src/index.js";
 
 describe("validateProfile / import", () => {
-  it("accepts DEFAULT_PROFILES seeds including RW wiz 4001 and 6000", () => {
-    expect(DEFAULT_PROFILES.some((p) => p.port === 4001)).toBe(true);
-    expect(DEFAULT_PROFILES.some((p) => p.port === 6000)).toBe(true);
+  it("accepts DEFAULT_PROFILES seeds: RW player 4000 + wiz 4001 only", () => {
+    expect(DEFAULT_PROFILES.map((p) => p.port).sort()).toEqual([4000, 4001]);
+    expect(DEFAULT_PROFILES.every((p) => p.host === "mud.revivalworld.org")).toBe(
+      true,
+    );
     for (const p of DEFAULT_PROFILES) {
       expect(validateProfile(p).id).toBe(p.id);
     }

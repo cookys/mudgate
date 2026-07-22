@@ -8,10 +8,58 @@ const TOKEN_KEY = "mudgate_token";
 const CUSTOM_ACK_KEY = "mudgate_trust_custom_ack";
 
 export type SiteConfig = {
+  /** Official / site gateway WebSocket URL */
   officialProxyUrl?: string;
+  /** When true, this SPA is the co-located site shell (no T1/T3) */
+  siteMode?: boolean;
 };
 
+function envTruthy(v: string | boolean | undefined): boolean {
+  if (v === true) return true;
+  if (typeof v !== "string") return false;
+  const s = v.trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes";
+}
+
+/**
+ * Site shell = SPA baked with VITE_SITE_MODE, or runtime flag, or known official host.
+ * In this mode players only use this host's gateway (no self-host T1 / other-server T3).
+ */
+export function isSiteShell(): boolean {
+  try {
+    if (envTruthy(import.meta.env.VITE_SITE_MODE as string | undefined)) {
+      return true;
+    }
+  } catch {
+    /* non-vite */
+  }
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as { __MUDGATE_SITE__?: SiteConfig };
+  if (w.__MUDGATE_SITE__?.siteMode) return true;
+  const h = window.location.hostname;
+  return h === "mud.revivalworld.org";
+}
+
+/** Same-origin / env WS URL for the official site gateway. */
+export function siteWsUrl(): string {
+  try {
+    const fromEnv = (import.meta.env.VITE_PROXY_WS as string | undefined)?.trim();
+    if (fromEnv) return fromEnv;
+  } catch {
+    /* non-vite */
+  }
+  if (typeof window !== "undefined") {
+    const w = window as unknown as { __MUDGATE_SITE__?: SiteConfig };
+    const fromWin = w.__MUDGATE_SITE__?.officialProxyUrl?.trim();
+    if (fromWin) return fromWin;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}/ws`;
+  }
+  return "wss://mud.revivalworld.org/ws";
+}
+
 export function loadTrustMode(): TrustMode {
+  if (isSiteShell()) return "official";
   const m = localStorage.getItem(MODE_KEY);
   if (m === "local" || m === "selfhost" || m === "official" || m === "custom")
     return m;
@@ -19,6 +67,7 @@ export function loadTrustMode(): TrustMode {
 }
 
 export function saveTrustMode(m: TrustMode): void {
+  if (isSiteShell()) return; // locked to official
   localStorage.setItem(MODE_KEY, m);
 }
 
@@ -73,6 +122,9 @@ export function resolveWsUrl(
     officialUrl?: string;
   },
 ): string | null {
+  if (isSiteShell()) {
+    return siteWsUrl();
+  }
   switch (mode) {
     case "local":
       return opts.envDefault || "ws://127.0.0.1:7788/ws";
@@ -80,7 +132,7 @@ export function resolveWsUrl(
     case "custom":
       return opts.customWs.trim() || null;
     case "official":
-      return opts.officialUrl?.trim() || null;
+      return opts.officialUrl?.trim() || siteWsUrl();
     default:
       return null;
   }
@@ -106,12 +158,14 @@ export function isValidProxyWsUrl(url: string): boolean {
 
 /**
  * Connect gate: custom requires ack; selfhost/custom/official need valid URL.
+ * Site shell always OK (gateway is fixed).
  */
 export function canConnect(
   mode: TrustMode,
   customAck: boolean,
   wsUrl?: string | null,
 ): boolean {
+  if (isSiteShell()) return isValidProxyWsUrl(siteWsUrl());
   if (mode === "local") return true;
   if (mode === "custom" && !customAck) return false;
   if (mode === "selfhost" || mode === "custom" || mode === "official") {
@@ -121,6 +175,7 @@ export function canConnect(
 }
 
 export function readOfficialProxyUrl(): string | undefined {
+  if (isSiteShell()) return siteWsUrl();
   if (typeof window === "undefined") return undefined;
   const w = window as unknown as { __MUDGATE_SITE__?: SiteConfig };
   return w.__MUDGATE_SITE__?.officialProxyUrl;

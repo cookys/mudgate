@@ -9,9 +9,10 @@ cd "$ROOT"
 HOST=${HOST:-cookys@mud.revivalworld.org}
 VITE_PROXY_WS=${VITE_PROXY_WS:-wss://mud.revivalworld.org/ws}
 VITE_DEFAULT_LOCALE=${VITE_DEFAULT_LOCALE:-zh-TW}
+VITE_SITE_MODE=${VITE_SITE_MODE:-1}
 
-echo "==> build web (VITE_PROXY_WS=$VITE_PROXY_WS)"
-export VITE_PROXY_WS VITE_DEFAULT_LOCALE
+echo "==> build web (VITE_SITE_MODE=$VITE_SITE_MODE VITE_PROXY_WS=$VITE_PROXY_WS)"
+export VITE_PROXY_WS VITE_DEFAULT_LOCALE VITE_SITE_MODE
 npm run build -w @mudgate/web
 
 echo "==> rsync dist + nginx conf → $HOST"

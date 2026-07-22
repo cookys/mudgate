@@ -52,6 +52,7 @@ import {
   type StatusEvent,
 } from "./lib/mudSocket";
 import {
+  isSiteShell,
   loadCustomAck,
   loadCustomWs,
   loadProxyToken,
@@ -62,6 +63,7 @@ import {
   saveCustomWs,
   saveProxyToken,
   saveTrustMode,
+  siteWsUrl,
   type TrustMode,
 } from "./lib/trustMode";
 import { useLocale, useT } from "./i18n";
@@ -496,6 +498,7 @@ export function App() {
 
   const wsUrl = useMemo(() => {
     if (!tab?.connected) return null;
+    if (isSiteShell()) return siteWsUrl();
     if (trustMode === "local" && typeof window !== "undefined") {
       const h = window.location.hostname;
       // Same host as the page (127.0.0.1, localhost, or LAN IP) → proxy :7788
@@ -1364,25 +1367,27 @@ export function App() {
                     {t("drawer.manageProfiles")}
                   </button>
                 </div>
-                <div>
-                  <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
-                    {t("drawer.token")}
+                {!isSiteShell() && (
+                  <div>
+                    <div className="text-xs mb-1" style={{ color: "var(--text-dim)" }}>
+                      {t("drawer.token")}
+                    </div>
+                    <input
+                      className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
+                      style={{
+                        background: "var(--bg-elevated)",
+                        borderColor: "var(--border)",
+                        color: "var(--text)",
+                      }}
+                      value={token}
+                      disabled={tab.connected}
+                      onChange={(e) => {
+                        setToken(e.target.value);
+                        saveProxyToken(e.target.value);
+                      }}
+                    />
                   </div>
-                  <input
-                    className="w-full rounded-[var(--radius-sm)] border px-3 py-2 font-mono text-sm"
-                    style={{
-                      background: "var(--bg-elevated)",
-                      borderColor: "var(--border)",
-                      color: "var(--text)",
-                    }}
-                    value={token}
-                    disabled={tab.connected}
-                    onChange={(e) => {
-                      setToken(e.target.value);
-                      saveProxyToken(e.target.value);
-                    }}
-                  />
-                </div>
+                )}
                 <div>
                   <div className="text-xs mb-1.5" style={{ color: "var(--text-dim)" }}>
                     {t("drawer.accent")}

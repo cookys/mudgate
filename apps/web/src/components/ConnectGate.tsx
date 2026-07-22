@@ -4,7 +4,12 @@ import type { AccentId } from "../lib/theme";
 import { pickTagline, useLocale, useT } from "../i18n";
 import { LocaleSwitch } from "./LocaleSwitch";
 import type { TrustMode } from "../lib/trustMode";
-import { canConnect, readOfficialProxyUrl } from "../lib/trustMode";
+import {
+  canConnect,
+  isSiteShell,
+  readOfficialProxyUrl,
+  siteWsUrl,
+} from "../lib/trustMode";
 import { ProfileManager } from "./ProfileManager";
 
 type Props = {
@@ -54,13 +59,18 @@ export function ConnectGate({
     setTagline(pickTagline(locale));
   }, [locale]);
 
+  const siteShell = isSiteShell();
   const p = profiles.find((x) => x.id === profileId) ?? profiles[0];
   const officialUrl = readOfficialProxyUrl();
-  const showOfficial = Boolean(officialUrl);
+  const showOfficial = Boolean(officialUrl) && !siteShell;
   const needsWs =
-    trustMode === "selfhost" || trustMode === "custom" || trustMode === "official";
-  const endpoint =
-    trustMode === "official"
+    !siteShell &&
+    (trustMode === "selfhost" ||
+      trustMode === "custom" ||
+      trustMode === "official");
+  const endpoint = siteShell
+    ? siteWsUrl()
+    : trustMode === "official"
       ? officialUrl ?? ""
       : trustMode === "local"
         ? "ws://127.0.0.1:7788/ws"
@@ -109,135 +119,162 @@ export function ConnectGate({
         </div>
 
         <div className="space-y-4">
-          <fieldset>
-            <legend
-              className="text-xs font-medium mb-1.5"
-              style={{ color: "var(--text-dim)" }}
-            >
-              {t("trust.mode.label")}
-            </legend>
-            <div className="space-y-1.5">
-              {(
-                [
-                  ["local", "trust.mode.local"],
-                  ["selfhost", "trust.mode.selfhost"],
-                  ...(showOfficial
-                    ? ([["official", "trust.mode.official"]] as const)
-                    : []),
-                  ["custom", "trust.mode.custom"],
-                ] as const
-              ).map(([id, key]) => (
-                <label
-                  key={id}
-                  className="flex items-center gap-2 text-sm cursor-pointer"
-                  style={{ color: "var(--text)" }}
-                >
-                  <input
-                    type="radio"
-                    name="trustMode"
-                    checked={trustMode === id}
-                    onChange={() => onTrustMode(id as TrustMode)}
-                  />
-                  {t(key)}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {trustMode === "selfhost" && (
-            <div className="space-y-2">
-              <p
-                className="text-xs rounded border p-2 leading-relaxed"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--text-dim)",
-                  background: "var(--bg-elevated)",
-                }}
-              >
-                {t("connect.site.notice")}
-                <span className="block mt-1" style={{ color: "var(--text-faint)" }}>
-                  {t("connect.site.forbid_e2e")}
-                </span>
-              </p>
-              <p className="text-[11px] space-x-2" style={{ color: "var(--text-faint)" }}>
-                <a
-                  className="underline"
-                  href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.open(
-                      "https://github.com/search?q=mudgate+ORACLE-ALWAYS-FREE",
-                      "_blank",
-                    );
-                  }}
-                >
-                  {t("trust.selfhost.cta")}
-                </a>
-                <span>·</span>
-                <span>{t("trust.home.cf")}</span>
-              </p>
-            </div>
-          )}
-
-          {trustMode === "official" && (
+          {siteShell ? (
             <p
-              className="text-xs rounded border p-2"
+              className="text-xs rounded border p-2 leading-relaxed"
               style={{
                 borderColor: "var(--border)",
                 color: "var(--text-dim)",
                 background: "var(--bg-elevated)",
               }}
             >
-              {t("trust.warn.official")}
+              {t("connect.site.notice")}
+              <span className="block mt-1" style={{ color: "var(--text-faint)" }}>
+                {t("connect.site.forbid_e2e")}
+              </span>
             </p>
-          )}
+          ) : (
+            <>
+              <fieldset>
+                <legend
+                  className="text-xs font-medium mb-1.5"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  {t("trust.mode.label")}
+                </legend>
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      ["local", "trust.mode.local"],
+                      ["selfhost", "trust.mode.selfhost"],
+                      ...(showOfficial
+                        ? ([["official", "trust.mode.official"]] as const)
+                        : []),
+                      ["custom", "trust.mode.custom"],
+                    ] as const
+                  ).map(([id, key]) => (
+                    <label
+                      key={id}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                      style={{ color: "var(--text)" }}
+                    >
+                      <input
+                        type="radio"
+                        name="trustMode"
+                        checked={trustMode === id}
+                        onChange={() => onTrustMode(id as TrustMode)}
+                      />
+                      {t(key)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
-          {trustMode === "custom" && (
-            <div
-              className="rounded border p-3 space-y-2"
-              style={{
-                borderColor: "var(--accent)",
-                background: "var(--accent-dim)",
-              }}
-            >
-              <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>
-                {t("trust.warn.custom")}
-              </p>
-              <label
-                className="flex items-center gap-2 text-sm"
-                style={{ color: "var(--text)" }}
-              >
-                <input
-                  type="checkbox"
-                  checked={customAck}
-                  onChange={(e) => onCustomAck(e.target.checked)}
-                />
-                {t("trust.warn.ack")}
-              </label>
-            </div>
-          )}
+              {trustMode === "selfhost" && (
+                <div className="space-y-2">
+                  <p
+                    className="text-xs rounded border p-2 leading-relaxed"
+                    style={{
+                      borderColor: "var(--border)",
+                      color: "var(--text-dim)",
+                      background: "var(--bg-elevated)",
+                    }}
+                  >
+                    {t("connect.site.notice")}
+                    <span
+                      className="block mt-1"
+                      style={{ color: "var(--text-faint)" }}
+                    >
+                      {t("connect.site.forbid_e2e")}
+                    </span>
+                  </p>
+                  <p
+                    className="text-[11px] space-x-2"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    <a
+                      className="underline"
+                      href="/docs/deploy/ORACLE-ALWAYS-FREE.md"
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.open(
+                          "https://github.com/search?q=mudgate+ORACLE-ALWAYS-FREE",
+                          "_blank",
+                        );
+                      }}
+                    >
+                      {t("trust.selfhost.cta")}
+                    </a>
+                    <span>·</span>
+                    <span>{t("trust.home.cf")}</span>
+                  </p>
+                </div>
+              )}
 
-          {needsWs && trustMode !== "official" && (
-            <label
-              className="block text-xs font-medium"
-              style={{ color: "var(--text-dim)" }}
-            >
-              {t("trust.ws")}
-              <input
-                className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none"
-                style={{
-                  background: "var(--bg-elevated)",
-                  borderColor: "var(--border)",
-                  color: "var(--text)",
-                }}
-                value={customWs}
-                onChange={(e) => onCustomWs(e.target.value)}
-                placeholder={t("trust.ws.placeholder")}
-                autoComplete="off"
-              />
-            </label>
+              {trustMode === "official" && (
+                <p
+                  className="text-xs rounded border p-2"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--text-dim)",
+                    background: "var(--bg-elevated)",
+                  }}
+                >
+                  {t("trust.warn.official")}
+                </p>
+              )}
+
+              {trustMode === "custom" && (
+                <div
+                  className="rounded border p-3 space-y-2"
+                  style={{
+                    borderColor: "var(--accent)",
+                    background: "var(--accent-dim)",
+                  }}
+                >
+                  <p
+                    className="text-xs leading-relaxed"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {t("trust.warn.custom")}
+                  </p>
+                  <label
+                    className="flex items-center gap-2 text-sm"
+                    style={{ color: "var(--text)" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={customAck}
+                      onChange={(e) => onCustomAck(e.target.checked)}
+                    />
+                    {t("trust.warn.ack")}
+                  </label>
+                </div>
+              )}
+
+              {needsWs && trustMode !== "official" && (
+                <label
+                  className="block text-xs font-medium"
+                  style={{ color: "var(--text-dim)" }}
+                >
+                  {t("trust.ws")}
+                  <input
+                    className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      borderColor: "var(--border)",
+                      color: "var(--text)",
+                    }}
+                    value={customWs}
+                    onChange={(e) => onCustomWs(e.target.value)}
+                    placeholder={t("trust.ws.placeholder")}
+                    autoComplete="off"
+                  />
+                </label>
+              )}
+            </>
           )}
 
           <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
@@ -280,25 +317,27 @@ export function ConnectGate({
             onSelect={onProfile}
           />
 
-          <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
-            {t("connect.token")}
-            <span className="font-normal" style={{ color: "var(--text-faint)" }}>
-              {" "}
-              {t("trust.token.secret")}
-            </span>
-            <input
-              className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
-              style={{
-                background: "var(--bg-elevated)",
-                borderColor: "var(--border)",
-                color: "var(--text)",
-              }}
-              value={token}
-              onChange={(e) => onToken(e.target.value)}
-              autoComplete="off"
-              placeholder={t("connect.token.placeholder")}
-            />
-          </label>
+          {!siteShell && (
+            <label className="block text-xs font-medium" style={{ color: "var(--text-dim)" }}>
+              {t("connect.token")}
+              <span className="font-normal" style={{ color: "var(--text-faint)" }}>
+                {" "}
+                {t("trust.token.secret")}
+              </span>
+              <input
+                className="mt-1.5 w-full rounded-[var(--radius-sm)] border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2"
+                style={{
+                  background: "var(--bg-elevated)",
+                  borderColor: "var(--border)",
+                  color: "var(--text)",
+                }}
+                value={token}
+                onChange={(e) => onToken(e.target.value)}
+                autoComplete="off"
+                placeholder={t("connect.token.placeholder")}
+              />
+            </label>
+          )}
 
           <div>
             <div className="text-xs font-medium mb-1.5" style={{ color: "var(--text-dim)" }}>
