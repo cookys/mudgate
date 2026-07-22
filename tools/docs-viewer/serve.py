@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LAN docs server for assmud markdown.
+"""LAN docs server for mudgate markdown.
 
   python3 tools/docs-viewer/serve.py
   → http://0.0.0.0:8765/  (and LAN IP)
@@ -101,7 +101,7 @@ def main() -> None:
     if not DOCS.is_dir():
         raise SystemExit(f"docs not found: {DOCS}")
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"assmud docs server")
+    print(f"mudgate docs server")
     print(f"  local:  http://127.0.0.1:{PORT}/")
     for ip in lan_ips():
         print(f"  lan:    http://{ip}:{PORT}/")
