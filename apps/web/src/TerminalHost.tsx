@@ -18,7 +18,12 @@ import {
 import { Big5StreamDecoder } from "@mudgate/codec-big5";
 import { MudSocket, type HelloMsg, type StatusEvent } from "./lib/mudSocket";
 import { numpadDirection } from "./lib/numpadDirs";
-import { fitTypographyToStage, TERM_FIT } from "./lib/termFit";
+import {
+  fitTypographyToStage,
+  H_SCROLLBAR_GUTTER_PX,
+  TERM_FIT,
+  V_SCROLLBAR_GUTTER_PX,
+} from "./lib/termFit";
 
 export type { HelloMsg, StatusEvent };
 
@@ -227,16 +232,26 @@ export function TerminalHost({
   );
 
   /**
-   * Fit like xterm FitAddon + optional VT classic-80 shrink (hetero 2026-07-22).
-   * No device breakpoints / magic 52×22 — only geometry + metrics + user pref.
+   * Fit: lock 80 cols, shrink font only, never squeeze pitch.
+   * Stage width must exclude the vertical scrollbar gutter (sibling rail).
    */
   const applyFit = useCallback(
     (opts?: { notifyMud?: boolean }) => {
       const wrap = wrapRef.current;
+      const host = wrap?.parentElement;
       const r = rendererRef.current;
-      if (!wrap) return termSizeRef.current;
-      const cssW = wrap.clientWidth;
-      const cssH = wrap.clientHeight;
+      if (!wrap || !host) return termSizeRef.current;
+
+      // Prefer host width − v-scrollbar: flex-1 wrap can still report full width
+      // before gutter is reserved on some mobile layout passes.
+      const hostW = host.clientWidth;
+      const hostH = host.clientHeight;
+      let cssW = Math.max(1, hostW - V_SCROLLBAR_GUTTER_PX);
+      // Also never exceed the stage box itself
+      if (wrap.clientWidth > 0) {
+        cssW = Math.min(cssW, wrap.clientWidth);
+      }
+      let cssH = wrap.clientHeight > 0 ? wrap.clientHeight : hostH;
       if (cssW < 20 || cssH < 20) {
         redraw();
         return termSizeRef.current;
@@ -246,7 +261,6 @@ export function TerminalHost({
         terminalFontStack ||
         '"Sarasa Term TC", "Noto Sans Mono CJK TC", ui-monospace, monospace';
 
-      // Ensure family/scale are on the renderer before measure probes
       r.setTypography({
         fontFamily: family,
         fontSizePx,
@@ -254,14 +268,32 @@ export function TerminalHost({
         lineHeightScale,
       });
 
-      const fitted = fitTypographyToStage(
+      const measure = (S: number, L: number) => r.measureCellMetrics(S, L);
+
+      let fitted = fitTypographyToStage(
         cssW,
         cssH,
         fontSizePx,
         lineHeightScale,
-        (S, L) => r.measureCellMetrics(S, L),
-        // classicCols=80 is VT/MUD layout policy, not a phone constant
+        measure,
       );
+
+      // Horizontal scroll bar (if any) steals height — re-fit rows
+      if (fitted.needsHScroll && cssH > H_SCROLLBAR_GUTTER_PX + 40) {
+        fitted = fitTypographyToStage(
+          cssW,
+          cssH - H_SCROLLBAR_GUTTER_PX,
+          fontSizePx,
+          lineHeightScale,
+          measure,
+        );
+        // keep needsHScroll true if still overflowing width
+        fitted = {
+          ...fitted,
+          needsHScroll:
+            fitted.needsHScroll || fitted.cellW * fitted.cols > cssW + 0.01,
+        };
+      }
 
       r.setTypography({
         fontFamily: family,
@@ -269,7 +301,6 @@ export function TerminalHost({
         cellWidthScale,
         lineHeightScale: fitted.lineHeightScale,
       });
-      // cellW/H ONLY from metrics at chosen S — never force pitch < advance
       r.setCellMetrics(fitted.cellW, fitted.cellH);
       setNeedsHScroll(fitted.needsHScroll);
 
@@ -744,10 +775,10 @@ export function TerminalHost({
 
   return (
     <div
-      className="flex h-full min-h-0 w-full max-w-full"
+      className="flex h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden"
       onContextMenu={onContextMenu}
     >
-      {/* Stage — fit measures this box (excludes scrollbar gutter) */}
+      {/* Stage: min-w-0 + overflow so 80×cellW never blows out the page */}
       <div
         ref={wrapRef}
         lang="und"
@@ -756,6 +787,7 @@ export function TerminalHost({
             ? "relative flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden touch-pan-x"
             : "relative flex-1 min-w-0 min-h-0 overflow-hidden touch-pan-y"
         }
+        style={{ maxWidth: `calc(100% - ${V_SCROLLBAR_GUTTER_PX}px)` }}
       >
       {/* toolbar — compact on phone; full copy actions from sm+ */}
       <div
@@ -961,11 +993,12 @@ export function TerminalHost({
       )}
       </div>
 
-      {/* Vertical scrollback bar (always visible when there is history, or stub for affordance) */}
+      {/* Vertical scrollback — fixed gutter; width must = V_SCROLLBAR_GUTTER_PX */}
       <div
         className="shrink-0 flex flex-col items-center py-1 gap-0.5 select-none"
         style={{
-          width: 14,
+          width: V_SCROLLBAR_GUTTER_PX,
+          minWidth: V_SCROLLBAR_GUTTER_PX,
           background: "var(--bg-panel)",
           borderLeft: "1px solid var(--border)",
         }}
