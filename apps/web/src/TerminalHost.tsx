@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type MutableRefObject,
 } from "react";
 import {
@@ -995,7 +996,7 @@ export function TerminalHost({
               height: "100%",
               accentColor: "var(--accent)",
               cursor: scrollMax === 0 ? "default" : "pointer",
-            } as React.CSSProperties
+            } as CSSProperties
           }
           aria-valuemin={0}
           aria-valuemax={scrollMax}
