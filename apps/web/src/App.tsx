@@ -128,10 +128,9 @@ export function App() {
   const t = useT();
   const { locale } = useLocale();
   const { keyboardOpen } = useVisualViewport();
-  const [cmdFocused, setCmdFocused] = useState(false);
   const [landToast, setLandToast] = useState<string | null>(null);
   /** Hide thumb chips while typing / soft keyboard open (mobile vertical budget). */
-  const hideThumbPad = keyboardOpen || cmdFocused;
+  const hideThumbPad = keyboardOpen;
   const [profiles, setProfiles] = useState<MudProfile[]>(() => loadProfiles());
   const [termFont, setTermFont] = useState<TermFontConfig>(() => loadTermFont());
   const fontStack = useMemo(
@@ -1166,6 +1165,7 @@ export function App() {
                   widthMode={cellWidthMode}
                   onVtCaptureEvent={onVtCaptureEvent}
                   captureApiRef={captureApiRef}
+                  keyboardOpen={keyboardOpen}
                 />
               ) : (
                 <div
@@ -1791,8 +1791,6 @@ export function App() {
               inputDraftRef.current = v; // sync before next keydown (Enter)
               setInputDraft(v);
             }}
-            onFocus={() => setCmdFocused(true)}
-            onBlur={() => setCmdFocused(false)}
             onKeyDown={(e) => {
               // Enter / NumpadEnter — read LIVE DOM value (not React state)
               if (e.key === "Enter" || e.code === "NumpadEnter") {

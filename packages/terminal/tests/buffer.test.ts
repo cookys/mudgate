@@ -29,6 +29,16 @@ describe("isWide modes", () => {
 });
 
 describe("ScreenBuffer", () => {
+  it("autowraps a wide glyph instead of clipping it in the final column", () => {
+    const b = new ScreenBuffer(4, 3, "western");
+    b.writeDecoded("abc中");
+
+    expect(b.cells[0]!.map((cell) => cell.ch).join("")).toBe("abc ");
+    expect(b.cells[1]![0]!.ch).toBe("中");
+    expect(b.cells[1]![1]!.ch).toBe("");
+    expect(b.cursor).toEqual({ r: 1, c: 2 });
+  });
+
   it("writes SGR colored text", () => {
     const b = new ScreenBuffer(40, 5);
     b.writeDecoded("\x1b[1;31mX\x1b[0m");
@@ -89,11 +99,131 @@ describe("ScreenBuffer", () => {
     expect(b.cells[0]![4]!.ch).toBe("E");
     expect(b.cells[1]![0]!.ch).toBe("1");
     expect(b.cells[1]![4]!.ch).toBe("5");
-    // grow back — previous content still in the corner
+    // grow back — untouched pre-shrink content is restored losslessly
     b.resize(8, 3);
     expect(b.cells[0]![0]!.ch).toBe("A");
     expect(b.cells[0]![4]!.ch).toBe("E");
-    expect(b.cells[0]![5]!.ch).toBe(" "); // new cells blank
+    expect(b.cells[0]![5]!.ch).toBe("F");
+  });
+
+  it("keeps the live bottom visible during orientation shrink and restores on grow", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[4;1Hbottom");
+
+    b.resize(8, 2);
+    expect(b.snapshotText()).toContain("bottom");
+    expect(b.cursor).toEqual({ r: 1, c: 6 });
+    b.resize(8, 4);
+
+    expect(b.cells[3]!.map((cell) => cell.ch).join("")).toContain("bottom");
+  });
+
+  it("commits cursor-displaced top rows to scrollback on new output", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("TOP");
+    b.writeDecoded("\x1b[4;1HBOTTOM");
+
+    b.resize(8, 2);
+    expect(b.snapshotText()).toContain("BOTTOM");
+    b.writeDecoded("!");
+    b.resize(8, 4);
+
+    expect(b.snapshotScrollbackPlain()).toContain("TOP");
+    expect(b.snapshotText()).toContain("BOTTOM!");
+    expect({ top: b.scrollTop, bottom: b.scrollBottom }).toEqual({
+      top: 0,
+      bottom: 3,
+    });
+    b.writeDecoded("\r\nNEXT");
+    expect(b.cells[2]!.slice(0, 4).map((cell) => cell.ch).join("")).toBe(
+      "NEXT",
+    );
+  });
+
+  it("keeps displaced rows chronological when capped scrollback advances", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.maxScrollback = 3;
+    b.scrollback = ["H1", "H2", "H3"];
+    b.writeDecoded("\x1b[1;1HA\x1b[2;1HB\x1b[3;1HC\x1b[4;1HD");
+
+    b.resize(8, 2);
+    b.writeDecoded("\r\nX");
+
+    expect(b.scrollback).toEqual(["A", "B", "C"]);
+    expect(b.snapshotText()).toContain("D");
+    expect(b.snapshotText()).toContain("X");
+  });
+
+  it("restores cursor, saved cursor, and scroll region with clipped rows", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[2;4r\x1b[4;3H\x1b[sZ");
+    expect(b.cursor).toEqual({ r: 3, c: 3 });
+
+    b.resize(8, 2);
+    b.resize(8, 4);
+
+    expect(b.cursor).toEqual({ r: 3, c: 3 });
+    expect(b.savedCursor).toMatchObject({ r: 3, c: 2 });
+    expect({ top: b.scrollTop, bottom: b.scrollBottom }).toEqual({
+      top: 1,
+      bottom: 3,
+    });
+    b.writeDecoded("\x1b[uY");
+    expect(b.cells[3]![2]!.ch).toBe("Y");
+  });
+
+  it("does not restore clipped rows after the server clears the small screen", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[4;1Hstale");
+    b.resize(8, 2);
+    b.writeDecoded("\x1b[2J");
+
+    b.resize(8, 4);
+
+    expect(b.snapshotText()).not.toContain("stale");
+  });
+
+  it("does not restore stale rows after a partial redraw at small geometry", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[4;1Hstale");
+    b.resize(8, 2);
+    b.writeDecoded("\x1b[H\x1b[Jfresh");
+
+    b.resize(8, 4);
+
+    expect(b.snapshotText()).toContain("fresh");
+    expect(b.snapshotText()).not.toContain("stale");
+  });
+
+  it("does not restore stale cursor state after a cursor-only server update", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[4;1HB");
+    b.resize(8, 2);
+    // This is numerically identical to the clamped small-screen cursor, but it
+    // is still authoritative server state and must supersede the old row 4.
+    b.writeDecoded("\x1b[2;2H");
+
+    b.resize(8, 4);
+    b.writeDecoded("X");
+
+    expect(b.cursor).toEqual({ r: 1, c: 2 });
+    expect(b.cells[1]![1]!.ch).toBe("X");
+    expect(b.cells[3]![0]!.ch).toBe("B");
+  });
+
+  it("restores clipped rows after visually inert BEL and SGR input", () => {
+    const b = new ScreenBuffer(8, 4);
+    b.writeDecoded("\x1b[4;1HBOTTOM");
+    b.resize(8, 2);
+    b.writeDecoded("\x07\x1b[");
+    b.writeDecoded("31m");
+
+    b.resize(8, 4);
+
+    expect(b.cells[3]!.slice(0, 6).map((cell) => cell.ch).join("")).toBe(
+      "BOTTOM",
+    );
+    expect(b.cursor).toEqual({ r: 3, c: 6 });
   });
 
   it("emits cup-abs on absolute CUP; buf-mut only when armed", () => {
