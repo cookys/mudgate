@@ -22,6 +22,7 @@ export {
   lockVault,
   createVault,
   unlockVault,
+  subscribeVault,
   clearVault,
   getVaultSecret,
   setVaultSecret,

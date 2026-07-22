@@ -628,16 +628,23 @@ export function TerminalHost({
     setMenuMode(selRef.current ? "selection" : "screen");
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    const depth = bufRef.current.scrollbackDepth();
-    if (depth === 0 && scrollOffsetRef.current === 0) return;
-    e.preventDefault();
-    // deltaY > 0 → scroll down toward live; < 0 → up into history
-    const step = e.deltaMode === 1 ? e.deltaY * 3 : e.deltaY / 40;
-    const lines = Math.trunc(step) || (e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0);
-    if (!lines) return;
-    setViewOffset(scrollOffsetRef.current - lines);
-  };
+  // Non-passive wheel so preventDefault works (React onWheel is passive).
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const depth = bufRef.current.scrollbackDepth();
+      if (depth === 0 && scrollOffsetRef.current === 0) return;
+      e.preventDefault();
+      const step = e.deltaMode === 1 ? e.deltaY * 3 : e.deltaY / 40;
+      const lines =
+        Math.trunc(step) || (e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0);
+      if (!lines) return;
+      setViewOffset(scrollOffsetRef.current - lines);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setViewOffset]);
 
   return (
     <div
@@ -645,7 +652,6 @@ export function TerminalHost({
       lang="und"
       className="relative h-full min-h-0 w-full overflow-hidden touch-pan-y"
       onContextMenu={onContextMenu}
-      onWheel={onWheel}
     >
       {/* toolbar */}
       <div

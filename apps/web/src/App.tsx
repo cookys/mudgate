@@ -13,6 +13,7 @@ import {
   getProfileAccount,
   getProfileAutoLogin,
   isVaultUnlocked,
+  subscribeVault,
 } from "@assmud/profiles";
 import {
   BurstDetector,
@@ -686,20 +687,28 @@ export function App() {
     [fireInject, noteJourneyStep],
   );
 
+  /** Bump when vault unlock/lock so autologin re-runs after unlock. */
+  const [vaultTick, setVaultTick] = useState(0);
+  useEffect(() => subscribeVault(() => setVaultTick((n) => n + 1)), []);
+
+  const vaultAutologinToastAt = useRef(0);
+
   // Auto-login: requires vault unlocked (A1). NOT text "Password:" trigger.
   // 1) After connected → send account once per wire hop
   // 2) When Telnet WILL ECHO (mask) → send password once per hop
   // Flags reset on connecting/reconnect_wait/handshaking/disconnected.
   useEffect(() => {
-    if (!tab.connected || tab.status.code !== "connected") {
-      console.info("[assmud autologin] skip account", {
-        connected: tab.connected,
-        status: tab.status.code,
-      });
-      return;
-    }
+    if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
-      console.info("[assmud autologin] skip account: vault locked");
+      console.info("[assmud autologin] skip account: vault locked — unlock vault first");
+      const now = Date.now();
+      if (
+        getProfileAutoLogin(profile.id) &&
+        now - vaultAutologinToastAt.current > 8_000
+      ) {
+        vaultAutologinToastAt.current = now;
+        setNavToast("autologin:vault_locked");
+      }
       return;
     }
     if (!getProfileAutoLogin(profile.id)) {
@@ -711,10 +720,7 @@ export function App() {
       console.info("[assmud autologin] skip account: no account in vault");
       return;
     }
-    if (autoLoginRef.current.accountSent) {
-      console.info("[assmud autologin] skip account: already sent this hop");
-      return;
-    }
+    if (autoLoginRef.current.accountSent) return;
     const t = window.setTimeout(() => {
       if (autoLoginRef.current.accountSent) return;
       if (!isVaultUnlocked()) return;
@@ -727,11 +733,18 @@ export function App() {
       fireInject(account, { secret: true, keepDraft: true });
     }, 700);
     return () => window.clearTimeout(t);
-  }, [tab.connected, tab.status.code, tab.id, profile.id, fireInject]);
+  }, [
+    tab.connected,
+    tab.status.code,
+    tab.id,
+    profile.id,
+    fireInject,
+    vaultTick,
+  ]);
 
   useEffect(() => {
     if (!echoMask) return;
-    if (!tab.connected) return;
+    if (!tab.connected || tab.status.code !== "connected") return;
     if (!isVaultUnlocked()) {
       console.info("[assmud autologin] skip password: vault locked");
       return;
@@ -742,10 +755,7 @@ export function App() {
       console.info("[assmud autologin] skip password: no password in vault");
       return;
     }
-    if (autoLoginRef.current.passwordSent) {
-      console.info("[assmud autologin] skip password: already sent this hop");
-      return;
-    }
+    if (autoLoginRef.current.passwordSent) return;
     const t = window.setTimeout(() => {
       if (autoLoginRef.current.passwordSent) return;
       if (!isVaultUnlocked()) return;
@@ -757,7 +767,7 @@ export function App() {
       fireInject(pw, { secret: true, keepDraft: true });
     }, 250);
     return () => window.clearTimeout(t);
-  }, [echoMask, tab.connected, profile.id, fireInject]);
+  }, [echoMask, tab.connected, tab.status.code, profile.id, fireInject, vaultTick]);
 
   // Type-anywhere + Enter-anywhere → command line (zMUD)
   useEffect(() => {
@@ -1243,7 +1253,9 @@ export function App() {
                   ? t("map.journey.stopMoveFail")
                   : navToast === "journey:title_stuck"
                     ? t("map.journey.stopTitleStuck")
-                    : navToast}
+                    : navToast === "autologin:vault_locked"
+                      ? t("autologin.vaultLocked")
+                      : navToast}
           </div>
         )}
 

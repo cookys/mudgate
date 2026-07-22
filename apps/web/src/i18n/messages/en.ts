@@ -141,5 +141,7 @@ export const en = {
   "map.journey.stopped": "stopped",
   "map.journey.stopMoveFail": "journey stopped: move failed",
   "map.journey.stopTitleStuck": "journey stopped: room title unchanged",
+  "autologin.vaultLocked":
+    "Auto-login needs the vault unlocked (Settings → Vault). Will retry after unlock.",
   "modal.dismiss": "Dismiss",
 } as const satisfies Record<MessageKey, string>;

@@ -138,5 +138,7 @@ export const zhCN = {
   "map.journey.stopped": "已中断",
   "map.journey.stopMoveFail": "旅程中断：移动失败",
   "map.journey.stopTitleStuck": "旅程中断：房名未变",
+  "autologin.vaultLocked":
+    "自动登录需要先解锁密码库（设置 → 密码库）。解锁后会再试送账密。",
   "modal.dismiss": "关闭",
 } as const satisfies Record<MessageKey, string>;

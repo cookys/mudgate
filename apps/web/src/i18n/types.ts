@@ -130,6 +130,7 @@ export type MessageKey =
   | "map.journey.stopped"
   | "map.journey.stopMoveFail"
   | "map.journey.stopTitleStuck"
+  | "autologin.vaultLocked"
   | "modal.dismiss";
 
 export type MessageVars = Record<string, string | number>;

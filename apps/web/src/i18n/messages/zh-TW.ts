@@ -138,5 +138,7 @@ export const zhTW = {
   "map.journey.stopped": "已中斷",
   "map.journey.stopMoveFail": "旅程中斷：移動失敗",
   "map.journey.stopTitleStuck": "旅程中斷：房名未變",
+  "autologin.vaultLocked":
+    "自動登入需要先解鎖密碼庫（設定 → 密碼庫）。解鎖後會再試送帳密。",
   "modal.dismiss": "關閉",
 } as const satisfies Record<MessageKey, string>;

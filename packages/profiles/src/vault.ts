@@ -404,8 +404,29 @@ export function isVaultUnlocked(): boolean {
   return session != null;
 }
 
+const vaultListeners = new Set<() => void>();
+
+/** Notify UI (e.g. autologin) when unlock/lock/create changes session. */
+export function subscribeVault(cb: () => void): () => void {
+  vaultListeners.add(cb);
+  return () => {
+    vaultListeners.delete(cb);
+  };
+}
+
+function notifyVaultListeners(): void {
+  for (const cb of [...vaultListeners]) {
+    try {
+      cb();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export function lockVault(): void {
   session = null;
+  notifyVaultListeners();
 }
 
 async function withVaultLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -464,6 +485,7 @@ export async function createVault(masterPassword: string): Promise<void> {
       salt,
       iter,
     };
+    notifyVaultListeners();
   });
 }
 
@@ -484,6 +506,7 @@ export async function unlockVault(masterPassword: string): Promise<void> {
     salt,
     iter: env.iter,
   };
+  notifyVaultListeners();
 }
 
 function structuredClonePayload(p: VaultPayload): VaultPayload {
