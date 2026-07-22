@@ -14,7 +14,6 @@ import {
   getProfileAutoLogin,
   isVaultUnlocked,
   subscribeVault,
-  tryRestoreVaultSession,
 } from "@assmud/profiles";
 import {
   BurstDetector,
@@ -688,18 +687,9 @@ export function App() {
     [fireInject, noteJourneyStep],
   );
 
-  /** Bump when vault unlock/lock so autologin re-runs after unlock. */
+  /** Bump when vault unlock/lock so autologin re-runs after unlock (same page). */
   const [vaultTick, setVaultTick] = useState(0);
   useEffect(() => subscribeVault(() => setVaultTick((n) => n + 1)), []);
-  // Tab session restore: refresh keeps unlock; closing tab clears (sessionStorage).
-  useEffect(() => {
-    void tryRestoreVaultSession().then((ok) => {
-      if (ok) {
-        console.info("[assmud vault] restored unlock from tab session");
-        setVaultTick((n) => n + 1);
-      }
-    });
-  }, []);
 
   const vaultAutologinToastAt = useRef(0);
 
