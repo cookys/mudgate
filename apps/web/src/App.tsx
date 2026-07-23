@@ -54,7 +54,9 @@ import {
   type StatusEvent,
 } from "./lib/mudSocket";
 import {
+  DEFAULT_LOCAL_PROXY_WS,
   isSiteShell,
+  localProxyWsUrl,
   loadCustomAck,
   loadCustomWs,
   loadProxyToken,
@@ -93,7 +95,7 @@ function newTabId(): string {
 }
 
 const DEFAULT_WS =
-  import.meta.env.VITE_PROXY_WS ?? "ws://127.0.0.1:7788/ws";
+  import.meta.env.VITE_PROXY_WS ?? DEFAULT_LOCAL_PROXY_WS;
 
 const IDLE: StatusEvent = { code: "idle" };
 
@@ -534,9 +536,9 @@ export function App() {
     if (isSiteShell()) return siteWsUrl();
     if (trustMode === "local" && typeof window !== "undefined") {
       const h = window.location.hostname;
-      // Same host as the page (127.0.0.1, localhost, or LAN IP) → proxy :7788
+      // Same host as the page (127.0.0.1, localhost, or LAN IP) → local proxy.
       if (h === "127.0.0.1" || h === "localhost" || /^(\d{1,3}\.){3}\d{1,3}$/.test(h)) {
-        return `ws://${h}:7788/ws`;
+        return localProxyWsUrl(h);
       }
     }
     return resolveWsUrl(trustMode, {

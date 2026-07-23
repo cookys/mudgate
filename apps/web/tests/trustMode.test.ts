@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   assertExportOmitsToken,
   canConnect,
+  DEFAULT_LOCAL_PROXY_PORT,
+  DEFAULT_LOCAL_PROXY_WS,
+  localProxyWsUrl,
   resolveWsUrl,
 } from "../src/lib/trustMode";
 
@@ -16,12 +19,23 @@ describe("trustMode", () => {
   });
 
   it("resolveWsUrl by mode", () => {
+    expect(DEFAULT_LOCAL_PROXY_PORT).toBe(17788);
+    expect(DEFAULT_LOCAL_PROXY_WS).toBe("ws://127.0.0.1:17788/ws");
+    expect(localProxyWsUrl("192.168.1.20")).toBe(
+      "ws://192.168.1.20:17788/ws",
+    );
     expect(
       resolveWsUrl("local", {
-        envDefault: "ws://127.0.0.1:17788/ws",
+        envDefault: DEFAULT_LOCAL_PROXY_WS,
         customWs: "",
       }),
-    ).toBe("ws://127.0.0.1:17788/ws");
+    ).toBe(DEFAULT_LOCAL_PROXY_WS);
+    expect(
+      resolveWsUrl("local", {
+        envDefault: "",
+        customWs: "",
+      }),
+    ).toBe(DEFAULT_LOCAL_PROXY_WS);
     expect(
       resolveWsUrl("selfhost", {
         envDefault: "ws://x",

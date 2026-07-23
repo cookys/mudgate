@@ -4,6 +4,7 @@ import {
   assertProdConfig,
   checkAuth,
   checkOrigin,
+  DEFAULT_PROXY_PORT,
   defaultConfig,
   isPrivateOrBlockedIp,
 } from "../src/policy.js";
@@ -93,8 +94,20 @@ describe("policy", () => {
   });
 
   it("remote-prod defaults to loopback bind", () => {
-    const p = defaultConfig("remote-prod");
-    expect(p.bindHost).toBe("127.0.0.1");
+    const previousPort = process.env.PORT;
+    delete process.env.PORT;
+    try {
+      expect(DEFAULT_PROXY_PORT).toBe(17788);
+      const p = defaultConfig("remote-prod");
+      expect(p.bindHost).toBe("127.0.0.1");
+      expect(p.bindPort).toBe(DEFAULT_PROXY_PORT);
+      expect(defaultConfig("localhost-dev").bindPort).toBe(
+        DEFAULT_PROXY_PORT,
+      );
+    } finally {
+      if (previousPort === undefined) delete process.env.PORT;
+      else process.env.PORT = previousPort;
+    }
   });
 
   it("assertProdConfig fails closed without token or origin", () => {
