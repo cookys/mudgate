@@ -113,12 +113,12 @@ MUDGATE_ORIGIN_ALLOWLIST="http://127.0.0.1:5173,http://localhost:5173,http://192
 npm run dev:proxy
 
 VITE_HOST=0.0.0.0 \
-VITE_PROXY_WS="ws://192.168.101.20:7788/ws" \
+VITE_PROXY_WS="ws://192.168.101.20:17788/ws" \
 npm run dev:web
 ```
 
 - http://192.168.101.20:5173/  
-- `ws://192.168.101.20:7788/ws`  
+- `ws://192.168.101.20:17788/ws`
 
 ## False-ship guards (Skeptic)
 

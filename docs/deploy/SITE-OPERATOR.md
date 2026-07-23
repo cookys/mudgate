@@ -26,7 +26,7 @@ MUDGATE_ORIGIN_ALLOWLIST=https://mud.revivalworld.org
 # RW driver ports on this host (telnet banner = 重生的世界 on all four)
 MUDGATE_ALLOWLIST=127.0.0.1:4000,127.0.0.1:4001,127.0.0.1:5000,127.0.0.1:6000,mud.revivalworld.org:4000,mud.revivalworld.org:4001,mud.revivalworld.org:5000,mud.revivalworld.org:6000
 MUDGATE_BIND_HOST=127.0.0.1
-PORT=7788
+PORT=17788
 MUDGATE_TRUSTED_HOP=127.0.0.1/32
 # optional:
 # MUDGATE_AUDIT_LOG=/home/…/var/log/mudgate-proxy-audit.jsonl
@@ -50,7 +50,7 @@ npm run build -w @mudgate/protocol
 npm run build -w @mudgate/proxy
 # or: ./scripts/site-start-proxy.sh
 nohup node apps/proxy/dist/cli.js >> ~/var/log/mudgate-proxy.log 2>&1 &
-curl -sS http://127.0.0.1:7788/health
+curl -sS http://127.0.0.1:17788/health
 # {"ok":true,"mode":"remote-prod","siteMode":true}
 ```
 
@@ -120,7 +120,7 @@ See [`deploy/nginx-mud.revivalworld.org.conf`](../../deploy/nginx-mud.revivalwor
 
 - `listen 443 ssl http2` only (no default :80 welcome)
 - `root` → SPA
-- `location = /ws` → `http://127.0.0.1:7788` with Upgrade + `X-Real-IP` + Cookie
+- `location = /ws` → `http://127.0.0.1:17788` with Upgrade + `X-Real-IP` + Cookie
 - `include mudgate-session.inc`
 
 ## PROXY protocol v1（S2 · experimental）
@@ -135,7 +135,7 @@ RW / unverified muds: **leave off** (first line becomes garbage to the driver).
 ## 驗證
 
 ```bash
-curl -sS http://127.0.0.1:7788/health
+curl -sS http://127.0.0.1:17788/health
 # {"ok":true,"mode":"remote-prod","siteMode":true}
 
 curl -sS -o /dev/null -w '%{http_code}\n' https://mud.revivalworld.org/

@@ -7,6 +7,14 @@ const CUSTOM_WS_KEY = "mudgate_custom_ws";
 const TOKEN_KEY = "mudgate_token";
 const CUSTOM_ACK_KEY = "mudgate_trust_custom_ack";
 
+export const DEFAULT_LOCAL_PROXY_PORT = 17788;
+
+export function localProxyWsUrl(host = "127.0.0.1"): string {
+  return `ws://${host}:${DEFAULT_LOCAL_PROXY_PORT}/ws`;
+}
+
+export const DEFAULT_LOCAL_PROXY_WS = localProxyWsUrl();
+
 export type SiteConfig = {
   /** Official / site gateway WebSocket URL */
   officialProxyUrl?: string;
@@ -127,7 +135,7 @@ export function resolveWsUrl(
   }
   switch (mode) {
     case "local":
-      return opts.envDefault || "ws://127.0.0.1:7788/ws";
+      return opts.envDefault || DEFAULT_LOCAL_PROXY_WS;
     case "selfhost":
     case "custom":
       return opts.customWs.trim() || null;

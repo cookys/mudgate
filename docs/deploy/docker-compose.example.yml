@@ -10,6 +10,6 @@ services:
       MUDGATE_PROXY_MODE: remote-prod
       MUDGATE_AUTH_TOKEN: change-me
       MUDGATE_ORIGIN_ALLOWLIST: https://mud.example.com
-      PORT: "7788"
+      PORT: "17788"
     ports:
-      - "7788:7788"
+      - "17788:17788"

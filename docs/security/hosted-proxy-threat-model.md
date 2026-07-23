@@ -71,7 +71,7 @@
 | Threat | Control |
 |--------|---------|
 | Stranger-operated `wss://` steals MUD passwords | Product trust UI (T3 hell warning); no public node directory |
-| Self-host publish 7788 open | Default bind **127.0.0.1**; TLS/tunnel only on 443 |
+| Self-host publish 17788 open | Default bind **127.0.0.1**; TLS/tunnel only on 443 |
 | Token in URL/logs | remote-prod: Bearer/cookie only; install writes **0600** file |
 | Empty Origin allowlist | remote-prod **fail-closed** |
 | Cloudflare Tunnel misuse | Ingress only; Access no world Bypass; egress remains home/VPS IP |

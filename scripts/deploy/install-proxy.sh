@@ -64,7 +64,7 @@ services:
     environment:
       MUDGATE_PROXY_MODE: remote-prod
       MUDGATE_BIND_HOST: "127.0.0.1"
-      PORT: "7788"
+      PORT: "17788"
     network_mode: host
 EOF
 
@@ -77,6 +77,6 @@ echo "Token (shown once — treat as password; do not paste in chat):"
 echo "$TOKEN"
 echo "Also stored 0600 at: $TOKEN_FILE"
 echo "Retrieve later: sudo cat $TOKEN_FILE"
-echo "Front with Caddy or cloudflared → 127.0.0.1:7788 (do not publish 7788)."
+echo "Front with Caddy or cloudflared → 127.0.0.1:17788 (do not publish 17788)."
 echo "Origin allowlist only limits browser Origin; it does not replace the token."
 echo "Proxy operators can read cleartext MUD passwords — only run on machines you control."

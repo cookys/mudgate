@@ -51,9 +51,9 @@ runcmd:
         environment:
           MUDGATE_PROXY_MODE: remote-prod
           MUDGATE_BIND_HOST: "127.0.0.1"
-          PORT: "7788"
+          PORT: "17788"
         network_mode: host
     YAML
     docker pull "$MUDGATE_PROXY_IMAGE"
     cd /opt/mudgate && docker compose up -d
-    echo "mudgate: proxy up on 127.0.0.1:7788 — retrieve token: sudo cat /etc/mudgate/auth_token"
+    echo "mudgate: proxy up on 127.0.0.1:17788 — retrieve token: sudo cat /etc/mudgate/auth_token"

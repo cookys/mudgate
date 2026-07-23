@@ -42,6 +42,7 @@ export function parseTrustedHops(raw: string | undefined): string[] {
 
 /** Default RW host ports (player + wiz). Extra destinations: MUDGATE_ALLOWLIST. */
 export const RW_DEFAULT_PORTS = [4000, 4001, 5000, 6000] as const;
+export const DEFAULT_PROXY_PORT = 17788;
 
 /**
  * Parse MUDGATE_ALLOWLIST=host:port,host:port2
@@ -110,7 +111,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
       mode,
       siteMode,
       bindHost: "127.0.0.1",
-      bindPort: 7788,
+      bindPort: DEFAULT_PROXY_PORT,
       authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
       allowlist: mergeAllowlist(
         [
@@ -135,7 +136,7 @@ export function defaultConfig(mode: "remote-prod" | "localhost-dev"): ProxyConfi
     siteMode,
     // Self-host / prod: loopback only; TLS terminator or tunnel fronts public traffic.
     bindHost: process.env.MUDGATE_BIND_HOST ?? "127.0.0.1",
-    bindPort: Number(process.env.PORT ?? 7788),
+    bindPort: Number(process.env.PORT ?? DEFAULT_PROXY_PORT),
     authToken: process.env.MUDGATE_AUTH_TOKEN ?? null,
     allowlist,
     relaxAllowlist: false,

@@ -6,6 +6,7 @@ import { LocaleModalSwitch, LocaleSwitch } from "./LocaleSwitch";
 import type { TrustMode } from "../lib/trustMode";
 import {
   canConnect,
+  DEFAULT_LOCAL_PROXY_WS,
   isSiteShell,
   readOfficialProxyUrl,
   siteWsUrl,
@@ -74,7 +75,7 @@ export function ConnectGate({
     : trustMode === "official"
       ? officialUrl ?? ""
       : trustMode === "local"
-        ? "ws://127.0.0.1:7788/ws"
+        ? DEFAULT_LOCAL_PROXY_WS
         : customWs;
   const connectOk = canConnect(trustMode, customAck, endpoint);
 

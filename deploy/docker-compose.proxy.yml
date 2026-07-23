@@ -1,5 +1,5 @@
 # mudgate proxy — self-host defaults (loopback only).
-# Front with Caddy/cloudflared on 443. Do not publish 7788 to the internet.
+# Front with Caddy/cloudflared on 443. Do not publish 17788 to the internet.
 #
 # Required env: MUDGATE_AUTH_TOKEN, MUDGATE_ORIGIN_ALLOWLIST
 services:
@@ -12,6 +12,6 @@ services:
       MUDGATE_AUTH_TOKEN: ${MUDGATE_AUTH_TOKEN:?set token}
       MUDGATE_ORIGIN_ALLOWLIST: ${MUDGATE_ORIGIN_ALLOWLIST:?set origins}
       MUDGATE_BIND_HOST: ${MUDGATE_BIND_HOST:-127.0.0.1}
-      PORT: "7788"
+      PORT: "17788"
     network_mode: host
-    # With network_mode host, bind 127.0.0.1:7788 on the host only.
+    # With network_mode host, bind 127.0.0.1:17788 on the host only.

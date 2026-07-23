@@ -4,7 +4,7 @@
 
 | Mode | Env | Notes |
 |------|-----|--------|
-| 玩家本機 / LAN (T0) | `MUDGATE_PROXY_MODE=localhost-dev` | bind 127.0.0.1:7788; Origin loose for local Vite |
+| 玩家本機 / LAN (T0) | `MUDGATE_PROXY_MODE=localhost-dev` | bind 127.0.0.1:17788; Origin loose for local Vite |
 | 玩家 VPS 自架 (T1) | `MUDGATE_PROXY_MODE=remote-prod` | token + origin；allowlist 自訂；玩家 SPA 選 T1 |
 | **站方 site mode** | `remote-prod` + **`MUDGATE_SITE_MODE=1`** | **必須**非空 `MUDGATE_ALLOWLIST`；SPA 用 site shell — 見 [SITE-OPERATOR.md](./SITE-OPERATOR.md) |
 | Prod 通用 | `MUDGATE_PROXY_MODE=remote-prod` | require `MUDGATE_AUTH_TOKEN`, `MUDGATE_ORIGIN_ALLOWLIST` |
@@ -18,7 +18,7 @@ One-shot SPA push: **`../../deploy/site-deploy.sh`**.
 export MUDGATE_PROXY_MODE=remote-prod
 export MUDGATE_AUTH_TOKEN="$(openssl rand -hex 24)"
 export MUDGATE_ORIGIN_ALLOWLIST=https://mud.example.com
-export PORT=7788
+export PORT=17788
 node apps/proxy/dist/cli.js
 ```
 
@@ -26,7 +26,7 @@ Caddy sketch:
 
 ```
 mud.example.com {
-  reverse_proxy /ws* localhost:7788
+  reverse_proxy /ws* localhost:17788
   root * /var/www/mudgate
   file_server
 }
